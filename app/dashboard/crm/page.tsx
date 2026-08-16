@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
 
 import {
@@ -25,6 +26,8 @@ import {
   X,
   Save,
 } from "lucide-react";
+
+import CRMIntelligencePanel from "@/components/crm/CRMIntelligencePanel";
 
 type ContactType =
   | "Lead"
@@ -112,6 +115,19 @@ const typeOptions = [
   "Customer",
 ];
 
+const emptySummary: CRMSummary = {
+  total: 0,
+  leads: 0,
+  prospects: 0,
+  customers: 0,
+  new: 0,
+  qualified: 0,
+  won: 0,
+  lost: 0,
+  pipelineValue: 0,
+  wonValue: 0,
+};
+
 export default function CRMPage() {
   const [
     contacts,
@@ -123,18 +139,10 @@ export default function CRMPage() {
   const [
     summary,
     setSummary,
-  ] = useState<CRMSummary>({
-    total: 0,
-    leads: 0,
-    prospects: 0,
-    customers: 0,
-    new: 0,
-    qualified: 0,
-    won: 0,
-    lost: 0,
-    pipelineValue: 0,
-    wonValue: 0,
-  });
+  ] =
+    useState<CRMSummary>(
+      emptySummary
+    );
 
   const [
     loading,
@@ -176,6 +184,24 @@ export default function CRMPage() {
 
   /*
   ============================================================
+  J10 CRM INTELLIGENCE REFRESH
+  ============================================================
+  */
+
+  const [
+    intelligenceRefreshKey,
+    setIntelligenceRefreshKey,
+  ] = useState(0);
+
+  function refreshIntelligence() {
+    setIntelligenceRefreshKey(
+      (current) =>
+        current + 1
+    );
+  }
+
+  /*
+  ============================================================
   LOAD CRM
   ============================================================
   */
@@ -213,18 +239,8 @@ export default function CRMPage() {
         );
 
         setSummary(
-          data.summary ?? {
-            total: 0,
-            leads: 0,
-            prospects: 0,
-            customers: 0,
-            new: 0,
-            qualified: 0,
-            won: 0,
-            lost: 0,
-            pipelineValue: 0,
-            wonValue: 0,
-          }
+          data.summary ??
+            emptySummary
         );
       } catch (error) {
         console.error(
@@ -308,6 +324,12 @@ export default function CRMPage() {
       typeFilter,
     ]);
 
+  /*
+  ============================================================
+  CONTACT UPDATED
+  ============================================================
+  */
+
   function updateContactInState(
     contact: CRMContact
   ) {
@@ -326,8 +348,16 @@ export default function CRMPage() {
       contact
     );
 
+    refreshIntelligence();
+
     void loadCRM();
   }
+
+  /*
+  ============================================================
+  CONTACT DELETED
+  ============================================================
+  */
 
   function deleteContactFromState(
     id: string
@@ -340,8 +370,23 @@ export default function CRMPage() {
         )
     );
 
-    setSelectedContact(null);
+    setSelectedContact(
+      null
+    );
 
+    refreshIntelligence();
+
+    void loadCRM();
+  }
+
+  /*
+  ============================================================
+  MANUAL REFRESH
+  ============================================================
+  */
+
+  function refreshCRM() {
+    refreshIntelligence();
     void loadCRM();
   }
 
@@ -375,7 +420,9 @@ export default function CRMPage() {
             className="flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200"
           >
             <Plus size={16} />
+
             Add Contact
+
             <ChevronRight
               size={14}
             />
@@ -416,7 +463,9 @@ export default function CRMPage() {
             value={formatMoney(
               summary.wonValue
             )}
-            icon={CheckCircle2}
+            icon={
+              CheckCircle2
+            }
             success
           />
         </div>
@@ -467,6 +516,15 @@ export default function CRMPage() {
             label="Lost"
             value={summary.lost}
             danger
+          />
+        </div>
+
+        {/* J10 AI CRM INTELLIGENCE */}
+        <div className="mt-8">
+          <CRMIntelligencePanel
+            refreshKey={
+              intelligenceRefreshKey
+            }
           />
         </div>
 
@@ -539,9 +597,9 @@ export default function CRMPage() {
 
             <button
               type="button"
-              onClick={() => {
-                void loadCRM();
-              }}
+              onClick={
+                refreshCRM
+              }
               disabled={loading}
               className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.07] bg-[#111216] text-zinc-500 transition hover:text-white disabled:opacity-40"
             >
@@ -617,6 +675,9 @@ export default function CRMPage() {
           }
           onCreated={() => {
             setCreateOpen(false);
+
+            refreshIntelligence();
+
             void loadCRM();
           }}
         />
@@ -795,6 +856,7 @@ function ContactCard({
       {contact.email && (
         <div className="mt-2 flex items-center gap-2 text-sm text-zinc-500">
           <Mail size={14} />
+
           {contact.email}
         </div>
       )}
@@ -802,6 +864,7 @@ function ContactCard({
       {contact.phone && (
         <div className="mt-2 flex items-center gap-2 text-sm text-zinc-500">
           <Phone size={14} />
+
           {contact.phone}
         </div>
       )}
@@ -858,11 +921,15 @@ function CreateContactModal({
     setLastName,
   ] = useState("");
 
-  const [email, setEmail] =
-    useState("");
+  const [
+    email,
+    setEmail,
+  ] = useState("");
 
-  const [phone, setPhone] =
-    useState("");
+  const [
+    phone,
+    setPhone,
+  ] = useState("");
 
   const [
     company,
@@ -874,7 +941,10 @@ function CreateContactModal({
     setJobTitle,
   ] = useState("");
 
-  const [type, setType] =
+  const [
+    type,
+    setType,
+  ] =
     useState<ContactType>(
       "Lead"
     );
@@ -897,8 +967,10 @@ function CreateContactModal({
     setEstimatedValue,
   ] = useState("0");
 
-  const [notes, setNotes] =
-    useState("");
+  const [
+    notes,
+    setNotes,
+  ] = useState("");
 
   const [
     creating,
@@ -1124,7 +1196,9 @@ function CreateContactModal({
 
       <button
         type="button"
-        onClick={createContact}
+        onClick={
+          createContact
+        }
         disabled={
           creating ||
           !firstName.trim()
@@ -1295,9 +1369,10 @@ function ContactModal({
                 "application/json",
             },
 
-            body: JSON.stringify(
-              body
-            ),
+            body:
+              JSON.stringify(
+                body
+              ),
           }
         );
 
@@ -1405,6 +1480,8 @@ function ContactModal({
       "delete"
     );
 
+    setErrorMessage("");
+
     try {
       const response =
         await fetch(
@@ -1440,7 +1517,7 @@ function ContactModal({
       setErrorMessage(
         "Could not delete contact."
       );
-
+    } finally {
       setActionLoading("");
     }
   }
@@ -1563,6 +1640,12 @@ function ContactModal({
             />
           </div>
 
+          {errorMessage && (
+            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
+              {errorMessage}
+            </div>
+          )}
+
           <div className="mt-6 flex gap-3">
             <button
               type="button"
@@ -1586,8 +1669,20 @@ function ContactModal({
               }
               className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black disabled:opacity-40"
             >
-              <Save size={15} />
-              Save Changes
+              {actionLoading ===
+              "save" ? (
+                <RefreshCw
+                  size={15}
+                  className="animate-spin"
+                />
+              ) : (
+                <Save size={15} />
+              )}
+
+              {actionLoading ===
+              "save"
+                ? "Saving..."
+                : "Save Changes"}
             </button>
           </div>
         </>
@@ -1693,13 +1788,24 @@ function ContactModal({
                 actionLoading ===
                 "contacted"
               }
-              className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400"
+              className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400 disabled:opacity-40"
             >
-              <UserCheck
-                size={15}
-              />
+              {actionLoading ===
+              "contacted" ? (
+                <RefreshCw
+                  size={15}
+                  className="animate-spin"
+                />
+              ) : (
+                <UserCheck
+                  size={15}
+                />
+              )}
 
-              Mark Contacted
+              {actionLoading ===
+              "contacted"
+                ? "Updating..."
+                : "Mark Contacted"}
             </button>
           </div>
 
@@ -1712,9 +1818,19 @@ function ContactModal({
               actionLoading ===
               "delete"
             }
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400 disabled:opacity-40"
           >
-            <Trash2 size={15} />
+            {actionLoading ===
+            "delete" ? (
+              <RefreshCw
+                size={15}
+                className="animate-spin"
+              />
+            ) : (
+              <Trash2
+                size={15}
+              />
+            )}
 
             {actionLoading ===
             "delete"
@@ -1742,8 +1858,7 @@ function ModalShell({
   title: string;
   subtitle: string;
   onClose: () => void;
-  children:
-    React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
@@ -1805,6 +1920,7 @@ function FormField({
     <div>
       <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-zinc-500">
         {label}
+
         {required && " *"}
       </label>
 
@@ -1956,6 +2072,7 @@ function EmptyCRM({
         className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black"
       >
         <Plus size={15} />
+
         Add First Contact
       </button>
     </div>
@@ -1971,12 +2088,16 @@ HELPERS
 function getFullName(
   contact: CRMContact
 ) {
-  return [
-    contact.first_name,
-    contact.last_name,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  return (
+    [
+      contact.first_name,
+      contact.last_name,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim() ||
+    "CRM Contact"
+  );
 }
 
 function formatMoney(
