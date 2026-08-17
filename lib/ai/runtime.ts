@@ -6,6 +6,10 @@ import {
   type J10TaskType,
 } from "@/lib/ai/model-router";
 
+import {
+  buildDevelopmentResearchResponse,
+} from "@/lib/ai/development-research";
+
 /*
 ============================================================
 J10 NEXUS AI RUNTIME
@@ -22,6 +26,7 @@ J10_AI_MODE=development
 - No API key is required
 - Deterministic J10 intelligence
 - Rule-based CRM reasoning
+- Development research engine
 - Full UI/API development
 - Target GPT model is still calculated by the router
 
@@ -852,6 +857,21 @@ Live conversational generation will become available when J10 AI live mode is en
 OpenAI API Called: No
 API Cost: $0
 `.trim();
+  }
+
+  /*
+  ============================================================
+  RESEARCH
+  ============================================================
+  */
+
+  if (
+    task ===
+    "research"
+  ) {
+    return buildDevelopmentResearchResponse(
+      input
+    );
   }
 
   /*
