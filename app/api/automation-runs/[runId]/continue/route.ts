@@ -14,11 +14,16 @@ import {
 import {
   executeAutomationAction,
   isAutomationActionType,
+  isProtectedAutomationAction,
 } from "@/lib/automation/action-engine";
 
 import {
   evaluateAutomationCondition,
 } from "@/lib/automation/condition-engine";
+
+import {
+  executeApprovedCrmMutation,
+} from "@/lib/automation/crm-mutation-adapter";
 
 type RouteContext = {
   params: Promise<{
@@ -55,6 +60,7 @@ type ExistingRunStep = {
   status: string;
   requires_approval: boolean;
   approval_status: string;
+  input_payload: Record<string, unknown> | null;
 };
 
 type CreateTaskResponse = {
@@ -172,21 +178,6 @@ async function parseJsonResponse<T>(
       `J10 received an invalid API response (${response.status}).`
     );
   }
-}
-
-function isProtectedWrite(
-  step: AutomationStep
-) {
-  return (
-    step.step_type ===
-      "action" &&
-    (
-      step.action_type ===
-        "add_crm_note" ||
-      step.action_type ===
-        "update_crm_status"
-    )
-  );
 }
 
 /*
@@ -500,7 +491,8 @@ export async function POST(
         action_type,
         status,
         requires_approval,
-        approval_status
+        approval_status,
+        input_payload
         `
       )
       .eq(
@@ -554,75 +546,6 @@ export async function POST(
       latestByAutomationStep.set(
         existing.automation_step_id,
         existing
-      );
-    }
-  }
-
-  /*
-  ============================================================
-  PROTECTED WRITE SAFETY
-  12G continues normal approved workflows.
-  Approved CRM write requests remain queued until a dedicated
-  CRM mutation adapter is implemented. We do NOT fake the write.
-  ============================================================
-  */
-
-  const firstStep =
-    steps[0];
-
-  if (
-    firstStep &&
-    isProtectedWrite(
-      firstStep
-    )
-  ) {
-    const existing =
-      latestByAutomationStep.get(
-        firstStep.id
-      );
-
-    if (
-      existing &&
-      existing.approval_status ===
-        "approved" &&
-      existing.status ===
-        "queued"
-    ) {
-      return NextResponse.json(
-        {
-          success: true,
-
-          status:
-            "queued",
-
-          continuationBlocked:
-            true,
-
-          protectedAction:
-            true,
-
-          message:
-            "Human approval is recorded. The protected CRM write remains safely queued until the CRM mutation adapter is connected.",
-
-          run: {
-            id:
-              run.id,
-
-            currentStepOrder:
-              firstStep.step_order,
-          },
-
-          action: {
-            stepId:
-              firstStep.id,
-
-            stepOrder:
-              firstStep.step_order,
-
-            actionType:
-              firstStep.action_type,
-          },
-        }
       );
     }
   }
@@ -1367,8 +1290,169 @@ export async function POST(
           );
         }
 
+        const approvalAlreadyGranted =
+          existing?.approval_status ===
+            "approved" &&
+          existing.status ===
+            "queued";
+
+        /*
+        ========================================================
+        HUMAN-APPROVED PROTECTED CRM MUTATION
+        ========================================================
+
+        This is the only path that may perform add_crm_note or
+        update_crm_status. The action must already have an
+        approved queued run-step created by the approval route.
+        ========================================================
+        */
+
         if (
-          step.requires_approval
+          isProtectedAutomationAction(
+            actionType
+          ) &&
+          approvalAlreadyGranted &&
+          existing
+        ) {
+          currentRunStepId =
+            existing.id;
+
+          const mutationResult =
+            await executeApprovedCrmMutation({
+              supabase,
+
+              userId:
+                user.id,
+
+              userEmail:
+                user.email,
+
+              workflowId:
+                automation.id,
+
+              workflowName:
+                automation.name,
+
+              runId:
+                run.id,
+
+              stepId:
+                step.id,
+
+              stepOrder:
+                step.step_order,
+
+              stepName:
+                step.name,
+
+              actionType,
+
+              instructions:
+                step.instructions,
+
+              triggerPayload:
+                run.trigger_payload ??
+                {},
+
+              origin:
+                request.nextUrl.origin,
+
+              cookieHeader:
+                request.headers.get(
+                  "cookie"
+                ) ?? "",
+            });
+
+          const {
+            error:
+              completeApprovedMutationError,
+          } =
+            await supabase
+              .from(
+                "automation_run_steps"
+              )
+              .update({
+                status:
+                  "completed",
+
+                input_payload: {
+                  ...(
+                    existing.input_payload ??
+                    {}
+                  ),
+
+                  continuation:
+                    true,
+
+                  approved_mutation: {
+                    success:
+                      mutationResult.success,
+
+                    action_type:
+                      mutationResult.actionType,
+
+                    contact_id:
+                      mutationResult.contactId,
+
+                    contact_name:
+                      mutationResult.contactName,
+
+                    previous_status:
+                      mutationResult.previousStatus,
+
+                    new_status:
+                      mutationResult.newStatus,
+
+                    note_added:
+                      mutationResult.noteAdded,
+
+                    result_text:
+                      mutationResult.resultText,
+
+                    automation_event:
+                      mutationResult.automationEvent,
+                  },
+                },
+              })
+              .eq(
+                "id",
+                existing.id
+              )
+              .eq(
+                "user_id",
+                user.id
+              );
+
+          if (
+            completeApprovedMutationError
+          ) {
+            throw new Error(
+              `CRM mutation succeeded, but J10 could not finalize Step ${step.step_order}.`
+            );
+          }
+
+          completedSteps +=
+            1;
+
+          currentRunStepId =
+            null;
+
+          continue;
+        }
+
+        /*
+        ========================================================
+        EXPLICIT APPROVAL GATE
+
+        A safe action may also be manually configured to require
+        approval. If it was already approved, execution continues
+        instead of creating a second approval request.
+        ========================================================
+        */
+
+        if (
+          step.requires_approval &&
+          !approvalAlreadyGranted
         ) {
           const {
             data:
@@ -1515,6 +1599,12 @@ export async function POST(
           });
         }
 
+        /*
+        ========================================================
+        EXECUTE SAFE J10 BUSINESS ACTION
+        ========================================================
+        */
+
         const actionResult =
           await executeAutomationAction({
             actionType,
@@ -1559,11 +1649,28 @@ export async function POST(
           );
         }
 
+        /*
+        ========================================================
+        ACTION ENGINE SAFETY APPROVAL
+
+        Protected actions reach this block when no prior human
+        approval exists. No side effect has been performed.
+        ========================================================
+        */
+
         if (
           actionResult.status ===
             "awaiting_approval" ||
           actionResult.requiresHumanApproval
         ) {
+          if (
+            approvalAlreadyGranted
+          ) {
+            throw new Error(
+              `J10 Safety Engine refused to re-request approval for Step ${step.step_order}.`
+            );
+          }
+
           const {
             data:
               approvalRunStep,
@@ -1712,6 +1819,81 @@ export async function POST(
           });
         }
 
+        /*
+        ========================================================
+        COMPLETE BUSINESS ACTION
+
+        If this safe action was explicitly human-approved, reuse
+        its queued run-step so history shows one clean step.
+        ========================================================
+        */
+
+        if (
+          approvalAlreadyGranted &&
+          existing
+        ) {
+          const {
+            error:
+              approvedSafeActionError,
+          } =
+            await supabase
+              .from(
+                "automation_run_steps"
+              )
+              .update({
+                status:
+                  "completed",
+
+                input_payload: {
+                  ...(
+                    existing.input_payload ??
+                    {}
+                  ),
+
+                  continuation:
+                    true,
+
+                  action_result: {
+                    status:
+                      actionResult.status,
+
+                    result_text:
+                      actionResult.resultText,
+
+                    side_effect_blocked:
+                      actionResult.sideEffectBlocked,
+
+                    metadata:
+                      actionResult.metadata,
+                  },
+                },
+              })
+              .eq(
+                "id",
+                existing.id
+              )
+              .eq(
+                "user_id",
+                user.id
+              );
+
+          if (
+            approvedSafeActionError
+          ) {
+            throw new Error(
+              `Could not finalize approved Step ${step.step_order}.`
+            );
+          }
+
+          completedSteps +=
+            1;
+
+          currentRunStepId =
+            null;
+
+          continue;
+        }
+
         const {
           error:
             completedActionStepError,
@@ -1792,8 +1974,12 @@ export async function POST(
           );
         }
 
-        completedSteps += 1;
-        currentRunStepId = null;
+        completedSteps +=
+          1;
+
+        currentRunStepId =
+          null;
+
         continue;
       }
 

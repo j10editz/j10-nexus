@@ -11,6 +11,19 @@ export type AutomationActionStatus =
   | "awaiting_approval"
   | "failed";
 
+export type AutomationSafetyClassification =
+  | "safe"
+  | "human_controlled"
+  | "blocked";
+
+export type AutomationSafetyPolicy = {
+  operation: string;
+  classification: AutomationSafetyClassification;
+  requiresHumanApproval: boolean;
+  allowAutomaticExecution: boolean;
+  reason: string;
+};
+
 export type AutomationActionContext = {
   actionType: AutomationActionType;
 
@@ -45,10 +58,151 @@ export type AutomationActionResult = {
   metadata: Record<string, unknown>;
 };
 
-const humanControlledActions: AutomationActionType[] = [
-  "add_crm_note",
-  "update_crm_status",
-];
+/*
+============================================================
+J10 CENTRAL AUTOMATION SAFETY POLICY
+
+Safe intelligence work can execute automatically.
+
+Business mutations and high-risk external operations require
+explicit human approval.
+
+Unknown operations fail closed.
+============================================================
+*/
+
+const SAFE_OPERATIONS =
+  new Set([
+    "analyze_crm",
+    "generate_recommendation",
+    "run_research",
+    "record_activity",
+    "assign_ai_task",
+    "run_ai_employee",
+    "draft",
+    "score",
+    "organize",
+    "classify",
+  ]);
+
+const HUMAN_CONTROLLED_OPERATIONS =
+  new Set([
+    /*
+    Current connected J10 CRM mutations.
+    */
+    "add_crm_note",
+    "update_crm_status",
+
+    /*
+    Reserved safety categories for future connectors.
+    They are protected by policy before those connectors exist.
+    */
+    "close_deal",
+    "send_external_message",
+    "send_email",
+    "send_whatsapp",
+    "payment",
+    "refund",
+    "delete_important_data",
+    "delete_crm_contact",
+    "account_change",
+    "permission_change",
+  ]);
+
+export function getAutomationSafetyPolicy(
+  operation: string
+): AutomationSafetyPolicy {
+  const normalized =
+    operation
+      .trim()
+      .toLowerCase();
+
+  if (
+    SAFE_OPERATIONS.has(
+      normalized
+    )
+  ) {
+    return {
+      operation:
+        normalized,
+
+      classification:
+        "safe",
+
+      requiresHumanApproval:
+        false,
+
+      allowAutomaticExecution:
+        true,
+
+      reason:
+        "This operation is analytical, organizational, or internal and may execute automatically.",
+    };
+  }
+
+  if (
+    HUMAN_CONTROLLED_OPERATIONS.has(
+      normalized
+    )
+  ) {
+    return {
+      operation:
+        normalized,
+
+      classification:
+        "human_controlled",
+
+      requiresHumanApproval:
+        true,
+
+      allowAutomaticExecution:
+        false,
+
+      reason:
+        "This operation can change business data, communicate externally, affect money, permissions, deals, or important records.",
+    };
+  }
+
+  return {
+    operation:
+      normalized ||
+      "unknown",
+
+    classification:
+      "blocked",
+
+    requiresHumanApproval:
+      true,
+
+    allowAutomaticExecution:
+      false,
+
+    reason:
+      "J10 does not recognize this operation, so automatic execution is blocked by default.",
+  };
+}
+
+export type ProtectedAutomationAction =
+  | "add_crm_note"
+  | "update_crm_status";
+
+export function isProtectedAutomationAction(
+  operation:
+    | string
+    | null
+    | undefined
+): operation is ProtectedAutomationAction {
+  if (!operation) {
+    return false;
+  }
+
+  return (
+    operation ===
+      "add_crm_note" ||
+    operation ===
+      "update_crm_status"
+  );
+}
 
 export function isAutomationActionType(
   value: string
@@ -66,7 +220,9 @@ export function isAutomationActionType(
 export function requiresHumanApprovalForAction(
   actionType: AutomationActionType
 ) {
-  return humanControlledActions.includes(actionType);
+  return getAutomationSafetyPolicy(
+    actionType
+  ).requiresHumanApproval;
 }
 
 export async function executeAutomationAction(
@@ -85,15 +241,36 @@ export async function executeAutomationAction(
     employeeName,
   } = context;
 
+  const safety =
+    getAutomationSafetyPolicy(
+      actionType
+    );
+
   const baseMetadata = {
     workflowId,
     workflowName,
     stepId,
     stepOrder,
     stepName,
-    employeeId: employeeId ?? null,
-    employeeName: employeeName ?? null,
+    employeeId:
+      employeeId ?? null,
+    employeeName:
+      employeeName ?? null,
     triggerPayload,
+
+    safety: {
+      classification:
+        safety.classification,
+
+      requiresHumanApproval:
+        safety.requiresHumanApproval,
+
+      allowAutomaticExecution:
+        safety.allowAutomaticExecution,
+
+      reason:
+        safety.reason,
+    },
   };
 
   /*
@@ -103,11 +280,15 @@ export async function executeAutomationAction(
   ============================================================
   */
 
-  if (actionType === "analyze_crm") {
+  if (
+    actionType ===
+    "analyze_crm"
+  ) {
     return {
       success: true,
 
-      status: "completed",
+      status:
+        "completed",
 
       actionType,
 
@@ -124,13 +305,17 @@ export async function executeAutomationAction(
         "Status: Analysis completed without performing external or destructive actions.",
       ].join("\n"),
 
-      requiresHumanApproval: false,
+      requiresHumanApproval:
+        false,
 
-      sideEffectBlocked: false,
+      sideEffectBlocked:
+        false,
 
       metadata: {
         ...baseMetadata,
-        operation: "analysis",
+
+        operation:
+          "analysis",
       },
     };
   }
@@ -142,11 +327,15 @@ export async function executeAutomationAction(
   ============================================================
   */
 
-  if (actionType === "generate_recommendation") {
+  if (
+    actionType ===
+    "generate_recommendation"
+  ) {
     return {
       success: true,
 
-      status: "completed",
+      status:
+        "completed",
 
       actionType,
 
@@ -164,13 +353,17 @@ export async function executeAutomationAction(
         "No external action was performed automatically.",
       ].join("\n"),
 
-      requiresHumanApproval: false,
+      requiresHumanApproval:
+        false,
 
-      sideEffectBlocked: false,
+      sideEffectBlocked:
+        false,
 
       metadata: {
         ...baseMetadata,
-        operation: "recommendation",
+
+        operation:
+          "recommendation",
       },
     };
   }
@@ -178,16 +371,22 @@ export async function executeAutomationAction(
   /*
   ============================================================
   CRM NOTE
-  Side-effect operation.
-  Human approval required before database mutation.
+  Connected CRM mutation.
+
+  The Action Engine prepares the request but NEVER performs the
+  mutation before human approval.
   ============================================================
   */
 
-  if (actionType === "add_crm_note") {
+  if (
+    actionType ===
+    "add_crm_note"
+  ) {
     return {
       success: true,
 
-      status: "awaiting_approval",
+      status:
+        "awaiting_approval",
 
       actionType,
 
@@ -200,17 +399,23 @@ export async function executeAutomationAction(
           ? `Requested note: ${instructions}`
           : "No CRM note content was supplied.",
         "",
-        "J10 blocked the database mutation until human approval.",
+        "J10 Safety Policy requires human approval before the CRM mutation can execute.",
       ].join("\n"),
 
-      requiresHumanApproval: true,
+      requiresHumanApproval:
+        true,
 
-      sideEffectBlocked: true,
+      sideEffectBlocked:
+        true,
 
       metadata: {
         ...baseMetadata,
-        operation: "crm_write",
-        requestedAction: "add_crm_note",
+
+        operation:
+          "crm_write",
+
+        requestedAction:
+          "add_crm_note",
       },
     };
   }
@@ -218,16 +423,22 @@ export async function executeAutomationAction(
   /*
   ============================================================
   CRM STATUS
-  Side-effect operation.
-  Human approval required before database mutation.
+  Connected CRM mutation.
+
+  The Action Engine prepares the request but NEVER performs the
+  mutation before human approval.
   ============================================================
   */
 
-  if (actionType === "update_crm_status") {
+  if (
+    actionType ===
+    "update_crm_status"
+  ) {
     return {
       success: true,
 
-      status: "awaiting_approval",
+      status:
+        "awaiting_approval",
 
       actionType,
 
@@ -240,17 +451,23 @@ export async function executeAutomationAction(
           ? `Requested change: ${instructions}`
           : "No CRM status instructions were supplied.",
         "",
-        "J10 blocked the database mutation until human approval.",
+        "J10 Safety Policy requires human approval before the CRM mutation can execute.",
       ].join("\n"),
 
-      requiresHumanApproval: true,
+      requiresHumanApproval:
+        true,
 
-      sideEffectBlocked: true,
+      sideEffectBlocked:
+        true,
 
       metadata: {
         ...baseMetadata,
-        operation: "crm_write",
-        requestedAction: "update_crm_status",
+
+        operation:
+          "crm_write",
+
+        requestedAction:
+          "update_crm_status",
       },
     };
   }
@@ -258,17 +475,22 @@ export async function executeAutomationAction(
   /*
   ============================================================
   RESEARCH ACTION
-  This prepares research work.
+  Safe internal research preparation.
+
   Dedicated AI Employee task execution remains handled by the
-  existing AI workforce engine.
+  existing J10 workforce engine.
   ============================================================
   */
 
-  if (actionType === "run_research") {
+  if (
+    actionType ===
+    "run_research"
+  ) {
     return {
       success: true,
 
-      status: "completed",
+      status:
+        "completed",
 
       actionType,
 
@@ -288,13 +510,17 @@ export async function executeAutomationAction(
         "Research action prepared successfully.",
       ].join("\n"),
 
-      requiresHumanApproval: false,
+      requiresHumanApproval:
+        false,
 
-      sideEffectBlocked: false,
+      sideEffectBlocked:
+        false,
 
       metadata: {
         ...baseMetadata,
-        operation: "research",
+
+        operation:
+          "research",
       },
     };
   }
@@ -302,15 +528,19 @@ export async function executeAutomationAction(
   /*
   ============================================================
   ACTIVITY
-  Internal operational event.
+  Safe internal operational event.
   ============================================================
   */
 
-  if (actionType === "record_activity") {
+  if (
+    actionType ===
+    "record_activity"
+  ) {
     return {
       success: true,
 
-      status: "completed",
+      status:
+        "completed",
 
       actionType,
 
@@ -318,13 +548,17 @@ export async function executeAutomationAction(
         instructions ||
         `Workflow "${workflowName}" recorded an activity at Step ${stepOrder}.`,
 
-      requiresHumanApproval: false,
+      requiresHumanApproval:
+        false,
 
-      sideEffectBlocked: false,
+      sideEffectBlocked:
+        false,
 
       metadata: {
         ...baseMetadata,
-        operation: "activity",
+
+        operation:
+          "activity",
       },
     };
   }
@@ -332,26 +566,32 @@ export async function executeAutomationAction(
   /*
   ============================================================
   SAFETY FALLBACK
+  Unknown action execution fails closed.
   ============================================================
   */
 
   return {
     success: false,
 
-    status: "failed",
+    status:
+      "failed",
 
     actionType,
 
     resultText:
-      "J10 could not execute this automation action.",
+      "J10 Safety Policy blocked an unsupported automation action.",
 
-    requiresHumanApproval: false,
+    requiresHumanApproval:
+      true,
 
-    sideEffectBlocked: true,
+    sideEffectBlocked:
+      true,
 
     metadata: {
       ...baseMetadata,
-      operation: "unknown",
+
+      operation:
+        "unknown",
     },
   };
 }
