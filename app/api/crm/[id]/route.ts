@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
+import {
+  dispatchAutomationEvent,
+} from "@/lib/automation/event-trigger-engine";
+
 type RouteContext = {
   params: Promise<{
     id: string;
@@ -631,6 +635,81 @@ export async function PATCH(
       );
     }
 
+    /*
+    ============================================================
+    CRM STATUS CHANGED AUTOMATION EVENT
+
+    Only emit when the persisted CRM status actually changed.
+    ============================================================
+    */
+
+    const statusChanged =
+      currentContact.status !==
+      updatedContact.status;
+
+    const automationEvent =
+      statusChanged
+        ? await dispatchAutomationEvent({
+            supabase,
+
+            userId:
+              user.id,
+
+            origin:
+              new URL(
+                request.url
+              ).origin,
+
+            cookieHeader:
+              request.headers.get(
+                "cookie"
+              ) ?? "",
+
+            triggerType:
+              "crm_status_changed",
+
+            payload: {
+              contact: {
+                id:
+                  updatedContact.id,
+
+                firstName:
+                  updatedContact.first_name,
+
+                lastName:
+                  updatedContact.last_name,
+
+                email:
+                  updatedContact.email,
+
+                phone:
+                  updatedContact.phone,
+
+                company:
+                  updatedContact.company,
+
+                type:
+                  updatedContact.type,
+
+                status:
+                  updatedContact.status,
+
+                source:
+                  updatedContact.source,
+
+                estimatedValue:
+                  updatedContact.estimated_value,
+              },
+
+              previousStatus:
+                currentContact.status,
+
+              newStatus:
+                updatedContact.status,
+            },
+          })
+        : null;
+
     return NextResponse.json({
       success: true,
 
@@ -642,6 +721,8 @@ export async function PATCH(
 
       contact:
         updatedContact,
+
+      automationEvent,
     });
   } catch (error) {
     console.error(

@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
 import {
   Activity,
   BarChart3,
@@ -8,12 +11,10 @@ import {
   BriefcaseBusiness,
   ChevronRight,
   CircleDollarSign,
-  FileText,
   Globe,
   LayoutDashboard,
   Megaphone,
   MessageSquare,
-  Network,
   Palette,
   Plug,
   Settings,
@@ -31,49 +32,123 @@ type SidebarProps = {
   onClose?: () => void;
 };
 
-const sections = [
+type SidebarItem = {
+  label: string;
+  icon: React.ElementType;
+  href?: string;
+  featured?: boolean;
+};
+
+type SidebarSection = {
+  title: string;
+  items: SidebarItem[];
+};
+
+const sections: SidebarSection[] = [
   {
     title: "HOME",
     items: [
-      { label: "Overview", icon: LayoutDashboard },
-      { label: "Activity", icon: Activity },
-      { label: "Notifications", icon: MessageSquare },
+      {
+        label: "Overview",
+        icon: LayoutDashboard,
+        href: "/dashboard",
+      },
+      {
+        label: "Activity",
+        icon: Activity,
+      },
+      {
+        label: "Notifications",
+        icon: MessageSquare,
+      },
     ],
   },
   {
     title: "CREATE",
     items: [
-      { label: "AI Employee", icon: Bot },
-      { label: "Workflow", icon: Workflow },
-      { label: "Website", icon: Globe },
-      { label: "Marketing Campaign", icon: Megaphone },
-      { label: "WhatsApp Bot", icon: MessageSquare },
+      {
+        label: "AI Employee",
+        icon: Bot,
+        href: "/dashboard/ai-employees",
+      },
+      {
+        label: "Workflow",
+        icon: Workflow,
+        href: "/dashboard/automation",
+      },
+      {
+        label: "Website",
+        icon: Globe,
+      },
+      {
+        label: "Marketing Campaign",
+        icon: Megaphone,
+      },
+      {
+        label: "WhatsApp Bot",
+        icon: MessageSquare,
+      },
     ],
   },
   {
     title: "BUSINESS",
     items: [
-      { label: "CRM", icon: Users },
-      { label: "Commerce", icon: ShoppingCart },
-      { label: "Finance", icon: CircleDollarSign },
-      { label: "HR", icon: BriefcaseBusiness },
-      { label: "Analytics", icon: BarChart3 },
+      {
+        label: "CRM",
+        icon: Users,
+      },
+      {
+        label: "Commerce",
+        icon: ShoppingCart,
+      },
+      {
+        label: "Finance",
+        icon: CircleDollarSign,
+      },
+      {
+        label: "HR",
+        icon: BriefcaseBusiness,
+      },
+      {
+        label: "Analytics",
+        icon: BarChart3,
+      },
     ],
   },
   {
     title: "AI",
     items: [
-      { label: "J10 AI", icon: Sparkles, featured: true },
-      { label: "Knowledge Hub", icon: Brain },
-      { label: "AI Studio", icon: Palette },
-      { label: "Automation", icon: Zap },
+      {
+        label: "J10 AI",
+        icon: Sparkles,
+        featured: true,
+      },
+      {
+        label: "Knowledge Hub",
+        icon: Brain,
+      },
+      {
+        label: "AI Studio",
+        icon: Palette,
+      },
+      {
+        label: "Automation",
+        icon: Zap,
+        href: "/dashboard/automation",
+      },
     ],
   },
   {
     title: "CONNECT",
     items: [
-      { label: "Marketplace", icon: Store },
-      { label: "Integrations", icon: Plug },
+      {
+        label: "Marketplace",
+        icon: Store,
+      },
+      {
+        label: "Integrations",
+        icon: Plug,
+      },
     ],
   },
 ];
@@ -82,6 +157,24 @@ export default function Sidebar({
   mobileOpen = false,
   onClose,
 }: SidebarProps) {
+  const pathname = usePathname();
+
+  function isActive(href?: string) {
+    if (!href) {
+      return false;
+    }
+
+    if (href === "/dashboard") {
+      return pathname === "/dashboard";
+    }
+
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
+
+  function handleNavigation() {
+    onClose?.();
+  }
+
   return (
     <>
       {mobileOpen && (
@@ -103,7 +196,11 @@ export default function Sidebar({
       >
         {/* Logo */}
         <div className="flex h-[72px] items-center justify-between border-b border-white/[0.06] px-5">
-          <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard"
+            onClick={handleNavigation}
+            className="flex items-center gap-2"
+          >
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20">
               <span className="text-sm font-black text-white">J</span>
             </div>
@@ -112,13 +209,15 @@ export default function Sidebar({
               <div className="text-[15px] font-bold tracking-tight text-white">
                 J10
               </div>
+
               <div className="text-[9px] font-medium uppercase tracking-[0.18em] text-white/40">
                 Operating System
               </div>
             </div>
-          </div>
+          </Link>
 
           <button
+            type="button"
             onClick={onClose}
             className="rounded-lg p-2 text-white/40 transition hover:bg-white/5 hover:text-white lg:hidden"
           >
@@ -128,7 +227,10 @@ export default function Sidebar({
 
         {/* J10 AI */}
         <div className="px-3 pt-4">
-          <button className="group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border border-blue-500/20 bg-gradient-to-r from-blue-500/10 via-violet-500/10 to-cyan-500/10 px-3 py-3 text-left transition-all duration-300 hover:border-blue-400/40 hover:shadow-lg hover:shadow-blue-500/10">
+          <button
+            type="button"
+            className="group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border border-blue-500/20 bg-gradient-to-r from-blue-500/10 via-violet-500/10 to-cyan-500/10 px-3 py-3 text-left transition-all duration-300 hover:border-blue-400/40 hover:shadow-lg hover:shadow-blue-500/10"
+          >
             <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/10 to-violet-500/0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
             <div className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20">
@@ -139,6 +241,7 @@ export default function Sidebar({
               <div className="text-sm font-semibold text-white">
                 J10 AI
               </div>
+
               <div className="text-[11px] text-white/40">
                 Your business intelligence
               </div>
@@ -162,30 +265,34 @@ export default function Sidebar({
               <div className="space-y-0.5">
                 {section.items.map((item) => {
                   const Icon = item.icon;
+                  const active = isActive(item.href);
 
-                  return (
-                    <button
-                      key={item.label}
-                      className={`
-                        group flex w-full items-center gap-3 rounded-lg px-3 py-2.5
-                        text-left text-[13px]
-                        transition-all duration-200
-                        ${
-                          item.featured
-                            ? "bg-white/[0.055] text-white"
-                            : "text-white/50 hover:bg-white/[0.045] hover:text-white"
-                        }
-                      `}
-                    >
+                  const className = `
+                    group flex w-full items-center gap-3 rounded-lg px-3 py-2.5
+                    text-left text-[13px]
+                    transition-all duration-200
+                    ${
+                      active
+                        ? "bg-gradient-to-r from-blue-500/15 via-violet-500/10 to-transparent text-white"
+                        : item.featured
+                          ? "bg-white/[0.055] text-white"
+                          : "text-white/50 hover:bg-white/[0.045] hover:text-white"
+                    }
+                  `;
+
+                  const content = (
+                    <>
                       <Icon
                         size={16}
                         strokeWidth={1.8}
                         className={`
                           transition-colors duration-200
                           ${
-                            item.featured
+                            active
                               ? "text-blue-400"
-                              : "text-white/35 group-hover:text-white/80"
+                              : item.featured
+                                ? "text-blue-400"
+                                : "text-white/35 group-hover:text-white/80"
                           }
                         `}
                       />
@@ -197,6 +304,33 @@ export default function Sidebar({
                           AI
                         </span>
                       )}
+
+                      {active && !item.featured && (
+                        <div className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]" />
+                      )}
+                    </>
+                  );
+
+                  if (item.href) {
+                    return (
+                      <Link
+                        key={item.label}
+                        href={item.href}
+                        onClick={handleNavigation}
+                        className={className}
+                      >
+                        {content}
+                      </Link>
+                    );
+                  }
+
+                  return (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className={className}
+                    >
+                      {content}
                     </button>
                   );
                 })}
@@ -207,7 +341,10 @@ export default function Sidebar({
 
         {/* Bottom */}
         <div className="border-t border-white/[0.06] p-3">
-          <button className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] text-white/50 transition hover:bg-white/[0.045] hover:text-white">
+          <button
+            type="button"
+            className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] text-white/50 transition hover:bg-white/[0.045] hover:text-white"
+          >
             <Settings
               size={16}
               className="text-white/35 group-hover:text-white/80"
@@ -225,6 +362,7 @@ export default function Sidebar({
               <div className="truncate text-xs font-medium text-white">
                 J10 Workspace
               </div>
+
               <div className="truncate text-[10px] text-white/35">
                 Free workspace
               </div>

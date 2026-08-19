@@ -6,6 +6,10 @@ import {
   getJ10AIMode,
 } from "@/lib/ai/runtime";
 
+import {
+  dispatchAutomationEvent,
+} from "@/lib/automation/event-trigger-engine";
+
 /*
 ============================================================
 TYPES
@@ -18,6 +22,11 @@ type CreateTaskRequest = {
   taskType?: string;
   instructions?: string;
   inputText?: string;
+
+  automationContext?: {
+    sourceWorkflowId?: string;
+    eventDepth?: number;
+  };
 };
 
 type Employee = {
@@ -612,6 +621,112 @@ export async function POST(
 
     /*
     ============================================================
+    NEW AI TASK AUTOMATION EVENT
+    ============================================================
+    */
+
+    const automationContext =
+      body.automationContext &&
+      typeof body.automationContext ===
+        "object"
+        ? body.automationContext
+        : {};
+
+    const sourceWorkflowId =
+      typeof automationContext.sourceWorkflowId ===
+        "string" &&
+      automationContext.sourceWorkflowId.trim()
+        ? automationContext.sourceWorkflowId.trim()
+        : null;
+
+    const parentDepth =
+      Number.isFinite(
+        Number(
+          automationContext.eventDepth ??
+            0
+        )
+      )
+        ? Math.max(
+            0,
+            Math.floor(
+              Number(
+                automationContext.eventDepth ??
+                  0
+              )
+            )
+          )
+        : 0;
+
+    const automationEvent =
+      await dispatchAutomationEvent({
+        supabase,
+
+        userId:
+          user.id,
+
+        origin:
+          new URL(
+            request.url
+          ).origin,
+
+        cookieHeader:
+          request.headers.get(
+            "cookie"
+          ) ?? "",
+
+        triggerType:
+          "new_ai_task",
+
+        originAutomationId:
+          sourceWorkflowId,
+
+        parentDepth,
+
+        payload: {
+          task: {
+            id:
+              task.id,
+
+            title:
+              task.title,
+
+            taskType:
+              task.task_type,
+
+            status:
+              task.status,
+
+            employeeId:
+              task.employee_id,
+
+            employeeName:
+              task.employee_name,
+
+            executionMode:
+              task.execution_mode,
+
+            createdAt:
+              task.created_at,
+          },
+
+          employee: {
+            id:
+              employee.id,
+
+            name:
+              employee.name,
+
+            role:
+              employee.role,
+
+            department:
+              employee.department,
+          },
+        },
+      });
+
+    /*
+    ============================================================
     RESPONSE
     ============================================================
     */
@@ -622,6 +737,8 @@ export async function POST(
 
         message:
           "AI task created and assigned.",
+
+        automationEvent,
 
         employee: {
           id:

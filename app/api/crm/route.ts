@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
+import {
+  dispatchAutomationEvent,
+} from "@/lib/automation/event-trigger-engine";
+
 type ContactType =
   | "Lead"
   | "Prospect"
@@ -679,6 +683,73 @@ export async function POST(
       );
     }
 
+    /*
+    ============================================================
+    NEW CRM CONTACT AUTOMATION EVENT
+    ============================================================
+    */
+
+    const automationEvent =
+      await dispatchAutomationEvent({
+        supabase,
+
+        userId:
+          user.id,
+
+        origin:
+          new URL(
+            request.url
+          ).origin,
+
+        cookieHeader:
+          request.headers.get(
+            "cookie"
+          ) ?? "",
+
+        triggerType:
+          "new_crm_contact",
+
+        payload: {
+          contact: {
+            id:
+              contact.id,
+
+            firstName:
+              contact.first_name,
+
+            lastName:
+              contact.last_name,
+
+            email:
+              contact.email,
+
+            phone:
+              contact.phone,
+
+            company:
+              contact.company,
+
+            jobTitle:
+              contact.job_title,
+
+            type:
+              contact.type,
+
+            status:
+              contact.status,
+
+            source:
+              contact.source,
+
+            estimatedValue:
+              contact.estimated_value,
+
+            createdAt:
+              contact.created_at,
+          },
+        },
+      });
+
     return NextResponse.json(
       {
         success: true,
@@ -687,6 +758,8 @@ export async function POST(
           "CRM contact created successfully.",
 
         contact,
+
+        automationEvent,
       },
       {
         status: 201,

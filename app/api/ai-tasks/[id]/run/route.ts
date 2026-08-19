@@ -4,6 +4,11 @@ import { createServerClient } from "@supabase/ssr";
 
 import { runJ10AI } from "@/lib/ai/runtime";
 
+import {
+  dispatchAutomationEvent,
+  getAutomationEventDepth,
+} from "@/lib/automation/event-trigger-engine";
+
 import type {
   J10ModelPreference,
   J10TaskType,
@@ -898,6 +903,176 @@ actually executed them.
 
     /*
     ============================================================
+    AI TASK COMPLETED AUTOMATION EVENT
+
+    If this AI task was created by another workflow, recover
+    the parent workflow/event context so J10 can prevent direct
+    self-trigger loops and cap chained event depth.
+    ============================================================
+    */
+
+    const {
+      data:
+        originRunStep,
+    } =
+      await supabase
+        .from(
+          "automation_run_steps"
+        )
+        .select(
+          `
+          run_id,
+          automation_id
+          `
+        )
+        .eq(
+          "user_id",
+          user.id
+        )
+        .eq(
+          "ai_task_id",
+          task.id
+        )
+        .limit(1)
+        .maybeSingle();
+
+    let originAutomationId:
+      | string
+      | null =
+      originRunStep?.automation_id ??
+      null;
+
+    let parentDepth =
+      0;
+
+    if (
+      originRunStep?.run_id
+    ) {
+      const {
+        data:
+          originRun,
+      } =
+        await supabase
+          .from(
+            "automation_runs"
+          )
+          .select(
+            `
+            trigger_payload
+            `
+          )
+          .eq(
+            "id",
+            originRunStep.run_id
+          )
+          .eq(
+            "user_id",
+            user.id
+          )
+          .maybeSingle();
+
+      if (
+        originRun?.trigger_payload &&
+        typeof originRun.trigger_payload ===
+          "object" &&
+        !Array.isArray(
+          originRun.trigger_payload
+        )
+      ) {
+        parentDepth =
+          getAutomationEventDepth(
+            originRun.trigger_payload as Record<
+              string,
+              unknown
+            >
+          );
+      }
+    }
+
+    const automationEvent =
+      await dispatchAutomationEvent({
+        supabase,
+
+        userId:
+          user.id,
+
+        origin:
+          new URL(
+            request.url
+          ).origin,
+
+        cookieHeader:
+          request.headers.get(
+            "cookie"
+          ) ?? "",
+
+        triggerType:
+          "ai_task_completed",
+
+        originAutomationId,
+
+        parentDepth,
+
+        payload: {
+          task: {
+            id:
+              completedTask.id,
+
+            title:
+              completedTask.title,
+
+            taskType:
+              completedTask.task_type,
+
+            status:
+              completedTask.status,
+
+            resultText:
+              completedTask.result_text,
+
+            employeeId:
+              completedTask.employee_id,
+
+            employeeName:
+              completedTask.employee_name,
+
+            executionMode:
+              completedTask.execution_mode,
+
+            apiCalled:
+              completedTask.api_called,
+
+            targetModel:
+              completedTask.target_model,
+
+            displayModel:
+              completedTask.display_model,
+
+            estimatedCostUSD:
+              completedTask.estimated_cost_usd,
+
+            completedAt:
+              completedTask.completed_at,
+          },
+
+          employee: {
+            id:
+              employee.id,
+
+            name:
+              employee.name,
+
+            role:
+              employee.role,
+
+            department:
+              employee.department,
+          },
+        },
+      });
+
+    /*
+    ============================================================
     SUCCESS RESPONSE
     ============================================================
     */
@@ -905,6 +1080,8 @@ actually executed them.
     return NextResponse.json({
       success:
         true,
+
+      automationEvent,
 
       message:
         `${employee.name} completed the task.`,
