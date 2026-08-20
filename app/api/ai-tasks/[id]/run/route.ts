@@ -5,6 +5,15 @@ import { createServerClient } from "@supabase/ssr";
 import { runJ10AI } from "@/lib/ai/runtime";
 
 import {
+  buildDevelopmentResearchStructuredData,
+} from "@/lib/ai/development-research";
+
+import {
+  extractStructuredResultData,
+  normalizeStructuredResultData,
+} from "@/lib/automation/workflow-context";
+
+import {
   dispatchAutomationEvent,
   getAutomationEventDepth,
 } from "@/lib/automation/event-trigger-engine";
@@ -97,6 +106,255 @@ type EmployeeRecord = {
     | string
     | null;
 };
+
+type WorkflowCollaborationMetadata = {
+  receivedWorkflowContext: boolean;
+  workflowId: string | null;
+  workflowName: string | null;
+  executionId: string | null;
+  aiStepCount: number;
+  collaboratorCount: number;
+  collaborators: Array<{
+    employeeId: string | null;
+    employeeName: string;
+    stepOrders: number[];
+  }>;
+  latestAIEmployee: string | null;
+  latestAIStepOrder: number | null;
+};
+
+function asRecord(
+  value: unknown
+): Record<string, unknown> | null {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function extractWorkflowCollaborationMetadata(
+  inputText: string | null
+): WorkflowCollaborationMetadata {
+  const empty: WorkflowCollaborationMetadata = {
+    receivedWorkflowContext:
+      false,
+    workflowId:
+      null,
+    workflowName:
+      null,
+    executionId:
+      null,
+    aiStepCount:
+      0,
+    collaboratorCount:
+      0,
+    collaborators:
+      [],
+    latestAIEmployee:
+      null,
+    latestAIStepOrder:
+      null,
+  };
+
+  if (!inputText?.trim()) {
+    return empty;
+  }
+
+  try {
+    const parsed =
+      asRecord(
+        JSON.parse(
+          inputText
+        )
+      );
+
+    if (!parsed) {
+      return empty;
+    }
+
+    const workflow =
+      asRecord(
+        parsed.workflow
+      );
+
+    const execution =
+      asRecord(
+        parsed.execution
+      );
+
+    const collaboration =
+      asRecord(
+        parsed.collaboration
+      );
+
+    if (
+      !workflow ||
+      !execution ||
+      !collaboration
+    ) {
+      return empty;
+    }
+
+    const rawCollaborators =
+      Array.isArray(
+        collaboration.collaborators
+      )
+        ? collaboration.collaborators
+        : [];
+
+    const collaborators =
+      rawCollaborators
+        .map(
+          (item) => {
+            const record =
+              asRecord(
+                item
+              );
+
+            if (!record) {
+              return null;
+            }
+
+            const employeeName =
+              typeof record.employeeName ===
+                "string"
+                ? record.employeeName
+                : "Unknown AI Employee";
+
+            const employeeId =
+              typeof record.employeeId ===
+                "string"
+                ? record.employeeId
+                : null;
+
+            const stepOrders =
+              Array.isArray(
+                record.stepOrders
+              )
+                ? record.stepOrders
+                    .map(
+                      (value) =>
+                        Number(
+                          value
+                        )
+                    )
+                    .filter(
+                      (value) =>
+                        Number.isFinite(
+                          value
+                        )
+                    )
+                : [];
+
+            return {
+              employeeId,
+              employeeName,
+              stepOrders,
+            };
+          }
+        )
+        .filter(
+          (
+            item
+          ): item is {
+            employeeId: string | null;
+            employeeName: string;
+            stepOrders: number[];
+          } =>
+            Boolean(item)
+        );
+
+    const latestAI =
+      asRecord(
+        collaboration.latestAI
+      );
+
+    const aiStepCount =
+      Number(
+        collaboration.aiStepCount ??
+          0
+      );
+
+    const collaboratorCount =
+      Number(
+        collaboration.collaboratorCount ??
+          collaborators.length
+      );
+
+    const latestAIStepOrder =
+      latestAI
+        ? Number(
+            latestAI.stepOrder
+          )
+        : NaN;
+
+    return {
+      receivedWorkflowContext:
+        true,
+
+      workflowId:
+        typeof workflow.id ===
+          "string"
+          ? workflow.id
+          : null,
+
+      workflowName:
+        typeof workflow.name ===
+          "string"
+          ? workflow.name
+          : null,
+
+      executionId:
+        typeof execution.id ===
+          "string"
+          ? execution.id
+          : null,
+
+      aiStepCount:
+        Number.isFinite(
+          aiStepCount
+        )
+          ? Math.max(
+              0,
+              aiStepCount
+            )
+          : 0,
+
+      collaboratorCount:
+        Number.isFinite(
+          collaboratorCount
+        )
+          ? Math.max(
+              0,
+              collaboratorCount
+            )
+          : collaborators.length,
+
+      collaborators,
+
+      latestAIEmployee:
+        latestAI &&
+        typeof latestAI.employeeName ===
+          "string"
+          ? latestAI.employeeName
+          : null,
+
+      latestAIStepOrder:
+        Number.isFinite(
+          latestAIStepOrder
+        )
+          ? latestAIStepOrder
+          : null,
+    };
+  } catch {
+    return empty;
+  }
+}
 
 /*
 ============================================================
@@ -626,6 +884,11 @@ export async function POST(
         employee,
       });
 
+    const workflowCollaboration =
+      extractWorkflowCollaborationMetadata(
+        task.input_text
+      );
+
     /*
     ==========================================================
     J10 AI RUNTIME
@@ -681,6 +944,40 @@ actually executed them.
 
         maxOutputTokens:
           6000,
+      });
+
+
+    const baseStructuredResultData =
+      normalizeStructuredResultData(
+        j10TaskType === "research" &&
+        result.executionMode === "development"
+          ? buildDevelopmentResearchStructuredData(
+              runtimeInput
+            )
+          : extractStructuredResultData(
+              result.text
+            )
+      );
+
+    const structuredResultData =
+      normalizeStructuredResultData({
+        ...baseStructuredResultData,
+
+        workflowCollaboration: {
+          ...workflowCollaboration,
+
+          currentEmployeeId:
+            employee.id,
+
+          currentEmployeeName:
+            employee.name,
+
+          currentEmployeeRole:
+            employee.role,
+
+          exactEmployeeBinding:
+            true,
+        },
       });
 
     /*
@@ -887,6 +1184,12 @@ actually executed them.
               result.estimatedCostUSD ??
               0,
 
+            structured_result:
+              structuredResultData,
+
+            workflow_collaboration:
+              workflowCollaboration,
+
             completed_at:
               completedAt,
           },
@@ -1030,6 +1333,9 @@ actually executed them.
             resultText:
               completedTask.result_text,
 
+            resultData:
+              structuredResultData,
+
             employeeId:
               completedTask.employee_id,
 
@@ -1147,8 +1453,12 @@ actually executed them.
           0,
       },
 
-      task:
-        completedTask,
+      task: {
+        ...completedTask,
+
+        result_data:
+          structuredResultData,
+      },
     });
   } catch (error) {
     /*
@@ -1406,6 +1716,12 @@ ${
 EXECUTION RULE
 
 Complete only the assigned task.
+
+If SUPPLIED INPUT contains workflow, previousSteps,
+variables, or collaboration data, treat it as upstream
+J10 workflow context. Use relevant prior AI employee
+results to continue the same business objective instead
+of starting the task as isolated work.
 
 Do not claim external actions occurred unless
 J10 NEXUS actually executed them.

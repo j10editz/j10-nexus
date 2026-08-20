@@ -11,6 +11,10 @@ import {
   createServerClient,
 } from "@supabase/ssr";
 
+import {
+  validateAutomationStepConfig,
+} from "@/lib/automation/failure-policy";
+
 type RouteContext = {
   params: Promise<{
     id: string;
@@ -507,6 +511,30 @@ export async function PATCH(
     const body =
       (await request.json()) as UpdateStepBody;
 
+    const configValidation =
+      body.config !==
+      undefined
+        ? validateAutomationStepConfig(
+            body.config
+          )
+        : null;
+
+    if (
+      configValidation &&
+      !configValidation.valid
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            configValidation.error,
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
     const nextStepType =
       body.stepType ??
       (existingStep.step_type as StepType);
@@ -733,7 +761,8 @@ export async function PATCH(
           config:
             body.config !==
             undefined
-              ? body.config
+              ? configValidation?.config ??
+                {}
               : existingStep.config,
 
           condition_config:

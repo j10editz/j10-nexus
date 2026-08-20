@@ -1,28 +1,43 @@
 /*
 ============================================================
 J10 AUTOMATION CONDITION ENGINE
-12K
+13E — CONTEXT-AWARE TARGETED BRANCHING
 
 Safe deterministic condition evaluation.
 No eval(), no arbitrary JavaScript execution.
 
-Supported JSON example:
+Context sources:
+- trigger.*
+- workflow.*
+- execution.*
+- steps.*
+- variables.*
+
+Legacy branch actions remain supported:
+- continue
+- stop
+- skip_next
+
+13E targeted branch example:
 {
-  "field": "workflow.name",
-  "operator": "equals",
-  "value": "J10 Condition Branch Test",
-  "onTrue": "continue",
-  "onFalse": "skip_next"
+  "field": "steps.1.data.qualificationScore",
+  "operator": "greater_than_or_equal",
+  "value": 70,
+  "onTrueStep": 4,
+  "onFalseStep": 6
 }
 
-Supported shorthand examples:
-workflow.triggerType == "manual"
-trigger.score >= 70
-trigger.segment contains "vip"
-exists trigger.customerId
-truthy trigger.approved
+The execution routes validate that targeted steps:
+- exist
+- are enabled
+- are forward-only
 ============================================================
 */
+
+import {
+  getWorkflowContextValue,
+  type WorkflowContext,
+} from "@/lib/automation/workflow-context";
 
 export type ConditionBranchAction =
   | "continue"
@@ -43,19 +58,8 @@ export type ConditionOperator =
   | "truthy"
   | "falsy";
 
-export type ConditionRuntimeContext = {
-  trigger: Record<string, unknown>;
-
-  workflow: {
-    id: string;
-    name: string;
-    triggerType: string;
-  };
-
-  execution: {
-    mode: string;
-  };
-};
+export type ConditionRuntimeContext =
+  WorkflowContext;
 
 export type ConditionEvaluation = {
   expression: string;
@@ -64,25 +68,55 @@ export type ConditionEvaluation = {
   expectedValue: unknown;
   actualValue: unknown;
   matched: boolean;
+
   branchAction: ConditionBranchAction;
+
+  branchTargetStepOrder:
+    | number
+    | null;
+
   onTrue: ConditionBranchAction;
   onFalse: ConditionBranchAction;
+
+  onTrueStep:
+    | number
+    | null;
+
+  onFalseStep:
+    | number
+    | null;
 };
 
 type ParsedCondition = {
   field: string;
   operator: ConditionOperator;
   value?: unknown;
+
   onTrue: ConditionBranchAction;
   onFalse: ConditionBranchAction;
+
+  onTrueStep:
+    | number
+    | null;
+
+  onFalseStep:
+    | number
+    | null;
 };
 
 type JsonConditionInput = {
   field?: unknown;
   operator?: unknown;
   value?: unknown;
+
   onTrue?: unknown;
   onFalse?: unknown;
+
+  onTrueStep?: unknown;
+  onFalseStep?: unknown;
+
+  on_true_step?: unknown;
+  on_false_step?: unknown;
 };
 
 const BRANCH_ACTIONS =
@@ -112,18 +146,25 @@ const OPERATOR_ALIASES: Record<
 
   ">": "gt",
   gt: "gt",
+  greater_than: "gt",
 
   ">=": "gte",
   gte: "gte",
+  greater_than_or_equal: "gte",
+  greater_than_or_equals: "gte",
 
   "<": "lt",
   lt: "lt",
+  less_than: "lt",
 
   "<=": "lte",
   lte: "lte",
+  less_than_or_equal: "lte",
+  less_than_or_equals: "lte",
 
   exists: "exists",
   not_exists: "not_exists",
+
   truthy: "truthy",
   falsy: "falsy",
 };
@@ -138,8 +179,13 @@ export function evaluateAutomationCondition({
   instructions,
   context,
 }: {
-  instructions: string | null | undefined;
-  context: ConditionRuntimeContext;
+  instructions:
+    | string
+    | null
+    | undefined;
+
+  context:
+    ConditionRuntimeContext;
 }): ConditionEvaluation {
   const expression =
     instructions?.trim() ?? "";
@@ -156,7 +202,7 @@ export function evaluateAutomationCondition({
     );
 
   const rawActualValue =
-    resolvePath(
+    getWorkflowContextValue(
       context,
       parsed.field
     );
@@ -167,34 +213,68 @@ export function evaluateAutomationCondition({
       ? null
       : rawActualValue;
 
+  const expectedValue =
+    resolveExpectedValue(
+      parsed.value,
+      context
+    );
+
   const matched =
     evaluateOperator(
       actualValue,
       parsed.operator,
-      parsed.value
+      expectedValue
     );
 
-  const branchAction =
+  const selectedTarget =
     matched
-      ? parsed.onTrue
-      : parsed.onFalse;
+      ? parsed.onTrueStep
+      : parsed.onFalseStep;
+
+  /*
+  A targeted branch overrides the legacy branch action for that
+  branch. Runtime will move forward to the selected target.
+  */
+  const branchAction =
+    selectedTarget !== null
+      ? "continue"
+      : matched
+        ? parsed.onTrue
+        : parsed.onFalse;
 
   return {
     expression,
+
     field:
       parsed.field,
+
     operator:
       parsed.operator,
+
     expectedValue:
-      parsed.value ??
+      expectedValue ??
       null,
+
     actualValue,
+
     matched,
+
     branchAction,
+
+    branchTargetStepOrder:
+      selectedTarget,
+
     onTrue:
       parsed.onTrue,
+
     onFalse:
       parsed.onFalse,
+
+    onTrueStep:
+      parsed.onTrueStep,
+
+    onFalseStep:
+      parsed.onFalseStep,
   };
 }
 
@@ -240,10 +320,9 @@ function parseJsonCondition(
   }
 
   const field =
-    typeof parsed.field ===
-    "string"
-      ? parsed.field.trim()
-      : "";
+    normalizeFieldPath(
+      parsed.field
+    );
 
   if (!field) {
     throw new Error(
@@ -268,67 +347,117 @@ function parseJsonCondition(
       "stop"
     );
 
+  const onTrueStep =
+    normalizeTargetStep(
+      parsed.onTrueStep ??
+      parsed.on_true_step,
+      "onTrueStep"
+    );
+
+  const onFalseStep =
+    normalizeTargetStep(
+      parsed.onFalseStep ??
+      parsed.on_false_step,
+      "onFalseStep"
+    );
+
   return {
     field,
     operator,
+
     value:
       parsed.value,
+
     onTrue,
     onFalse,
+
+    onTrueStep,
+    onFalseStep,
   };
 }
 
 function parseShorthandCondition(
   expression: string
 ): ParsedCondition {
+  const normalizedExpression =
+    stripMustachePaths(
+      expression
+    );
+
   const prefixMatch =
-    expression.match(
+    normalizedExpression.match(
       /^(exists|not_exists|truthy|falsy)\s+([A-Za-z0-9_.-]+)$/i
     );
 
   if (prefixMatch) {
     return {
       field:
-        prefixMatch[2],
+        normalizeFieldPath(
+          prefixMatch[2]
+        ),
+
       operator:
         normalizeOperator(
           prefixMatch[1]
         ),
+
       value:
         undefined,
+
       onTrue:
         "continue",
+
       onFalse:
         "stop",
+
+      onTrueStep:
+        null,
+
+      onFalseStep:
+        null,
     };
   }
 
-  const containsMatch =
-    expression.match(
-      /^([A-Za-z0-9_.-]+)\s+(contains|not_contains)\s+(.+)$/i
+  const wordOperatorMatch =
+    normalizedExpression.match(
+      /^([A-Za-z0-9_.-]+)\s+(contains|not_contains|equals|not_equals|greater_than_or_equal|greater_than_or_equals|greater_than|less_than_or_equal|less_than_or_equals|less_than|gte|gt|lte|lt|eq|neq)\s+(.+)$/i
     );
 
-  if (containsMatch) {
+  if (
+    wordOperatorMatch
+  ) {
     return {
       field:
-        containsMatch[1],
+        normalizeFieldPath(
+          wordOperatorMatch[1]
+        ),
+
       operator:
         normalizeOperator(
-          containsMatch[2]
+          wordOperatorMatch[2]
         ),
+
       value:
         parseLiteral(
-          containsMatch[3]
+          wordOperatorMatch[3]
         ),
+
       onTrue:
         "continue",
+
       onFalse:
         "stop",
+
+      onTrueStep:
+        null,
+
+      onFalseStep:
+        null,
     };
   }
 
   const comparisonMatch =
-    expression.match(
+    normalizedExpression.match(
       /^([A-Za-z0-9_.-]+)\s*(===|!==|==|!=|>=|<=|>|<|=)\s*(.+)$/
     );
 
@@ -336,13 +465,15 @@ function parseShorthandCondition(
     !comparisonMatch
   ) {
     throw new Error(
-      "Unsupported condition expression. Use JSON or a supported comparison such as workflow.triggerType == \"manual\"."
+      'Unsupported condition expression. Example: steps.1.data.qualificationScore >= 70'
     );
   }
 
   return {
     field:
-      comparisonMatch[1],
+      normalizeFieldPath(
+        comparisonMatch[1]
+      ),
 
     operator:
       normalizeOperator(
@@ -359,6 +490,12 @@ function parseShorthandCondition(
 
     onFalse:
       "stop",
+
+    onTrueStep:
+      null,
+
+    onFalseStep:
+      null,
   };
 }
 
@@ -599,7 +736,9 @@ function containsValue(
   ) {
     return Object.prototype.hasOwnProperty.call(
       actual,
-      String(expected)
+      String(
+        expected
+      )
     );
   }
 
@@ -615,10 +754,14 @@ function numericCompare(
   ) => boolean
 ) {
   const left =
-    Number(actual);
+    Number(
+      actual
+    );
 
   const right =
-    Number(expected);
+    Number(
+      expected
+    );
 
   if (
     !Number.isFinite(
@@ -639,64 +782,81 @@ function numericCompare(
 
 /*
 ============================================================
-PATH RESOLUTION
+CONTEXT / VALUE RESOLUTION
 ============================================================
 */
 
-function resolvePath(
-  context: ConditionRuntimeContext,
-  path: string
-): unknown {
-  const segments =
-    path
-      .split(".")
-      .map(
-        (
-          segment
-        ) =>
-          segment.trim()
-      )
-      .filter(Boolean);
+function normalizeFieldPath(
+  value: unknown
+) {
+  if (
+    typeof value !==
+    "string"
+  ) {
+    return "";
+  }
+
+  return value
+    .trim()
+    .replace(
+      /^\{\{\s*/,
+      ""
+    )
+    .replace(
+      /\s*\}\}$/,
+      ""
+    )
+    .trim();
+}
+
+function stripMustachePaths(
+  expression: string
+) {
+  return expression.replace(
+    /\{\{\s*([^{}]+?)\s*\}\}/g,
+    (
+      _match,
+      path: string
+    ) =>
+      path.trim()
+  );
+}
+
+function resolveExpectedValue(
+  value: unknown,
+  context: ConditionRuntimeContext
+) {
+  if (
+    typeof value !==
+    "string"
+  ) {
+    return value;
+  }
+
+  const trimmed =
+    value.trim();
+
+  const exactReference =
+    trimmed.match(
+      /^\{\{\s*([^{}]+?)\s*\}\}$/
+    );
 
   if (
-    segments.length ===
-    0
+    exactReference
   ) {
-    return undefined;
+    const resolved =
+      getWorkflowContextValue(
+        context,
+        exactReference[1]
+      );
+
+    return resolved ===
+      undefined
+      ? null
+      : resolved;
   }
 
-  let current:
-    unknown =
-    context;
-
-  for (
-    const segment of
-      segments
-  ) {
-    if (
-      current ===
-        null ||
-      current ===
-        undefined ||
-      typeof current !==
-        "object"
-    ) {
-      return undefined;
-    }
-
-    const record =
-      current as Record<
-        string,
-        unknown
-      >;
-
-    current =
-      record[
-        segment
-      ];
-  }
-
-  return current;
+  return value;
 }
 
 /*
@@ -713,7 +873,11 @@ function normalizeOperator(
       value ?? ""
     )
       .trim()
-      .toLowerCase();
+      .toLowerCase()
+      .replace(
+        /[\s-]+/g,
+        "_"
+      );
 
   const operator =
     OPERATOR_ALIASES[
@@ -745,7 +909,9 @@ function normalizeBranchAction(
   }
 
   const normalized =
-    String(value)
+    String(
+      value
+    )
       .trim()
       .toLowerCase()
       .replace(
@@ -764,6 +930,40 @@ function normalizeBranchAction(
   }
 
   return normalized;
+}
+
+function normalizeTargetStep(
+  value: unknown,
+  fieldName: string
+):
+  | number
+  | null {
+  if (
+    value ===
+      undefined ||
+    value ===
+      null ||
+    String(value).trim() ===
+      ""
+  ) {
+    return null;
+  }
+
+  const numeric =
+    Number(value);
+
+  if (
+    !Number.isInteger(
+      numeric
+    ) ||
+    numeric <= 0
+  ) {
+    throw new Error(
+      `${fieldName} must be a positive workflow step number.`
+    );
+  }
+
+  return numeric;
 }
 
 function parseLiteral(
@@ -800,29 +1000,41 @@ function parseLiteral(
     );
   }
 
+  const normalized =
+    value.toLowerCase();
+
   if (
-    value ===
+    normalized ===
     "true"
   ) {
     return true;
   }
 
   if (
-    value ===
+    normalized ===
     "false"
   ) {
     return false;
   }
 
   if (
-    value ===
+    normalized ===
     "null"
   ) {
     return null;
   }
 
+  if (
+    normalized ===
+    "undefined"
+  ) {
+    return undefined;
+  }
+
   const numeric =
-    Number(value);
+    Number(
+      value
+    );
 
   if (
     value !==

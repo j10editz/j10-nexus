@@ -27,10 +27,12 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   ShieldCheck,
   Sparkles,
   Target,
+  TriangleAlert,
   Trash2,
   Workflow,
   X,
@@ -65,6 +67,17 @@ type StepType =
   | "condition"
   | "approval"
   | "activity";
+
+type FailurePolicyMode =
+  | "stop"
+  | "retry"
+  | "continue"
+  | "human_review";
+
+type AfterRetriesMode =
+  | "stop"
+  | "continue"
+  | "human_review";
 
 type Automation = {
   id: string;
@@ -271,6 +284,14 @@ type ExecutionHistoryStep = {
     approvedAt: string | null;
   };
   inputPayload: Record<string, unknown>;
+  retry: {
+    attempt: number;
+    maxAttempts: number;
+    isRetry: boolean;
+    policy: string;
+    resolution: string | null;
+    previousAttempts: number;
+  } | null;
   aiTask: ExecutionHistoryAITask | null;
 };
 
@@ -308,6 +329,11 @@ type AutomationIntelligence = {
   developmentRuns: number;
   liveRuns: number;
   otherRuns: number;
+  retryAttempts: number;
+  retriedRuns: number;
+  recoveredRuns: number;
+  retrySuccessRate: number;
+  unrecoveredFailures: number;
   mostActiveWorkflow: Automation | null;
   recentRuns: ExecutionHistoryRun[];
 };
@@ -450,6 +476,55 @@ const taskTypeOptions = [
   {
     value: "recommendation",
     label: "Recommendation",
+  },
+];
+
+const failurePolicyOptions: {
+  value: FailurePolicyMode;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "stop",
+    label: "Stop Workflow",
+    description:
+      "End the workflow immediately when this step fails.",
+  },
+  {
+    value: "retry",
+    label: "Retry",
+    description:
+      "Retry this exact step before applying a final failure action.",
+  },
+  {
+    value: "continue",
+    label: "Continue Workflow",
+    description:
+      "Record the failure and continue to the next workflow step.",
+  },
+  {
+    value: "human_review",
+    label: "Human Review",
+    description:
+      "Pause the workflow and require a human decision after failure.",
+  },
+];
+
+const afterRetryOptions: {
+  value: AfterRetriesMode;
+  label: string;
+}[] = [
+  {
+    value: "stop",
+    label: "Stop Workflow",
+  },
+  {
+    value: "continue",
+    label: "Continue Workflow",
+  },
+  {
+    value: "human_review",
+    label: "Human Review",
   },
 ];
 
@@ -712,6 +787,54 @@ export default function AutomationPage() {
     setStepRequiresApproval,
   ] =
     useState(false);
+
+  const [
+    stepFailureMode,
+    setStepFailureMode,
+  ] =
+    useState<FailurePolicyMode>(
+      "stop"
+    );
+
+  const [
+    stepMaxAttempts,
+    setStepMaxAttempts,
+  ] =
+    useState(3);
+
+  const [
+    stepRetryDelayMs,
+    setStepRetryDelayMs,
+  ] =
+    useState(0);
+
+  const [
+    stepAfterRetries,
+    setStepAfterRetries,
+  ] =
+    useState<AfterRetriesMode>(
+      "stop"
+    );
+
+  const [
+    stepTimeoutMs,
+    setStepTimeoutMs,
+  ] =
+    useState(30000);
+
+  const [
+    workflowTimeoutMs,
+    setWorkflowTimeoutMs,
+  ] =
+    useState(120000);
+
+  const [
+    stepExistingConfig,
+    setStepExistingConfig,
+  ] =
+    useState<Record<string, unknown>>(
+      {}
+    );
 
   const [
     stepSaving,
@@ -1212,6 +1335,81 @@ export default function AutomationPage() {
             liveRuns
         );
 
+      const retryAttempts =
+        executionHistory.reduce(
+          (
+            total,
+            run
+          ) =>
+            total +
+            run.steps.filter(
+              (
+                step
+              ) =>
+                Boolean(
+                  step.retry?.isRetry
+                )
+            ).length,
+          0
+        );
+
+      const retriedRuns =
+        executionHistory.filter(
+          (
+            run
+          ) =>
+            run.steps.some(
+              (
+                step
+              ) =>
+                Boolean(
+                  step.retry?.isRetry
+                ) ||
+                Number(
+                  step.retry?.attempt ??
+                    0
+                ) >
+                  1
+            )
+        );
+
+      const recoveredRuns =
+        retriedRuns.filter(
+          (
+            run
+          ) =>
+            run.status.toLowerCase() ===
+              "completed" &&
+            run.steps.some(
+              (
+                step
+              ) =>
+                Boolean(
+                  step.retry?.isRetry
+                ) &&
+                step.status.toLowerCase() ===
+                  "completed"
+            )
+        ).length;
+
+      const unrecoveredFailures =
+        retriedRuns.filter(
+          (
+            run
+          ) =>
+            run.status.toLowerCase() ===
+            "failed"
+        ).length;
+
+      const retrySuccessRate =
+        retriedRuns.length > 0
+          ? Math.round(
+              (recoveredRuns /
+                retriedRuns.length) *
+                100
+            )
+          : 0;
+
       const mostActiveWorkflow =
         automations.length > 0
           ? [...automations].sort(
@@ -1234,6 +1432,12 @@ export default function AutomationPage() {
         developmentRuns,
         liveRuns,
         otherRuns,
+        retryAttempts,
+        retriedRuns:
+          retriedRuns.length,
+        recoveredRuns,
+        retrySuccessRate,
+        unrecoveredFailures,
         mostActiveWorkflow,
         recentRuns:
           executionHistory.slice(
@@ -2001,6 +2205,34 @@ export default function AutomationPage() {
       false
     );
 
+    setStepFailureMode(
+      "stop"
+    );
+
+    setStepMaxAttempts(
+      3
+    );
+
+    setStepRetryDelayMs(
+      0
+    );
+
+    setStepAfterRetries(
+      "stop"
+    );
+
+    setStepTimeoutMs(
+      30000
+    );
+
+    setWorkflowTimeoutMs(
+      120000
+    );
+
+    setStepExistingConfig(
+      {}
+    );
+
     setStepError("");
 
     setStepMessage("");
@@ -2116,6 +2348,84 @@ export default function AutomationPage() {
     }
 
     setStepError("");
+    const failurePolicy =
+      isRecordValue(
+        step.config?.failurePolicy
+      )
+        ? step.config.failurePolicy
+        : {};
+
+    const savedFailureMode =
+      normalizeFailurePolicyMode(
+        failurePolicy.mode
+      );
+
+    const savedMaxAttempts =
+      normalizePositiveInteger(
+        failurePolicy.maxAttempts,
+        3
+      );
+
+    const savedRetryDelayMs =
+      normalizeNonNegativeInteger(
+        failurePolicy.retryDelayMs,
+        0
+      );
+
+    const savedAfterRetries =
+      normalizeAfterRetriesMode(
+        failurePolicy.afterRetries
+      );
+
+    setStepFailureMode(
+      savedFailureMode
+    );
+
+    setStepMaxAttempts(
+      savedMaxAttempts
+    );
+
+    setStepRetryDelayMs(
+      savedRetryDelayMs
+    );
+
+    setStepAfterRetries(
+      savedAfterRetries
+    );
+
+    const savedGuardrails =
+      isRecordValue(
+        step.config?.executionGuardrails
+      )
+        ? step.config.executionGuardrails
+        : {};
+
+    setStepTimeoutMs(
+      normalizeGuardrailInteger(
+        savedGuardrails.stepTimeoutMs,
+        30000,
+        100,
+        120000
+      )
+    );
+
+    setWorkflowTimeoutMs(
+      normalizeGuardrailInteger(
+        savedGuardrails.workflowTimeoutMs,
+        120000,
+        1000,
+        300000
+      )
+    );
+
+    setStepExistingConfig(
+      isRecordValue(
+        step.config
+      )
+        ? step.config
+        : {}
+    );
+
     setStepMessage("");
 
     document
@@ -2216,6 +2526,92 @@ export default function AutomationPage() {
       instructions = stepInstructions.trim() || null;
     }
 
+    const failurePolicy =
+      stepType ===
+        "approval"
+        ? null
+        : {
+            mode:
+              stepFailureMode,
+
+            maxAttempts:
+              stepFailureMode ===
+              "retry"
+                ? Math.max(
+                    1,
+                    Math.min(
+                      10,
+                      stepMaxAttempts
+                    )
+                  )
+                : 1,
+
+            retryDelayMs:
+              stepFailureMode ===
+              "retry"
+                ? Math.max(
+                    0,
+                    Math.min(
+                      60000,
+                      stepRetryDelayMs
+                    )
+                  )
+                : 0,
+
+            afterRetries:
+              stepFailureMode ===
+              "retry"
+                ? stepAfterRetries
+                : "stop",
+          };
+
+    const config: Record<
+      string,
+      unknown
+    > = {
+      ...stepExistingConfig,
+    };
+
+    if (failurePolicy) {
+      config.failurePolicy =
+        failurePolicy;
+    } else {
+      delete config.failurePolicy;
+    }
+
+    if (
+      stepType !==
+      "approval"
+    ) {
+      const normalizedStepTimeoutMs =
+        Math.max(
+          100,
+          Math.min(
+            120000,
+            stepTimeoutMs
+          )
+        );
+
+      config.executionGuardrails = {
+        stepTimeoutMs:
+          normalizedStepTimeoutMs,
+
+        workflowTimeoutMs:
+          Math.max(
+            normalizedStepTimeoutMs,
+            Math.min(
+              300000,
+              Math.max(
+                1000,
+                workflowTimeoutMs
+              )
+            )
+          ),
+      };
+    } else {
+      delete config.executionGuardrails;
+    }
+
     const body = {
       name:
         stepName.trim() ||
@@ -2231,7 +2627,7 @@ export default function AutomationPage() {
 
       instructions,
 
-      config: {},
+      config,
 
       conditionConfig,
 
@@ -2336,6 +2732,13 @@ export default function AutomationPage() {
       setStepActionType("analyze_crm");
       setStepInstructions("");
       setStepRequiresApproval(false);
+      setStepFailureMode("stop");
+      setStepMaxAttempts(3);
+      setStepRetryDelayMs(0);
+      setStepAfterRetries("stop");
+      setStepTimeoutMs(30000);
+      setWorkflowTimeoutMs(120000);
+      setStepExistingConfig({});
     } catch (error) {
       setStepError(
         error instanceof Error
@@ -2951,6 +3354,42 @@ export default function AutomationPage() {
             }
             setStepRequiresApproval={
               setStepRequiresApproval
+            }
+            stepFailureMode={
+              stepFailureMode
+            }
+            setStepFailureMode={
+              setStepFailureMode
+            }
+            stepMaxAttempts={
+              stepMaxAttempts
+            }
+            setStepMaxAttempts={
+              setStepMaxAttempts
+            }
+            stepRetryDelayMs={
+              stepRetryDelayMs
+            }
+            setStepRetryDelayMs={
+              setStepRetryDelayMs
+            }
+            stepAfterRetries={
+              stepAfterRetries
+            }
+            setStepAfterRetries={
+              setStepAfterRetries
+            }
+            stepTimeoutMs={
+              stepTimeoutMs
+            }
+            setStepTimeoutMs={
+              setStepTimeoutMs
+            }
+            workflowTimeoutMs={
+              workflowTimeoutMs
+            }
+            setWorkflowTimeoutMs={
+              setWorkflowTimeoutMs
             }
             editingStepId={
               editingStepId
@@ -3615,6 +4054,79 @@ function AutomationIntelligenceSection({
           }
           compact
         />
+      </div>
+
+      <div className="border-t border-white/[0.06] p-5">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-[8px] font-semibold uppercase tracking-[0.18em] text-violet-400">
+              <RotateCcw
+                size={12}
+              />
+
+              J10 Recovery Intelligence
+            </div>
+
+            <div className="mt-1 text-[11px] font-semibold text-white/70">
+              Failure & Retry Observability
+            </div>
+
+            <div className="mt-1 text-[9px] text-white/25">
+              Retry attempts, recovered workflows, and failures that still require attention.
+            </div>
+          </div>
+
+          <div className="text-[9px] text-white/25">
+            {intelligence.retriedRuns} retried run
+            {intelligence.retriedRuns === 1
+              ? ""
+              : "s"}
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <IntelligenceMetricCard
+            icon={
+              RotateCcw
+            }
+            label="Retries"
+            value={
+              intelligence.retryAttempts
+            }
+            detail="Additional execution attempts"
+          />
+
+          <IntelligenceMetricCard
+            icon={
+              CheckCircle2
+            }
+            label="Recovered Runs"
+            value={
+              intelligence.recoveredRuns
+            }
+            detail="Retry sequences that recovered"
+          />
+
+          <IntelligenceMetricCard
+            icon={
+              Gauge
+            }
+            label="Retry Success Rate"
+            value={`${intelligence.retrySuccessRate}%`}
+            detail="Recovered vs retried runs"
+          />
+
+          <IntelligenceMetricCard
+            icon={
+              TriangleAlert
+            }
+            label="Unrecovered Failures"
+            value={
+              intelligence.unrecoveredFailures
+            }
+            detail="Retried runs still failed"
+          />
+        </div>
       </div>
 
       <div className="grid gap-4 border-t border-white/[0.06] p-5 xl:grid-cols-2">
@@ -4417,6 +4929,11 @@ function ExecutionRunCard({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const retrySummary =
+    getRunRetrySummary(
+      run
+    );
+
   return (
     <div className="px-5 py-4">
       <button
@@ -4447,6 +4964,39 @@ function ExecutionRunCard({
                   run.status
                 }
               />
+
+              {retrySummary.retried && (
+                <span className="flex items-center gap-1 rounded-full border border-violet-500/20 bg-violet-500/[0.07] px-2 py-0.5 text-[7px] font-semibold uppercase tracking-[0.12em] text-violet-300">
+                  <RotateCcw
+                    size={9}
+                  />
+
+                  {retrySummary.retryAttempts} retr
+                  {retrySummary.retryAttempts === 1
+                    ? "y"
+                    : "ies"}
+                </span>
+              )}
+
+              {retrySummary.recovered && (
+                <span className="flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/[0.07] px-2 py-0.5 text-[7px] font-semibold uppercase tracking-[0.12em] text-emerald-300">
+                  <CheckCircle2
+                    size={9}
+                  />
+
+                  Recovered
+                </span>
+              )}
+
+              {retrySummary.unrecovered && (
+                <span className="flex items-center gap-1 rounded-full border border-red-500/20 bg-red-500/[0.07] px-2 py-0.5 text-[7px] font-semibold uppercase tracking-[0.12em] text-red-300">
+                  <TriangleAlert
+                    size={9}
+                  />
+
+                  Unrecovered
+                </span>
+              )}
             </div>
 
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[9px] text-white/30">
@@ -4466,7 +5016,7 @@ function ExecutionRunCard({
                 {
                   run.steps.length
                 }{" "}
-                step
+                recorded attempt
                 {run.steps.length ===
                 1
                   ? ""
@@ -4568,6 +5118,93 @@ function ExecutionRunCard({
             />
           </div>
 
+          {retrySummary.retried && (
+            <div
+              className={`mt-4 rounded-xl border p-4 ${
+                retrySummary.recovered
+                  ? "border-emerald-500/15 bg-emerald-500/[0.035]"
+                  : retrySummary.unrecovered
+                    ? "border-red-500/15 bg-red-500/[0.035]"
+                    : "border-violet-500/15 bg-violet-500/[0.035]"
+              }`}
+            >
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${
+                      retrySummary.recovered
+                        ? "border-emerald-500/20 bg-emerald-500/[0.07] text-emerald-300"
+                        : retrySummary.unrecovered
+                          ? "border-red-500/20 bg-red-500/[0.07] text-red-300"
+                          : "border-violet-500/20 bg-violet-500/[0.07] text-violet-300"
+                    }`}
+                  >
+                    <RotateCcw
+                      size={14}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="text-[8px] font-semibold uppercase tracking-[0.18em] text-white/30">
+                      Recovery Intelligence
+                    </div>
+
+                    <div className="mt-1 text-[11px] font-semibold text-white/75">
+                      {retrySummary.recovered
+                        ? `Recovered after ${retrySummary.retryAttempts} retry${retrySummary.retryAttempts === 1 ? "" : "ies"}`
+                        : retrySummary.unrecovered
+                          ? "Retry sequence ended in failure"
+                          : "Retry sequence recorded"}
+                    </div>
+
+                    <div className="mt-1 text-[9px] leading-4 text-white/30">
+                      Failure Policy:{" "}
+                      {formatCodeLabel(
+                        retrySummary.policy ||
+                          "retry"
+                      )}
+                      {" · "}
+                      Maximum{" "}
+                      {retrySummary.maxAttempts ||
+                        "—"}{" "}
+                      attempt
+                      {retrySummary.maxAttempts === 1
+                        ? ""
+                        : "s"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <RecoveryMiniMetric
+                    label="Retries"
+                    value={
+                      retrySummary.retryAttempts
+                    }
+                  />
+
+                  <RecoveryMiniMetric
+                    label="Max Attempt"
+                    value={
+                      retrySummary.highestAttempt
+                    }
+                  />
+
+                  <RecoveryMiniMetric
+                    label="Outcome"
+                    value={
+                      retrySummary.recovered
+                        ? "Recovered"
+                        : retrySummary.unrecovered
+                          ? "Failed"
+                          : "Pending"
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {run.resultSummary && (
             <div className="mt-4 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.035] p-3">
               <div className="text-[8px] font-semibold uppercase tracking-[0.18em] text-emerald-300/70">
@@ -4604,7 +5241,7 @@ function ExecutionRunCard({
                 </div>
 
                 <div className="mt-1 text-[11px] font-semibold text-white/70">
-                  Run Steps
+                  Run Steps & Retry Attempts
                 </div>
               </div>
 
@@ -4646,6 +5283,28 @@ function ExecutionRunCard({
   );
 }
 
+function RecoveryMiniMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value:
+    | string
+    | number;
+}) {
+  return (
+    <div className="min-w-[88px] rounded-lg border border-white/[0.06] bg-black/15 px-3 py-2">
+      <div className="text-[7px] font-semibold uppercase tracking-[0.14em] text-white/20">
+        {label}
+      </div>
+
+      <div className="mt-1 text-[9px] font-semibold text-white/60">
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function ExecutionStepCard({
   step,
 }: {
@@ -4660,8 +5319,33 @@ function ExecutionStepCard({
     step.aiTask?.targetModel ||
     null;
 
+  const retry =
+    step.retry;
+
+  const failure =
+    getStepFailureDetails(
+      step
+    );
+
+  const recovered =
+    Boolean(
+      retry &&
+      retry.isRetry &&
+      step.status.toLowerCase() ===
+        "completed"
+    );
+
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
+    <div
+      className={`rounded-xl border p-3.5 ${
+        step.status.toLowerCase() ===
+        "failed"
+          ? "border-red-500/15 bg-red-500/[0.025]"
+          : recovered
+            ? "border-emerald-500/15 bg-emerald-500/[0.025]"
+            : "border-white/[0.06] bg-white/[0.02]"
+      }`}
+    >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-500/15 bg-blue-500/[0.045]">
@@ -4700,6 +5384,28 @@ function ExecutionStepCard({
                 }
               />
 
+              {retry && (
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[7px] font-semibold uppercase tracking-[0.12em] ${
+                    recovered
+                      ? "border-emerald-500/20 bg-emerald-500/[0.07] text-emerald-300"
+                      : retry.isRetry
+                        ? "border-violet-500/20 bg-violet-500/[0.07] text-violet-300"
+                        : "border-white/[0.08] bg-white/[0.04] text-white/45"
+                  }`}
+                >
+                  Attempt{" "}
+                  {
+                    retry.attempt
+                  }
+                  {recovered
+                    ? " · Recovered"
+                    : retry.isRetry
+                      ? " · Retry"
+                      : ""}
+                </span>
+              )}
+
               {step.approval.required && (
                 <span className="rounded-full border border-amber-500/20 bg-amber-500/[0.06] px-2 py-0.5 text-[7px] font-semibold uppercase tracking-wider text-amber-300">
                   {
@@ -4732,6 +5438,38 @@ function ExecutionStepCard({
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {retry && (
+            <>
+              <HistoryPill
+                label="ATTEMPT"
+                value={`${retry.attempt}/${Math.max(
+                  retry.maxAttempts,
+                  retry.attempt
+                )}`}
+              />
+
+              <HistoryPill
+                label="POLICY"
+                value={
+                  formatCodeLabel(
+                    retry.policy
+                  )
+                }
+              />
+
+              {retry.resolution && (
+                <HistoryPill
+                  label="RESOLUTION"
+                  value={
+                    formatCodeLabel(
+                      retry.resolution
+                    )
+                  }
+                />
+              )}
+            </>
+          )}
+
           {step.aiTask && (
             <>
               <HistoryPill
@@ -4772,6 +5510,135 @@ function ExecutionStepCard({
           )}
         </div>
       </div>
+
+      {retry && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <RunDetail
+            label="Failure Policy"
+            value={`${formatCodeLabel(
+              retry.policy
+            )} · Maximum ${Math.max(
+              retry.maxAttempts,
+              retry.attempt
+            )} attempt${
+              Math.max(
+                retry.maxAttempts,
+                retry.attempt
+              ) === 1
+                ? ""
+                : "s"
+            }`}
+          />
+
+          <RunDetail
+            label="Previous Attempts"
+            value={
+              retry.previousAttempts
+            }
+          />
+
+          <RunDetail
+            label="Retry State"
+            value={
+              recovered
+                ? `Recovered on attempt ${retry.attempt}`
+                : retry.resolution
+                  ? formatCodeLabel(
+                      retry.resolution
+                    )
+                  : retry.isRetry
+                    ? "Retry Attempt"
+                    : "Initial Attempt"
+            }
+          />
+        </div>
+      )}
+
+      {failure.message && (
+        <div className="mt-3 rounded-lg border border-red-500/15 bg-red-500/[0.04] p-3">
+          <div className="flex items-center gap-2 text-[8px] font-semibold uppercase tracking-[0.16em] text-red-300/70">
+            <TriangleAlert
+              size={11}
+            />
+
+            Failure
+          </div>
+
+          <div className="mt-2 whitespace-pre-wrap text-[9px] leading-5 text-red-200/60">
+            {
+              failure.message
+            }
+          </div>
+
+          {failure.resolution && (
+            <div className="mt-2 text-[8px] text-white/25">
+              Resolution:{" "}
+              <span className="font-semibold text-white/45">
+                {
+                  formatCodeLabel(
+                    failure.resolution
+                  )
+                }
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {getStepTimeoutDetails(
+        step
+      ) && (
+        <div className="mt-3 rounded-lg border border-amber-500/15 bg-amber-500/[0.04] p-3">
+          <div className="flex items-center gap-2 text-[8px] font-semibold uppercase tracking-[0.16em] text-amber-300/70">
+            <Clock3
+              size={11}
+            />
+
+            Execution Timeout
+          </div>
+
+          <div className="mt-2 text-[9px] leading-5 text-amber-100/55">
+            {
+              getStepTimeoutDetails(
+                step
+              )?.label
+            }
+            {" · "}
+            {
+              getStepTimeoutDetails(
+                step
+              )?.scope
+            }
+            {" · "}
+            {
+              getStepTimeoutDetails(
+                step
+              )?.timeoutMs
+            }
+            ms
+          </div>
+        </div>
+      )}
+
+      {recovered && (
+        <div className="mt-3 rounded-lg border border-emerald-500/15 bg-emerald-500/[0.04] p-3">
+          <div className="flex items-center gap-2 text-[8px] font-semibold uppercase tracking-[0.16em] text-emerald-300/70">
+            <CheckCircle2
+              size={11}
+            />
+
+            Recovery
+          </div>
+
+          <div className="mt-2 text-[9px] leading-5 text-emerald-100/55">
+            This workflow step recovered successfully on attempt{" "}
+            {
+              retry?.attempt
+            }
+            .
+          </div>
+        </div>
+      )}
 
       {step.aiTask && (
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -5396,6 +6263,24 @@ function WorkflowEditorModal({
   stepRequiresApproval,
   setStepRequiresApproval,
 
+  stepFailureMode,
+  setStepFailureMode,
+
+  stepMaxAttempts,
+  setStepMaxAttempts,
+
+  stepRetryDelayMs,
+  setStepRetryDelayMs,
+
+  stepAfterRetries,
+  setStepAfterRetries,
+
+  stepTimeoutMs,
+  setStepTimeoutMs,
+
+  workflowTimeoutMs,
+  setWorkflowTimeoutMs,
+
   editingStepId,
 
   saving,
@@ -5457,6 +6342,42 @@ function WorkflowEditorModal({
 
   setStepRequiresApproval: (
     value: boolean
+  ) => void;
+
+  stepFailureMode: FailurePolicyMode;
+
+  setStepFailureMode: (
+    value: FailurePolicyMode
+  ) => void;
+
+  stepMaxAttempts: number;
+
+  setStepMaxAttempts: (
+    value: number
+  ) => void;
+
+  stepRetryDelayMs: number;
+
+  setStepRetryDelayMs: (
+    value: number
+  ) => void;
+
+  stepAfterRetries: AfterRetriesMode;
+
+  setStepAfterRetries: (
+    value: AfterRetriesMode
+  ) => void;
+
+  stepTimeoutMs: number;
+
+  setStepTimeoutMs: (
+    value: number
+  ) => void;
+
+  workflowTimeoutMs: number;
+
+  setWorkflowTimeoutMs: (
+    value: number
   ) => void;
 
   editingStepId:
@@ -6115,6 +7036,308 @@ function WorkflowEditorModal({
               </label>
             )}
 
+            {/* FAILURE HANDLING */}
+
+            {stepType !==
+              "approval" && (
+              <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.018] p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-violet-500/20 bg-violet-500/[0.07]">
+                    <RotateCcw
+                      size={14}
+                      className="text-violet-300"
+                    />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-violet-400">
+                      Failure Handling
+                    </div>
+
+                    <div className="mt-1 text-[11px] font-semibold text-white/70">
+                      Step Recovery Policy
+                    </div>
+
+                    <div className="mt-1 text-[9px] leading-4 text-white/25">
+                      Decide what J10 should do when this exact workflow step fails.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <FieldLabel>
+                    On Failure
+                  </FieldLabel>
+
+                  <div className="relative">
+                    <select
+                      value={
+                        stepFailureMode
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setStepFailureMode(
+                          event.target.value as FailurePolicyMode
+                        )
+                      }
+                      className="h-11 w-full appearance-none rounded-xl border border-white/[0.07] bg-[#101014] px-3 pr-10 text-[11px] text-white outline-none focus:border-violet-500/35"
+                    >
+                      {failurePolicyOptions.map(
+                        (
+                          option
+                        ) => (
+                          <option
+                            key={
+                              option.value
+                            }
+                            value={
+                              option.value
+                            }
+                          >
+                            {
+                              option.label
+                            }
+                          </option>
+                        )
+                      )}
+                    </select>
+
+                    <ChevronDown
+                      size={14}
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white/30"
+                    />
+                  </div>
+
+                  <div className="mt-2 text-[9px] leading-4 text-white/25">
+                    {
+                      failurePolicyOptions.find(
+                        (
+                          option
+                        ) =>
+                          option.value ===
+                          stepFailureMode
+                      )?.description
+                    }
+                  </div>
+                </div>
+
+                {stepFailureMode ===
+                  "retry" && (
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <label>
+                      <span className="mb-1.5 block text-[9px] font-medium text-white/40">
+                        Maximum Attempts
+                      </span>
+
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={
+                          stepMaxAttempts
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setStepMaxAttempts(
+                            Math.max(
+                              1,
+                              Math.min(
+                                10,
+                                Number(
+                                  event.target.value
+                                ) ||
+                                  1
+                              )
+                            )
+                          )
+                        }
+                        className="h-10 w-full rounded-xl border border-white/[0.07] bg-[#101014] px-3 text-[11px] text-white outline-none focus:border-violet-500/35"
+                      />
+                    </label>
+
+                    <label>
+                      <span className="mb-1.5 block text-[9px] font-medium text-white/40">
+                        Retry Delay (ms)
+                      </span>
+
+                      <input
+                        type="number"
+                        min={0}
+                        max={60000}
+                        step={100}
+                        value={
+                          stepRetryDelayMs
+                        }
+                        onChange={(
+                          event
+                        ) =>
+                          setStepRetryDelayMs(
+                            Math.max(
+                              0,
+                              Math.min(
+                                60000,
+                                Number(
+                                  event.target.value
+                                ) ||
+                                  0
+                              )
+                            )
+                          )
+                        }
+                        className="h-10 w-full rounded-xl border border-white/[0.07] bg-[#101014] px-3 text-[11px] text-white outline-none focus:border-violet-500/35"
+                      />
+                    </label>
+
+                    <label className="md:col-span-2">
+                      <span className="mb-1.5 block text-[9px] font-medium text-white/40">
+                        After Retries Are Exhausted
+                      </span>
+
+                      <div className="relative">
+                        <select
+                          value={
+                            stepAfterRetries
+                          }
+                          onChange={(
+                            event
+                          ) =>
+                            setStepAfterRetries(
+                              event.target.value as AfterRetriesMode
+                            )
+                          }
+                          className="h-10 w-full appearance-none rounded-xl border border-white/[0.07] bg-[#101014] px-3 pr-10 text-[11px] text-white outline-none focus:border-violet-500/35"
+                        >
+                          {afterRetryOptions.map(
+                            (
+                              option
+                            ) => (
+                              <option
+                                key={
+                                  option.value
+                                }
+                                value={
+                                  option.value
+                                }
+                              >
+                                {
+                                  option.label
+                                }
+                              </option>
+                            )
+                          )}
+                        </select>
+
+                        <ChevronDown
+                          size={14}
+                          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white/30"
+                        />
+                      </div>
+                    </label>
+                  </div>
+                )}
+
+                <div className="mt-4 rounded-lg border border-blue-500/15 bg-blue-500/[0.035] px-3 py-2.5 text-[8px] leading-4 text-blue-100/35">
+                  J10 safety rules still override automatic retry for protected or sensitive business mutations.
+                </div>
+              </div>
+            )}
+
+            {/* EXECUTION GUARDRAILS */}
+
+            {stepType !==
+              "approval" && (
+              <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.018] p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/[0.07]">
+                    <Gauge
+                      size={14}
+                      className="text-blue-300"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-blue-400">
+                      Execution Guardrails
+                    </div>
+
+                    <div className="mt-1 text-[11px] font-semibold text-white/70">
+                      Timeouts & Stuck-Run Protection
+                    </div>
+
+                    <div className="mt-1 text-[9px] leading-4 text-white/25">
+                      Prevent a single step or workflow from running indefinitely.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <label>
+                    <span className="mb-1.5 block text-[9px] font-medium text-white/40">
+                      Step Timeout (ms)
+                    </span>
+
+                    <input
+                      type="number"
+                      min={100}
+                      max={120000}
+                      step={100}
+                      value={
+                        stepTimeoutMs
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setStepTimeoutMs(
+                          normalizeGuardrailInteger(
+                            event.target.value,
+                            30000,
+                            100,
+                            120000
+                          )
+                        )
+                      }
+                      className="h-10 w-full rounded-xl border border-white/[0.07] bg-[#101014] px-3 text-[11px] text-white outline-none focus:border-blue-500/35"
+                    />
+                  </label>
+
+                  <label>
+                    <span className="mb-1.5 block text-[9px] font-medium text-white/40">
+                      Workflow Max Runtime (ms)
+                    </span>
+
+                    <input
+                      type="number"
+                      min={1000}
+                      max={300000}
+                      step={1000}
+                      value={
+                        workflowTimeoutMs
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setWorkflowTimeoutMs(
+                          normalizeGuardrailInteger(
+                            event.target.value,
+                            120000,
+                            1000,
+                            300000
+                          )
+                        )
+                      }
+                      className="h-10 w-full rounded-xl border border-white/[0.07] bg-[#101014] px-3 text-[11px] text-white outline-none focus:border-blue-500/35"
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-4 rounded-lg border border-blue-500/15 bg-blue-500/[0.035] px-3 py-2.5 text-[8px] leading-4 text-blue-100/35">
+                  Timeout failures use the same J10 policy: Stop, Retry, Continue, or Human Review.
+                </div>
+              </div>
+            )}
+
             {/* SAVE */}
 
             <button
@@ -6310,6 +7533,49 @@ function SavedStepCard({
               {
                 step.instructions
               }
+            </div>
+          )}
+
+          {step.step_type !==
+            "approval" && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[8px] text-white/25">
+              <span>
+                Failure:{" "}
+                <span className="font-semibold text-white/45">
+                  {
+                    formatCodeLabel(
+                      getSavedFailurePolicy(
+                        step
+                      ).mode
+                    )
+                  }
+                </span>
+              </span>
+
+              {getSavedFailurePolicy(
+                step
+              ).mode ===
+                "retry" && (
+                <span className="rounded-full border border-violet-500/15 bg-violet-500/[0.05] px-2 py-0.5 text-violet-300/70">
+                  Max{" "}
+                  {
+                    getSavedFailurePolicy(
+                      step
+                    ).maxAttempts
+                  }{" "}
+                  attempts
+                </span>
+              )}
+
+              <span className="rounded-full border border-blue-500/15 bg-blue-500/[0.045] px-2 py-0.5 text-blue-300/65">
+                Timeout{" "}
+                {
+                  getSavedExecutionGuardrails(
+                    step
+                  ).stepTimeoutMs
+                }
+                ms
+              </span>
             </div>
           )}
         </div>
@@ -6515,6 +7781,360 @@ function MiniStep({
 HELPERS
 ============================================================
 */
+
+function isRecordValue(
+  value: unknown
+): value is Record<
+  string,
+  unknown
+> {
+  return (
+    Boolean(value) &&
+    typeof value ===
+      "object" &&
+    !Array.isArray(value)
+  );
+}
+
+function normalizeGuardrailInteger(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  maximum: number
+) {
+  const parsed =
+    Number(value);
+
+  if (
+    !Number.isFinite(
+      parsed
+    )
+  ) {
+    return fallback;
+  }
+
+  return Math.min(
+    maximum,
+    Math.max(
+      minimum,
+      Math.floor(
+        parsed
+      )
+    )
+  );
+}
+
+function getSavedExecutionGuardrails(
+  step: AutomationStep
+) {
+  const raw =
+    isRecordValue(
+      step.config?.executionGuardrails
+    )
+      ? step.config.executionGuardrails
+      : {};
+
+  const stepTimeoutMs =
+    normalizeGuardrailInteger(
+      raw.stepTimeoutMs,
+      30000,
+      100,
+      120000
+    );
+
+  return {
+    stepTimeoutMs,
+
+    workflowTimeoutMs:
+      Math.max(
+        stepTimeoutMs,
+        normalizeGuardrailInteger(
+          raw.workflowTimeoutMs,
+          120000,
+          1000,
+          300000
+        )
+      ),
+  };
+}
+
+function getStepTimeoutDetails(
+  step: ExecutionHistoryStep
+) {
+  const timeout =
+    step.inputPayload.timeout;
+
+  if (
+    !isRecordValue(
+      timeout
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    scope:
+      typeof timeout.scope ===
+        "string"
+        ? formatCodeLabel(
+            timeout.scope
+          )
+        : "Step",
+
+    label:
+      typeof timeout.label ===
+        "string"
+        ? timeout.label
+        : "J10 execution guardrail",
+
+    timeoutMs:
+      Number(
+        timeout.timeoutMs ??
+          0
+      ) ||
+      0,
+  };
+}
+
+function normalizePositiveInteger(
+  value: unknown,
+  fallback: number
+) {
+  const parsed =
+    Number(value);
+
+  if (
+    !Number.isFinite(
+      parsed
+    )
+  ) {
+    return fallback;
+  }
+
+  return Math.max(
+    1,
+    Math.floor(
+      parsed
+    )
+  );
+}
+
+function normalizeNonNegativeInteger(
+  value: unknown,
+  fallback: number
+) {
+  const parsed =
+    Number(value);
+
+  if (
+    !Number.isFinite(
+      parsed
+    )
+  ) {
+    return fallback;
+  }
+
+  return Math.max(
+    0,
+    Math.floor(
+      parsed
+    )
+  );
+}
+
+function normalizeFailurePolicyMode(
+  value: unknown
+): FailurePolicyMode {
+  return value ===
+      "retry" ||
+    value ===
+      "continue" ||
+    value ===
+      "human_review"
+    ? value
+    : "stop";
+}
+
+function normalizeAfterRetriesMode(
+  value: unknown
+): AfterRetriesMode {
+  return value ===
+      "continue" ||
+    value ===
+      "human_review"
+    ? value
+    : "stop";
+}
+
+function getSavedFailurePolicy(
+  step: AutomationStep
+) {
+  const raw =
+    isRecordValue(
+      step.config?.failurePolicy
+    )
+      ? step.config.failurePolicy
+      : {};
+
+  return {
+    mode:
+      normalizeFailurePolicyMode(
+        raw.mode
+      ),
+
+    maxAttempts:
+      normalizePositiveInteger(
+        raw.maxAttempts,
+        3
+      ),
+
+    retryDelayMs:
+      normalizeNonNegativeInteger(
+        raw.retryDelayMs,
+        0
+      ),
+
+    afterRetries:
+      normalizeAfterRetriesMode(
+        raw.afterRetries
+      ),
+  };
+}
+
+function getStepFailureDetails(
+  step: ExecutionHistoryStep
+) {
+  const failure =
+    step.inputPayload.failure;
+
+  if (
+    !isRecordValue(
+      failure
+    )
+  ) {
+    return {
+      message:
+        null as string | null,
+      resolution:
+        null as string | null,
+    };
+  }
+
+  return {
+    message:
+      typeof failure.message ===
+        "string"
+        ? failure.message
+        : null,
+
+    resolution:
+      typeof failure.resolution ===
+        "string"
+        ? failure.resolution
+        : null,
+  };
+}
+
+function getRunRetrySummary(
+  run: ExecutionHistoryRun
+) {
+  const retrySteps =
+    run.steps.filter(
+      (
+        step
+      ) =>
+        Boolean(
+          step.retry
+        )
+    );
+
+  const retryAttempts =
+    retrySteps.filter(
+      (
+        step
+      ) =>
+        Boolean(
+          step.retry?.isRetry
+        )
+    ).length;
+
+  const highestAttempt =
+    retrySteps.reduce(
+      (
+        highest,
+        step
+      ) =>
+        Math.max(
+          highest,
+          Number(
+            step.retry?.attempt ??
+              0
+          )
+        ),
+      0
+    );
+
+  const maxAttempts =
+    retrySteps.reduce(
+      (
+        highest,
+        step
+      ) =>
+        Math.max(
+          highest,
+          Number(
+            step.retry?.maxAttempts ??
+              0
+          )
+        ),
+      0
+    );
+
+  const policy =
+    retrySteps.find(
+      (
+        step
+      ) =>
+        Boolean(
+          step.retry?.policy
+        )
+    )?.retry?.policy ??
+    null;
+
+  const retried =
+    retryAttempts > 0 ||
+    highestAttempt > 1;
+
+  const recovered =
+    retried &&
+    run.status.toLowerCase() ===
+      "completed" &&
+    retrySteps.some(
+      (
+        step
+      ) =>
+        Boolean(
+          step.retry?.isRetry
+        ) &&
+        step.status.toLowerCase() ===
+          "completed"
+    );
+
+  const unrecovered =
+    retried &&
+    run.status.toLowerCase() ===
+      "failed";
+
+  return {
+    retried,
+    retryAttempts,
+    highestAttempt,
+    maxAttempts,
+    policy,
+    recovered,
+    unrecovered,
+  };
+}
 
 function formatCodeLabel(
   value: string

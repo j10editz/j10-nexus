@@ -11,6 +11,10 @@ import {
   createServerClient,
 } from "@supabase/ssr";
 
+import {
+  rebuildWorkflowContext,
+} from "@/lib/automation/workflow-context";
+
 /*
 ============================================================
 TYPES
@@ -105,6 +109,15 @@ type HistoryStep = {
 
   inputPayload:
     Record<string, unknown>;
+
+  retry: {
+    attempt: number;
+    maxAttempts: number;
+    isRetry: boolean;
+    policy: string;
+    resolution: string | null;
+    previousAttempts: number;
+  } | null;
 
   aiTask: {
     id: string;
@@ -230,6 +243,96 @@ function getLimit(
     ),
     100
   );
+}
+
+
+function isRecord(
+  value: unknown
+): value is Record<
+  string,
+  unknown
+> {
+  return (
+    Boolean(value) &&
+    typeof value ===
+      "object" &&
+    !Array.isArray(value)
+  );
+}
+
+function readRetryHistory(
+  inputPayload:
+    Record<string, unknown>
+) {
+  const retry =
+    inputPayload.retry;
+
+  if (
+    !isRecord(retry)
+  ) {
+    return null;
+  }
+
+  return {
+    attempt:
+      Math.max(
+        0,
+        Math.floor(
+          safeNumber(
+            retry.attempt as
+              | number
+              | string
+              | null
+              | undefined
+          )
+        )
+      ),
+
+    maxAttempts:
+      Math.max(
+        0,
+        Math.floor(
+          safeNumber(
+            retry.maxAttempts as
+              | number
+              | string
+              | null
+              | undefined
+          )
+        )
+      ),
+
+    isRetry:
+      Boolean(
+        retry.isRetry
+      ),
+
+    policy:
+      typeof retry.policy ===
+        "string"
+        ? retry.policy
+        : "stop",
+
+    resolution:
+      typeof retry.resolution ===
+        "string"
+        ? retry.resolution
+        : null,
+
+    previousAttempts:
+      Math.max(
+        0,
+        Math.floor(
+          safeNumber(
+            retry.previousAttempts as
+              | number
+              | string
+              | null
+              | undefined
+          )
+        )
+      ),
+  };
 }
 
 /*
@@ -560,6 +663,25 @@ export async function GET(
       (rawRunSteps ??
         []) as AutomationRunStep[];
 
+    const rawStepsByRun =
+      new Map<
+        string,
+        AutomationRunStep[]
+      >();
+
+    for (const step of runSteps) {
+      const existing =
+        rawStepsByRun.get(
+          step.run_id
+        ) ?? [];
+
+      existing.push(step);
+      rawStepsByRun.set(
+        step.run_id,
+        existing
+      );
+    }
+
     /*
     ============================================================
     AI TASKS
@@ -729,6 +851,12 @@ export async function GET(
           step.input_payload ??
           {},
 
+        retry:
+          readRetryHistory(
+            step.input_payload ??
+            {}
+          ),
+
         aiTask:
           aiTask
             ? {
@@ -862,6 +990,34 @@ export async function GET(
 
             completedAt:
               run.completed_at,
+
+            workflowContext:
+              rebuildWorkflowContext({
+                triggerPayload:
+                  run.trigger_payload ??
+                  {},
+                automation: {
+                  id:
+                    run.automation_id,
+                  name:
+                    automation?.name ??
+                    "Unknown Workflow",
+                  triggerType:
+                    run.trigger_type,
+                },
+                run: {
+                  id:
+                    run.id,
+                  executionMode:
+                    run.execution_mode,
+                  startedAt:
+                    run.started_at,
+                },
+                runSteps:
+                  rawStepsByRun.get(
+                    run.id
+                  ) ?? [],
+              }),
 
             steps:
               stepsByRun.get(

@@ -38,6 +38,8 @@ export type AutomationActionContext = {
 
   triggerPayload: Record<string, unknown>;
 
+  workflowContext?: Record<string, unknown> | null;
+
   employeeId?: string | null;
   employeeName?: string | null;
 };

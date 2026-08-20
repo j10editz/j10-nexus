@@ -11,6 +11,10 @@ import {
   createServerClient,
 } from "@supabase/ssr";
 
+import {
+  validateAutomationStepConfig,
+} from "@/lib/automation/failure-policy";
+
 type RouteContext = {
   params: Promise<{
     id: string;
@@ -421,6 +425,26 @@ export async function POST(
     const body =
       (await request.json()) as CreateStepBody;
 
+    const configValidation =
+      validateAutomationStepConfig(
+        body.config
+      );
+
+    if (
+      !configValidation.valid
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            configValidation.error,
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
     const stepType =
       body.stepType;
 
@@ -685,8 +709,7 @@ export async function POST(
             null,
 
           config:
-            body.config ??
-            {},
+            configValidation.config,
 
           condition_config:
             body.conditionConfig ??

@@ -11,6 +11,10 @@ import {
   createServerClient,
 } from "@supabase/ssr";
 
+import type {
+  SupabaseClient,
+} from "@supabase/supabase-js";
+
 import {
   executeAutomationAction,
   isAutomationActionType,
@@ -19,6 +23,32 @@ import {
 import {
   evaluateAutomationCondition,
 } from "@/lib/automation/condition-engine";
+
+import {
+  buildRetryMetadata,
+  getAutomationStepFailurePolicy,
+  resolveAutomationFailure,
+  shouldSimulateDevelopmentFailure,
+  waitForRetry,
+} from "@/lib/automation/failure-policy";
+
+import {
+  assertWorkflowWithinDeadline,
+  getAutomationExecutionGuardrails,
+  getAutomationTimeoutMetadata,
+  shouldSimulateDevelopmentTimeout,
+  withAutomationTimeout,
+} from "@/lib/automation/execution-guardrails";
+
+import {
+  buildWorkflowCollaborationSnapshot,
+  buildWorkflowTaskInput,
+  cloneWorkflowContext,
+  createWorkflowContext,
+  createWorkflowStepOutput,
+  interpolateWorkflowTemplate,
+  setWorkflowStepOutput,
+} from "@/lib/automation/workflow-context";
 
 type TriggerSource =
   | "manual"
@@ -80,6 +110,44 @@ function getEventDepth(
     : 0;
 }
 
+
+const EVENT_DEDUPE_WINDOW_MS =
+  10 * 60 * 1000;
+
+function getEventDedupeKey(
+  payload: Record<
+    string,
+    unknown
+  >
+) {
+  const meta =
+    payload.__j10_event;
+
+  if (
+    !meta ||
+    typeof meta !==
+      "object" ||
+    Array.isArray(
+      meta
+    )
+  ) {
+    return "";
+  }
+
+  const value =
+    (
+      meta as Record<
+        string,
+        unknown
+      >
+    ).dedupeKey;
+
+  return typeof value ===
+    "string"
+    ? value.trim()
+    : "";
+}
+
 type RouteContext = {
   params: Promise<{
     id: string;
@@ -101,6 +169,7 @@ type AutomationStep = {
   employee_name: string | null;
   task_type: string | null;
   instructions: string | null;
+  config: Record<string, unknown>;
   requires_approval: boolean;
   approval_type: string | null;
   is_enabled: boolean;
@@ -131,6 +200,7 @@ type RunTaskResponse = {
     id: string;
     status: string;
     result_text?: string | null;
+    result_data?: Record<string, unknown> | null;
     error_message?: string | null;
     execution_mode?: string | null;
     api_called?: boolean;
@@ -233,6 +303,156 @@ function formatActionName(
     );
 }
 
+
+function validateForwardBranchTarget(
+  steps: AutomationStep[],
+  currentStepOrder: number,
+  targetStepOrder:
+    | number
+    | null
+) {
+  if (
+    targetStepOrder ===
+    null
+  ) {
+    return null;
+  }
+
+  if (
+    targetStepOrder <=
+    currentStepOrder
+  ) {
+    throw new Error(
+      `J10 blocked a backward branch from Step ${currentStepOrder} to Step ${targetStepOrder}.`
+    );
+  }
+
+  const targetExists =
+    steps.some(
+      (candidate) =>
+        candidate.step_order ===
+        targetStepOrder
+    );
+
+  if (!targetExists) {
+    throw new Error(
+      `J10 branch target Step ${targetStepOrder} does not exist or is disabled.`
+    );
+  }
+
+  return targetStepOrder;
+}
+
+
+function getErrorMessage(
+  error: unknown,
+  fallback: string
+) {
+  return error instanceof Error &&
+    error.message.trim()
+    ? error.message
+    : fallback;
+}
+
+async function getStepAttemptNumber(args: {
+  supabase: SupabaseClient;
+  userId: string;
+  runId: string;
+  automationStepId: string;
+}) {
+  const {
+    data,
+    error,
+  } =
+    await args.supabase
+      .from(
+        "automation_run_steps"
+      )
+      .select(
+        `
+        id,
+        input_payload
+        `
+      )
+      .eq(
+        "run_id",
+        args.runId
+      )
+      .eq(
+        "automation_step_id",
+        args.automationStepId
+      )
+      .eq(
+        "user_id",
+        args.userId
+      )
+      .eq(
+        "status",
+        "failed"
+      );
+
+  if (error) {
+    throw new Error(
+      "J10 could not determine the retry attempt number."
+    );
+  }
+
+  return (
+    data?.length ??
+    0
+  ) + 1;
+}
+
+function createFailedStepOutput(args: {
+  step: AutomationStep;
+  errorMessage: string;
+  attempt: number;
+  policy: string;
+}) {
+  return createWorkflowStepOutput({
+    stepId:
+      args.step.id,
+
+    stepOrder:
+      args.step.step_order,
+
+    stepName:
+      args.step.name,
+
+    stepType:
+      args.step.step_type,
+
+    actionType:
+      args.step.action_type,
+
+    employeeId:
+      args.step.employee_id,
+
+    employeeName:
+      args.step.employee_name,
+
+    status:
+      "failed",
+
+    resultText:
+      args.errorMessage,
+
+    resultData: {
+      failed:
+        true,
+
+      error:
+        args.errorMessage,
+
+      attempt:
+        args.attempt,
+
+      failurePolicy:
+        args.policy,
+    },
+  });
+}
+
 /*
 ============================================================
 POST
@@ -266,6 +486,23 @@ export async function POST(
 
   let automationId =
     "";
+
+  let loadedSteps:
+    AutomationStep[] = [];
+
+  let currentStep:
+    AutomationStep | null =
+    null;
+
+  let currentAttempt =
+    1;
+
+  let currentContextBefore:
+    Record<string, unknown> | null =
+    null;
+
+  let currentTriggerPayload:
+    Record<string, unknown> = {};
 
   try {
     const {
@@ -362,6 +599,9 @@ export async function POST(
       triggerSource =
         "manual";
     }
+
+    currentTriggerPayload =
+      triggerPayload;
 
     /*
     ============================================================
@@ -492,6 +732,150 @@ export async function POST(
 
     /*
     ============================================================
+    13I — EXECUTION-LEVEL IDEMPOTENCY
+
+    The event dispatcher performs the first duplicate check.
+    This second guard protects the execution route itself from
+    concurrent retries or direct duplicate deliveries.
+    Manual and scheduled runs are intentionally excluded.
+    ============================================================
+    */
+
+    const eventDedupeKey =
+      getEventDedupeKey(
+        triggerPayload
+      );
+
+    if (
+      triggerSource !==
+        "manual" &&
+      triggerSource !==
+        "schedule" &&
+      eventDedupeKey
+    ) {
+      const dedupeWindowStart =
+        new Date(
+          Date.now() -
+            EVENT_DEDUPE_WINDOW_MS
+        ).toISOString();
+
+      const {
+        data:
+          duplicateRun,
+        error:
+          duplicateRunError,
+      } =
+        await supabase
+          .from(
+            "automation_runs"
+          )
+          .select(
+            `
+            id,
+            status,
+            current_step_order,
+            started_at,
+            completed_at
+            `
+          )
+          .eq(
+            "automation_id",
+            automation.id
+          )
+          .eq(
+            "user_id",
+            user.id
+          )
+          .gte(
+            "started_at",
+            dedupeWindowStart
+          )
+          .contains(
+            "trigger_payload",
+            {
+              __j10_event: {
+                dedupeKey:
+                  eventDedupeKey,
+              },
+            }
+          )
+          .order(
+            "started_at",
+            {
+              ascending:
+                false,
+            }
+          )
+          .limit(1)
+          .maybeSingle();
+
+      if (
+        duplicateRunError
+      ) {
+        console.error(
+          "Automation idempotency lookup error:",
+          duplicateRunError
+        );
+
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Could not verify event idempotency.",
+          },
+          {
+            status: 500,
+          }
+        );
+      }
+
+      if (
+        duplicateRun
+      ) {
+        return NextResponse.json({
+          success: true,
+
+          status:
+            "duplicate",
+
+          duplicate:
+            true,
+
+          deduplicated:
+            true,
+
+          awaitingApproval:
+            duplicateRun.status ===
+            "awaiting_approval",
+
+          message:
+            "Duplicate J10 event delivery ignored. Existing workflow execution preserved.",
+
+          run: {
+            id:
+              duplicateRun.id,
+
+            automationId:
+              automation.id,
+
+            status:
+              duplicateRun.status,
+
+            currentStepOrder:
+              duplicateRun.current_step_order,
+
+            startedAt:
+              duplicateRun.started_at,
+
+            completedAt:
+              duplicateRun.completed_at,
+          },
+        });
+      }
+    }
+
+    /*
+    ============================================================
     LOAD STEPS
     ============================================================
     */
@@ -517,6 +901,7 @@ export async function POST(
           employee_name,
           task_type,
           instructions,
+          config,
           requires_approval,
           approval_type,
           is_enabled
@@ -563,6 +948,9 @@ export async function POST(
     const steps =
       (rawSteps ??
         []) as AutomationStep[];
+
+    loadedSteps =
+      steps;
 
     /*
     ============================================================
@@ -652,6 +1040,21 @@ export async function POST(
 
     runId =
       run.id;
+
+    const workflowContext =
+      createWorkflowContext({
+        triggerPayload,
+        automation: {
+          id: automation.id,
+          name: automation.name,
+          triggerType: triggerSource,
+        },
+        run: {
+          id: run.id,
+          executionMode,
+          startedAt: run.started_at ?? startedAt,
+        },
+      });
 
     /*
     ============================================================
@@ -765,6 +1168,10 @@ export async function POST(
       | number
       | null = null;
 
+    let activeBranchTargetStepOrder:
+      | number
+      | null = null;
+
     /*
     ============================================================
     EXECUTE STEPS
@@ -774,6 +1181,113 @@ export async function POST(
     for (
       const step of steps
     ) {
+      /*
+      ==========================================================
+      13E TARGETED BRANCH SKIP
+      ==========================================================
+      */
+
+      if (
+        activeBranchTargetStepOrder !==
+          null &&
+        step.step_order <
+          activeBranchTargetStepOrder
+      ) {
+        const branchContext =
+          cloneWorkflowContext(
+            workflowContext
+          );
+
+        const {
+          error:
+            targetedSkipError,
+        } =
+          await supabase
+            .from(
+              "automation_run_steps"
+            )
+            .insert({
+              run_id:
+                run.id,
+
+              automation_id:
+                automation.id,
+
+              automation_step_id:
+                step.id,
+
+              user_id:
+                user.id,
+
+              step_order:
+                step.step_order,
+
+              step_type:
+                step.step_type,
+
+              action_type:
+                step.action_type,
+
+              employee_id:
+                step.employee_id,
+
+              employee_name:
+                step.employee_name,
+
+              ai_task_id:
+                null,
+
+              status:
+                "skipped",
+
+              requires_approval:
+                false,
+
+              approval_status:
+                "not_required",
+
+              input_payload: {
+                trigger:
+                  triggerPayload,
+
+                workflow_context:
+                  branchContext,
+
+                branch: {
+                  skipped:
+                    true,
+
+                  branch_type:
+                    "targeted_jump",
+
+                  target_step_order:
+                    activeBranchTargetStepOrder,
+
+                  reason:
+                    `Skipped by J10 targeted branch to Step ${activeBranchTargetStepOrder}.`,
+                },
+              },
+            });
+
+        if (
+          targetedSkipError
+        ) {
+          throw new Error(
+            `Could not record targeted branch skip for Step ${step.step_order}.`
+          );
+        }
+
+        continue;
+      }
+
+      if (
+        activeBranchTargetStepOrder ===
+        step.step_order
+      ) {
+        activeBranchTargetStepOrder =
+          null;
+      }
+
       /*
       ==========================================================
       CONDITION BRANCH SKIP
@@ -860,6 +1374,82 @@ export async function POST(
         continue;
       }
 
+      currentStep =
+        step;
+
+      currentAttempt =
+        await getStepAttemptNumber({
+          supabase,
+
+          userId:
+            user.id,
+
+          runId:
+            run.id,
+
+          automationStepId:
+            step.id,
+        });
+
+      const contextBefore =
+        cloneWorkflowContext(
+          workflowContext
+        );
+
+      currentContextBefore =
+        contextBefore as unknown as Record<
+          string,
+          unknown
+        >;
+
+      const resolvedInstructions =
+        interpolateWorkflowTemplate(
+          step.instructions,
+          workflowContext
+        );
+
+      const executionGuardrails =
+        getAutomationExecutionGuardrails(
+          step.config
+        );
+
+      const stepStartedAtMs =
+        Date.now();
+
+      assertWorkflowWithinDeadline({
+        runStartedAt:
+          startedAt,
+
+        guardrails:
+          executionGuardrails,
+
+        label:
+          `${automation.name} / Step ${step.step_order}`,
+      });
+
+      if (
+        step.step_type !==
+        "approval"
+      ) {
+        const simulatedTimeout =
+          shouldSimulateDevelopmentTimeout({
+            config:
+              step.config,
+
+            attempt:
+              currentAttempt,
+
+            executionMode,
+
+            guardrails:
+              executionGuardrails,
+          });
+
+        if (simulatedTimeout) {
+          throw simulatedTimeout;
+        }
+      }
+
       /*
       ==========================================================
       UPDATE CURRENT STEP
@@ -882,6 +1472,30 @@ export async function POST(
           "user_id",
           user.id
         );
+
+      if (
+        step.step_type !==
+        "approval"
+      ) {
+        const simulatedFailure =
+          shouldSimulateDevelopmentFailure({
+            config:
+              step.config,
+
+            attempt:
+              currentAttempt,
+
+            executionMode,
+          });
+
+        if (
+          simulatedFailure
+        ) {
+          throw new Error(
+            simulatedFailure
+          );
+        }
+      }
 
       /*
       ==========================================================
@@ -943,8 +1557,12 @@ export async function POST(
               approval_status:
                 "pending",
 
-              input_payload:
-                triggerPayload,
+              input_payload: {
+                trigger:
+                  triggerPayload,
+                workflow_context:
+                  contextBefore,
+              },
             })
             .select(
               `
@@ -1129,6 +1747,11 @@ export async function POST(
           );
         }
 
+        const collaborationBefore =
+          buildWorkflowCollaborationSnapshot(
+            contextBefore
+          );
+
         /*
         ========================================================
         CREATE RUN STEP
@@ -1189,6 +1812,12 @@ export async function POST(
               input_payload: {
                 trigger:
                   triggerPayload,
+
+                workflow_context:
+                  contextBefore,
+
+                collaboration:
+                  collaborationBefore,
 
                 workflow: {
                   id:
@@ -1251,20 +1880,14 @@ export async function POST(
           request.nextUrl.origin;
 
         const taskInput =
-          Object.keys(
-            triggerPayload
-          ).length >
-          0
-            ? JSON.stringify(
-                triggerPayload,
-                null,
-                2
-              )
-            : automation.description ??
-              `Workflow: ${automation.name}`;
+          buildWorkflowTaskInput(
+            contextBefore
+          );
 
         const createTaskResponse =
-          await fetch(
+          await withAutomationTimeout(
+            () =>
+              fetch(
             `${origin}/api/ai-tasks`,
             {
               method:
@@ -1295,7 +1918,7 @@ export async function POST(
                     "general",
 
                   instructions:
-                    step.instructions?.trim() ||
+                    resolvedInstructions?.trim() ||
                     `Execute Step ${step.step_order} for workflow "${automation.name}".`,
 
                   inputText:
@@ -1311,6 +1934,20 @@ export async function POST(
                       ),
                   },
                 }),
+            }
+              ),
+
+            {
+              runStartedAt:
+                startedAt,
+
+              stepStartedAtMs,
+
+              guardrails:
+                executionGuardrails,
+
+              label:
+                `AI task creation at Step ${step.step_order}`,
             }
           );
 
@@ -1372,7 +2009,9 @@ export async function POST(
         */
 
         const runTaskResponse =
-          await fetch(
+          await withAutomationTimeout(
+            () =>
+              fetch(
             `${origin}/api/ai-tasks/${encodeURIComponent(
               aiTaskId
             )}/run`,
@@ -1390,6 +2029,20 @@ export async function POST(
 
               cache:
                 "no-store",
+            }
+              ),
+
+            {
+              runStartedAt:
+                startedAt,
+
+              stepStartedAtMs,
+
+              guardrails:
+                executionGuardrails,
+
+              label:
+                `AI employee execution at Step ${step.step_order}`,
             }
           );
 
@@ -1445,6 +2098,77 @@ export async function POST(
         ========================================================
         */
 
+        const stepOutput =
+          createWorkflowStepOutput({
+            stepId: step.id,
+            stepOrder: step.step_order,
+            stepName: step.name,
+            stepType: step.step_type,
+            actionType:
+              step.action_type ??
+              "run_ai_employee",
+            employeeId: step.employee_id,
+            employeeName: step.employee_name,
+            aiTaskId,
+            resultText:
+              task?.result_text ??
+              null,
+            resultData: {
+              ...(
+                task?.result_data &&
+                typeof task.result_data ===
+                  "object" &&
+                !Array.isArray(
+                  task.result_data
+                )
+                  ? task.result_data
+                  : {}
+              ),
+
+              taskStatus:
+                task?.status ??
+                "completed",
+
+              executionMode:
+                task?.execution_mode ??
+                executionMode,
+
+              apiCalled:
+                stepApiCalled,
+
+              estimatedCostUSD:
+                stepCost,
+
+              exactEmployeeBinding:
+                true,
+
+              sourceEmployeeId:
+                step.employee_id,
+
+              sourceEmployeeName:
+                step.employee_name,
+
+              collaboration: {
+                receivedUpstreamContext:
+                  true,
+
+                upstreamAIStepCount:
+                  collaborationBefore.aiStepCount,
+
+                upstreamCollaboratorCount:
+                  collaborationBefore.collaboratorCount,
+
+                upstreamCollaborators:
+                  collaborationBefore.collaborators,
+              },
+            },
+          });
+
+        setWorkflowStepOutput(
+          workflowContext,
+          stepOutput
+        );
+
         const {
           error:
             completeStepError,
@@ -1456,6 +2180,30 @@ export async function POST(
             .update({
               status:
                 "completed",
+
+              input_payload: {
+                trigger:
+                  triggerPayload,
+                workflow_context:
+                  contextBefore,
+
+                collaboration:
+                  collaborationBefore,
+
+                retry:
+                  buildRetryMetadata({
+                    attempt:
+                      currentAttempt,
+
+                    policy:
+                      getAutomationStepFailurePolicy(
+                        step.config
+                      ),
+                  }),
+
+                output:
+                  stepOutput,
+              },
             })
             .eq(
               "id",
@@ -1578,6 +2326,9 @@ export async function POST(
                   trigger:
                     triggerPayload,
 
+                  workflow_context:
+                    contextBefore,
+
                   workflow: {
                     id:
                       automation.id,
@@ -1602,7 +2353,7 @@ export async function POST(
                       resolvedActionType,
 
                     instructions:
-                      step.instructions,
+                      resolvedInstructions,
 
                     reason:
                       "Workflow step requires human approval before execution.",
@@ -1790,7 +2541,9 @@ export async function POST(
         */
 
         const actionResult =
-          await executeAutomationAction({
+          await withAutomationTimeout(
+            () =>
+              executeAutomationAction({
             actionType:
               resolvedActionType,
 
@@ -1810,16 +2563,33 @@ export async function POST(
               step.name,
 
             instructions:
-              step.instructions,
+              resolvedInstructions,
 
             triggerPayload,
+
+            workflowContext:
+              workflowContext as unknown as Record<string, unknown>,
 
             employeeId:
               step.employee_id,
 
             employeeName:
               step.employee_name,
-          });
+              }),
+
+            {
+              runStartedAt:
+                startedAt,
+
+              stepStartedAtMs,
+
+              guardrails:
+                executionGuardrails,
+
+              label:
+                `Action Engine execution at Step ${step.step_order}`,
+            }
+          );
 
         if (
           !actionResult.success ||
@@ -1898,6 +2668,9 @@ export async function POST(
                 input_payload: {
                   trigger:
                     triggerPayload,
+
+                  workflow_context:
+                    contextBefore,
 
                   workflow: {
                     id:
@@ -2124,6 +2897,27 @@ export async function POST(
         ========================================================
         */
 
+        const actionStepOutput =
+          createWorkflowStepOutput({
+            stepId: step.id,
+            stepOrder: step.step_order,
+            stepName: step.name,
+            stepType: step.step_type,
+            actionType:
+              resolvedActionType,
+            employeeId: step.employee_id,
+            employeeName: step.employee_name,
+            resultText:
+              actionResult.resultText,
+            resultData:
+              actionResult.metadata,
+          });
+
+        setWorkflowStepOutput(
+          workflowContext,
+          actionStepOutput
+        );
+
         const {
           data:
             completedActionRunStep,
@@ -2178,6 +2972,9 @@ export async function POST(
                 trigger:
                   triggerPayload,
 
+                workflow_context:
+                  contextBefore,
+
                 workflow: {
                   id:
                     automation.id,
@@ -2196,6 +2993,20 @@ export async function POST(
                   name:
                     step.name,
                 },
+
+                retry:
+                  buildRetryMetadata({
+                    attempt:
+                      currentAttempt,
+
+                    policy:
+                      getAutomationStepFailurePolicy(
+                        step.config
+                      ),
+                  }),
+
+                output:
+                  actionStepOutput,
 
                 action_result: {
                   status:
@@ -2261,27 +3072,55 @@ export async function POST(
             instructions:
               step.instructions,
 
-            context: {
-              trigger:
-                triggerPayload,
+            context:
+              workflowContext,
+          });
 
-              workflow: {
-                id:
-                  automation.id,
-
-                name:
-                  automation.name,
-
-                triggerType:
-                  triggerSource,
-              },
-
-              execution: {
-                mode:
-                  executionMode,
-              },
+        const conditionStepOutput =
+          createWorkflowStepOutput({
+            stepId: step.id,
+            stepOrder: step.step_order,
+            stepName: step.name,
+            stepType: "condition",
+            actionType:
+              "evaluate_condition",
+            resultText:
+              evaluation.branchTargetStepOrder !==
+              null
+                ? `Condition matched: ${evaluation.matched}. Branch target: Step ${evaluation.branchTargetStepOrder}.`
+                : `Condition matched: ${evaluation.matched}. Branch action: ${evaluation.branchAction}.`,
+            resultData: {
+              expression:
+                evaluation.expression,
+              field:
+                evaluation.field,
+              operator:
+                evaluation.operator,
+              expectedValue:
+                evaluation.expectedValue,
+              actualValue:
+                evaluation.actualValue,
+              matched:
+                evaluation.matched,
+              branchAction:
+                evaluation.branchAction,
+              onTrue:
+                evaluation.onTrue,
+              onFalse:
+                evaluation.onFalse,
+              onTrueStep:
+                evaluation.onTrueStep,
+              onFalseStep:
+                evaluation.onFalseStep,
+              branchTargetStepOrder:
+                evaluation.branchTargetStepOrder,
             },
           });
+
+        setWorkflowStepOutput(
+          workflowContext,
+          conditionStepOutput
+        );
 
         const {
           error:
@@ -2335,6 +3174,23 @@ export async function POST(
                 trigger:
                   triggerPayload,
 
+                workflow_context:
+                  contextBefore,
+
+                retry:
+                  buildRetryMetadata({
+                    attempt:
+                      currentAttempt,
+
+                    policy:
+                      getAutomationStepFailurePolicy(
+                        step.config
+                      ),
+                  }),
+
+                output:
+                  conditionStepOutput,
+
                 condition: {
                   expression:
                     evaluation.expression,
@@ -2362,6 +3218,15 @@ export async function POST(
 
                   on_false:
                     evaluation.onFalse,
+
+                  on_true_step:
+                    evaluation.onTrueStep,
+
+                  on_false_step:
+                    evaluation.onFalseStep,
+
+                  branch_target_step_order:
+                    evaluation.branchTargetStepOrder,
                 },
               },
             });
@@ -2376,6 +3241,26 @@ export async function POST(
 
         completedSteps +=
           1;
+
+        /*
+        ========================================================
+        13E TARGETED FORWARD BRANCH
+        ========================================================
+        */
+
+        if (
+          evaluation.branchTargetStepOrder !==
+          null
+        ) {
+          activeBranchTargetStepOrder =
+            validateForwardBranchTarget(
+              steps,
+              step.step_order,
+              evaluation.branchTargetStepOrder
+            );
+
+          continue;
+        }
 
         /*
         ========================================================
@@ -2695,6 +3580,780 @@ export async function POST(
       } =
         await supabase.auth.getUser();
 
+      let failureResolution:
+        ReturnType<
+          typeof resolveAutomationFailure
+        > | null =
+        null;
+
+      let currentAutomation:
+        {
+          total_executions:
+            number | null;
+          successful_executions:
+            number | null;
+          failed_executions:
+            number | null;
+          awaiting_approval_executions:
+            number | null;
+        } | null =
+        null;
+
+      if (
+        user &&
+        automationId
+      ) {
+        const {
+          data:
+            automationCounters,
+        } =
+          await supabase
+            .from(
+              "automations"
+            )
+            .select(
+              `
+              total_executions,
+              successful_executions,
+              failed_executions,
+              awaiting_approval_executions
+              `
+            )
+            .eq(
+              "id",
+              automationId
+            )
+            .eq(
+              "user_id",
+              user.id
+            )
+            .maybeSingle();
+
+        currentAutomation =
+          automationCounters;
+      }
+
+      /*
+      ==========================================================
+      13J — RECORD FAILED ATTEMPT
+      ==========================================================
+      */
+
+      if (
+        user &&
+        runId &&
+        currentStep
+      ) {
+        const failurePolicy =
+          getAutomationStepFailurePolicy(
+            currentStep.config
+          );
+
+        failureResolution =
+          resolveAutomationFailure(
+            failurePolicy,
+            currentAttempt
+          );
+
+        const retryMetadata =
+          buildRetryMetadata({
+            attempt:
+              currentAttempt,
+
+            policy:
+              failurePolicy,
+
+            resolution:
+              failureResolution,
+          });
+
+        const failurePayload:
+          Record<
+            string,
+            unknown
+          > = {
+          trigger:
+            currentTriggerPayload,
+
+          workflow_context:
+            currentContextBefore ??
+            {},
+
+          retry:
+            retryMetadata,
+
+          failure: {
+            message:
+              errorMessage,
+
+            failed_at:
+              failedAt,
+
+            resolution:
+              failureResolution,
+          },
+
+          timeout:
+            getAutomationTimeoutMetadata(
+              error
+            ),
+        };
+
+        if (
+          failureResolution ===
+          "continue"
+        ) {
+          failurePayload.output =
+            createFailedStepOutput({
+              step:
+                currentStep,
+
+              errorMessage,
+
+              attempt:
+                currentAttempt,
+
+              policy:
+                failurePolicy.mode,
+            });
+        }
+
+        if (
+          currentRunStepId
+        ) {
+          await supabase
+            .from(
+              "automation_run_steps"
+            )
+            .update({
+              status:
+                "failed",
+
+              input_payload:
+                failurePayload,
+            })
+            .eq(
+              "id",
+              currentRunStepId
+            )
+            .eq(
+              "user_id",
+              user.id
+            );
+        } else {
+          await supabase
+            .from(
+              "automation_run_steps"
+            )
+            .insert({
+              run_id:
+                runId,
+
+              automation_id:
+                automationId,
+
+              automation_step_id:
+                currentStep.id,
+
+              user_id:
+                user.id,
+
+              step_order:
+                currentStep.step_order,
+
+              step_type:
+                currentStep.step_type,
+
+              action_type:
+                currentStep.action_type,
+
+              employee_id:
+                currentStep.employee_id,
+
+              employee_name:
+                currentStep.employee_name,
+
+              ai_task_id:
+                null,
+
+              status:
+                "failed",
+
+              requires_approval:
+                false,
+
+              approval_status:
+                "not_required",
+
+              input_payload:
+                failurePayload,
+            });
+        }
+
+        currentRunStepId =
+          null;
+
+        /*
+        ========================================================
+        RETRY
+        ========================================================
+        */
+
+        if (
+          failureResolution ===
+          "retry"
+        ) {
+          const {
+            error:
+              queueRetryError,
+          } =
+            await supabase
+              .from(
+                "automation_runs"
+              )
+              .update({
+                status:
+                  "queued",
+
+                current_step_order:
+                  currentStep.step_order,
+
+                result_summary:
+                  `Step ${currentStep.step_order} failed on attempt ${currentAttempt}. Retry is queued.`,
+
+                error_message:
+                  errorMessage,
+
+                completed_at:
+                  null,
+              })
+              .eq(
+                "id",
+                runId
+              )
+              .eq(
+                "user_id",
+                user.id
+              );
+
+          if (
+            queueRetryError
+          ) {
+            throw new Error(
+              "J10 could not queue the failed workflow step for retry."
+            );
+          }
+
+          if (
+            currentAutomation
+          ) {
+            await supabase
+              .from(
+                "automations"
+              )
+              .update({
+                last_run_at:
+                  failedAt,
+
+                total_executions:
+                  Number(
+                    currentAutomation.total_executions ??
+                      0
+                  ) + 1,
+
+                updated_at:
+                  failedAt,
+              })
+              .eq(
+                "id",
+                automationId
+              )
+              .eq(
+                "user_id",
+                user.id
+              );
+          }
+
+          await waitForRetry(
+            failurePolicy
+          );
+
+          const retryResponse =
+            await fetch(
+              `${request.nextUrl.origin}/api/automation-runs/${encodeURIComponent(
+                runId
+              )}/continue`,
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+
+                  cookie:
+                    request.headers.get(
+                      "cookie"
+                    ) ?? "",
+                },
+
+                cache:
+                  "no-store",
+              }
+            );
+
+          const retryResult =
+            await parseJsonResponse<
+              Record<
+                string,
+                unknown
+              >
+            >(
+              retryResponse
+            );
+
+          return NextResponse.json(
+            retryResult,
+            {
+              status:
+                retryResponse.status,
+            }
+          );
+        }
+
+        /*
+        ========================================================
+        CONTINUE DESPITE FAILURE
+        ========================================================
+        */
+
+        if (
+          failureResolution ===
+          "continue"
+        ) {
+          const nextStep =
+            loadedSteps.find(
+              (
+                candidate
+              ) =>
+                candidate.step_order >
+                currentStep!.step_order
+            );
+
+          if (
+            !nextStep
+          ) {
+            await supabase
+              .from(
+                "automation_runs"
+              )
+              .update({
+                status:
+                  "completed",
+
+                current_step_order:
+                  null,
+
+                result_summary:
+                  `Workflow completed with a tolerated failure at Step ${currentStep.step_order}.`,
+
+                error_message:
+                  null,
+
+                completed_at:
+                  failedAt,
+              })
+              .eq(
+                "id",
+                runId
+              )
+              .eq(
+                "user_id",
+                user.id
+              );
+
+            if (
+              currentAutomation
+            ) {
+              await supabase
+                .from(
+                  "automations"
+                )
+                .update({
+                  last_run_at:
+                    failedAt,
+
+                  total_executions:
+                    Number(
+                      currentAutomation.total_executions ??
+                        0
+                    ) + 1,
+
+                  successful_executions:
+                    Number(
+                      currentAutomation.successful_executions ??
+                        0
+                    ) + 1,
+
+                  updated_at:
+                    failedAt,
+                })
+                .eq(
+                  "id",
+                  automationId
+                )
+                .eq(
+                  "user_id",
+                  user.id
+                );
+            }
+
+            return NextResponse.json({
+              success: true,
+
+              status:
+                "completed",
+
+              continuedAfterFailure:
+                true,
+
+              message:
+                `Workflow completed after tolerating the failure at Step ${currentStep.step_order}.`,
+
+              run: {
+                id:
+                  runId,
+
+                automationId,
+
+                failedStepOrder:
+                  currentStep.step_order,
+
+                failedAttempt:
+                  currentAttempt,
+              },
+            });
+          }
+
+          await supabase
+            .from(
+              "automation_runs"
+            )
+            .update({
+              status:
+                "queued",
+
+              current_step_order:
+                nextStep.step_order,
+
+              result_summary:
+                `Step ${currentStep.step_order} failed but the workflow policy allows continuation.`,
+
+              error_message:
+                null,
+
+              completed_at:
+                null,
+            })
+            .eq(
+              "id",
+              runId
+            )
+            .eq(
+              "user_id",
+              user.id
+            );
+
+          if (
+            currentAutomation
+          ) {
+            await supabase
+              .from(
+                "automations"
+              )
+              .update({
+                last_run_at:
+                  failedAt,
+
+                total_executions:
+                  Number(
+                    currentAutomation.total_executions ??
+                      0
+                  ) + 1,
+
+                updated_at:
+                  failedAt,
+              })
+              .eq(
+                "id",
+                automationId
+              )
+              .eq(
+                "user_id",
+                user.id
+              );
+          }
+
+          const continueResponse =
+            await fetch(
+              `${request.nextUrl.origin}/api/automation-runs/${encodeURIComponent(
+                runId
+              )}/continue`,
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+
+                  cookie:
+                    request.headers.get(
+                      "cookie"
+                    ) ?? "",
+                },
+
+                cache:
+                  "no-store",
+              }
+            );
+
+          const continueResult =
+            await parseJsonResponse<
+              Record<
+                string,
+                unknown
+              >
+            >(
+              continueResponse
+            );
+
+          return NextResponse.json(
+            continueResult,
+            {
+              status:
+                continueResponse.status,
+            }
+          );
+        }
+
+        /*
+        ========================================================
+        HUMAN REVIEW
+        ========================================================
+        */
+
+        if (
+          failureResolution ===
+          "human_review"
+        ) {
+          const {
+            data:
+              reviewStep,
+            error:
+              reviewStepError,
+          } =
+            await supabase
+              .from(
+                "automation_run_steps"
+              )
+              .insert({
+                run_id:
+                  runId,
+
+                automation_id:
+                  automationId,
+
+                automation_step_id:
+                  currentStep.id,
+
+                user_id:
+                  user.id,
+
+                step_order:
+                  currentStep.step_order,
+
+                step_type:
+                  currentStep.step_type,
+
+                action_type:
+                  "failure_review",
+
+                employee_id:
+                  currentStep.employee_id,
+
+                employee_name:
+                  currentStep.employee_name,
+
+                ai_task_id:
+                  null,
+
+                status:
+                  "awaiting_approval",
+
+                requires_approval:
+                  true,
+
+                approval_status:
+                  "pending",
+
+                input_payload: {
+                  trigger:
+                    currentTriggerPayload,
+
+                  workflow_context:
+                    currentContextBefore ??
+                    {},
+
+                  failure_review: {
+                    failed_step_order:
+                      currentStep.step_order,
+
+                    failed_step_name:
+                      currentStep.name,
+
+                    failed_step_type:
+                      currentStep.step_type,
+
+                    original_action_type:
+                      currentStep.action_type,
+
+                    error:
+                      errorMessage,
+
+                    attempt:
+                      currentAttempt,
+
+                    failure_policy:
+                      failurePolicy,
+                  },
+                },
+              })
+              .select(
+                `
+                id
+                `
+              )
+              .single();
+
+          if (
+            reviewStepError ||
+            !reviewStep
+          ) {
+            throw new Error(
+              "J10 could not create the failure review approval gate."
+            );
+          }
+
+          await supabase
+            .from(
+              "automation_runs"
+            )
+            .update({
+              status:
+                "awaiting_approval",
+
+              current_step_order:
+                currentStep.step_order,
+
+              result_summary:
+                `Step ${currentStep.step_order} failed and requires human review.`,
+
+              error_message:
+                errorMessage,
+
+              completed_at:
+                null,
+            })
+            .eq(
+              "id",
+              runId
+            )
+            .eq(
+              "user_id",
+              user.id
+            );
+
+          if (
+            currentAutomation
+          ) {
+            await supabase
+              .from(
+                "automations"
+              )
+              .update({
+                last_run_at:
+                  failedAt,
+
+                total_executions:
+                  Number(
+                    currentAutomation.total_executions ??
+                      0
+                  ) + 1,
+
+                awaiting_approval_executions:
+                  Number(
+                    currentAutomation.awaiting_approval_executions ??
+                      0
+                  ) + 1,
+
+                updated_at:
+                  failedAt,
+              })
+              .eq(
+                "id",
+                automationId
+              )
+              .eq(
+                "user_id",
+                user.id
+              );
+          }
+
+          return NextResponse.json({
+            success: true,
+
+            status:
+              "awaiting_approval",
+
+            awaitingApproval:
+              true,
+
+            failureReview:
+              true,
+
+            message:
+              `Step ${currentStep.step_order} failed and is waiting for human review.`,
+
+            approval: {
+              runStepId:
+                reviewStep.id,
+
+              automationStepId:
+                currentStep.id,
+
+              stepOrder:
+                currentStep.step_order,
+
+              stepName:
+                currentStep.name,
+
+              actionType:
+                "failure_review",
+
+              status:
+                "pending",
+            },
+          });
+        }
+      }
+
+      /*
+      ==========================================================
+      DEFAULT STOP-ON-FAILURE
+      ==========================================================
+      */
+
       if (
         user &&
         currentRunStepId
@@ -2716,12 +4375,6 @@ export async function POST(
             user.id
           );
       }
-
-      /*
-      ==========================================================
-      FAIL RUN
-      ==========================================================
-      */
 
       if (
         user &&
@@ -2751,75 +4404,42 @@ export async function POST(
           );
       }
 
-      /*
-      ==========================================================
-      AUTOMATION FAILURE COUNTER
-      ==========================================================
-      */
-
       if (
         user &&
-        automationId
+        automationId &&
+        currentAutomation
       ) {
-        const {
-          data:
-            currentAutomation,
-        } =
-          await supabase
-            .from(
-              "automations"
-            )
-            .select(
-              `
-              total_executions,
-              failed_executions
-              `
-            )
-            .eq(
-              "id",
-              automationId
-            )
-            .eq(
-              "user_id",
-              user.id
-            )
-            .maybeSingle();
+        await supabase
+          .from(
+            "automations"
+          )
+          .update({
+            last_run_at:
+              failedAt,
 
-        if (
-          currentAutomation
-        ) {
-          await supabase
-            .from(
-              "automations"
-            )
-            .update({
-              last_run_at:
-                failedAt,
+            total_executions:
+              Number(
+                currentAutomation.total_executions ??
+                  0
+              ) + 1,
 
-              total_executions:
-                Number(
-                  currentAutomation.total_executions ??
-                    0
-                ) + 1,
+            failed_executions:
+              Number(
+                currentAutomation.failed_executions ??
+                  0
+              ) + 1,
 
-              failed_executions:
-                Number(
-                  currentAutomation.failed_executions ??
-                    0
-                ) + 1,
-
-              updated_at:
-                failedAt,
-            })
-            .eq(
-              "id",
-              automationId
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
-        }
+            updated_at:
+              failedAt,
+          })
+          .eq(
+            "id",
+            automationId
+          )
+          .eq(
+            "user_id",
+            user.id
+          );
       }
     } catch (
       recoveryError

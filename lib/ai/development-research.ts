@@ -17,24 +17,108 @@ the context supplied to the AI employee.
 ============================================================
 */
 
-export function buildDevelopmentResearchResponse(
+export type DevelopmentResearchStructuredData = {
+  schemaVersion: "j10.structured-result.v1";
+  resultType: "research";
+  taskTitle: string;
+  objective: string;
+  businessContext: string;
+  researchStatus: "completed";
+  sourceMode: "development";
+  externalWebResearch: false;
+  apiCalled: false;
+  apiCostUSD: 0;
+  resultSource: "deterministic_research_engine";
+  evaluationAreas: string[];
+  differentiationAreas: string[];
+  recommendedAction: string;
+};
+
+export function buildDevelopmentResearchStructuredData(
   input: string
-) {
-  const title =
+): DevelopmentResearchStructuredData {
+  const taskTitle =
     getSectionField(
       input,
       "Title"
     ) ||
     "Research Task";
 
-  const instructions =
+  const objective =
     getSectionField(
       input,
       "Instructions"
-    );
+    ) ||
+    "Analyze the supplied business context and prepare a structured research brief.";
 
-  const suppliedInput =
+  const businessContext =
     extractSuppliedInput(
+      input
+    ) ||
+    "No additional business context was supplied.";
+
+  return {
+    schemaVersion:
+      "j10.structured-result.v1",
+
+    resultType:
+      "research",
+
+    taskTitle,
+
+    objective,
+
+    businessContext,
+
+    researchStatus:
+      "completed",
+
+    sourceMode:
+      "development",
+
+    externalWebResearch:
+      false,
+
+    apiCalled:
+      false,
+
+    apiCostUSD:
+      0,
+
+    resultSource:
+      "deterministic_research_engine",
+
+    evaluationAreas: [
+      "product_positioning",
+      "ai_workforce_capabilities",
+      "automation",
+      "business_intelligence",
+      "integrations",
+      "trust_and_control",
+      "commercial_model",
+    ],
+
+    differentiationAreas: [
+      "ai_employees",
+      "employee_specific_task_assignment",
+      "ai_workforce_execution",
+      "crm_intelligence",
+      "human_approval",
+      "activity_and_approval_history",
+      "exact_ai_employee_binding",
+      "centralized_business_automation",
+    ],
+
+    recommendedAction:
+      "Verify five real competitors with external research when that capability is available, then compare product capabilities, pricing, target market, integrations, AI architecture, approval controls, automation capabilities, and customer positioning against J10 NEXUS.",
+  };
+}
+
+export function buildDevelopmentResearchResponse(
+  input: string
+) {
+  const structured =
+    buildDevelopmentResearchStructuredData(
       input
     );
 
@@ -46,23 +130,17 @@ DEVELOPMENT RESEARCH REPORT
 
 TASK
 
-${title}
+${structured.taskTitle}
 
 
 OBJECTIVE
 
-${
-  instructions ||
-  "Analyze the supplied business context and prepare a structured research brief."
-}
+${structured.objective}
 
 
 AVAILABLE BUSINESS CONTEXT
 
-${
-  suppliedInput ||
-  "No additional business context was supplied."
-}
+${structured.businessContext}
 
 
 RESEARCH STATUS
@@ -260,20 +338,7 @@ through a unified AI business operating system.
 
 RECOMMENDED NEXT RESEARCH ACTION
 
-When external research capability becomes available,
-verify five real competitors and collect evidence for:
-
-- current product capabilities
-- current pricing
-- target market
-- integrations
-- AI agent architecture
-- human approval controls
-- automation capabilities
-- customer positioning
-
-Then rank them against J10 NEXUS using the
-competitive research framework above.
+${structured.recommendedAction}
 
 
 EXECUTION INFORMATION
@@ -292,6 +357,13 @@ $0
 
 Result Type:
 Deterministic Research Brief
+
+
+J10_STRUCTURED_RESULT
+
+\`\`\`json
+${JSON.stringify(structured, null, 2)}
+\`\`\`
 `.trim();
 }
 
