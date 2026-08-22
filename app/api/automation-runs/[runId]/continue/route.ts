@@ -1,15 +1,12 @@
 import {
+  resolveAutomationRequestActor,
+} from "@/lib/automation/bridge-auth";
+import {
   NextRequest,
   NextResponse,
 } from "next/server";
 
-import {
-  cookies,
-} from "next/headers";
 
-import {
-  createServerClient,
-} from "@supabase/ssr";
 
 import type {
   SupabaseClient,
@@ -125,47 +122,6 @@ type RunTaskResponse = {
     employeeId?: string;
   };
 };
-
-async function getSupabase() {
-  const cookieStore =
-    await cookies();
-
-  return createServerClient(
-    process.env
-      .NEXT_PUBLIC_SUPABASE_URL!,
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(
-          cookiesToSet
-        ) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            // Cookie writes may not be available in every route context.
-          }
-        },
-      },
-    }
-  );
-}
 
 function safeCost(
   value:
@@ -377,22 +333,18 @@ export async function POST(
     runId,
   } = await context.params;
 
+  const actor =
+    await resolveAutomationRequestActor(
+      request
+    );
+
   const supabase =
-    await getSupabase();
+    actor.supabase;
 
-  const {
-    data: {
-      user,
-    },
-    error:
-      userError,
-  } =
-    await supabase.auth.getUser();
+  const user =
+    actor.user;
 
-  if (
-    userError ||
-    !user
-  ) {
+  if (!user) {
     return NextResponse.json(
       {
         success: false,
@@ -466,6 +418,32 @@ export async function POST(
           runError
             ? 500
             : 404,
+      }
+    );
+  }
+
+  const scopedActor =
+    await resolveAutomationRequestActor(
+      request,
+      {
+        expectedAutomationId:
+          run.automation_id,
+      }
+    );
+
+  if (
+    !scopedActor.user ||
+    scopedActor.user.id !==
+      user.id
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "Forbidden.",
+      },
+      {
+        status: 403,
       }
     );
   }
@@ -2362,6 +2340,12 @@ export async function POST(
 
             employeeName:
               step.employee_name,
+
+            approvalRunStepId:
+              approvalAlreadyGranted &&
+              existing
+                ? existing.id
+                : null,
               }),
 
             {

@@ -1,4 +1,6 @@
-type SupabaseClient = any;
+import type {
+  SupabaseClient,
+} from "@supabase/supabase-js";
 
 export type AutomationExecutionLock = {
   lockKey: string;
@@ -61,11 +63,17 @@ function stableValue(
   }
 
   if (isRecord(value)) {
-    const result: Record<string, unknown> = {};
+    const result:
+      Record<string, unknown> = {};
 
-    for (const key of Object.keys(value).sort()) {
+    for (
+      const key of
+      Object.keys(value).sort()
+    ) {
       result[key] =
-        stableValue(value[key]);
+        stableValue(
+          value[key]
+        );
     }
 
     return result;
@@ -89,7 +97,9 @@ function hashString(
     index += 1
   ) {
     const code =
-      value.charCodeAt(index);
+      value.charCodeAt(
+        index
+      );
 
     hashA ^=
       code;
@@ -151,7 +161,8 @@ function createOwnerToken() {
 }
 
 function getEventDedupeKey(
-  payload: Record<string, unknown>
+  payload:
+    Record<string, unknown>
 ) {
   const meta =
     payload.__j10_event;
@@ -175,7 +186,9 @@ function getRecordIdentity(
 
   for (const key of keys) {
     const candidate =
-      normalizeString(value[key]);
+      normalizeString(
+        value[key]
+      );
 
     if (candidate) {
       return `${key}:${candidate}`;
@@ -185,25 +198,36 @@ function getRecordIdentity(
   return "";
 }
 
-function getStartIdentity(args: {
-  triggerSource: string;
-  payload: Record<string, unknown>;
-}) {
+function getStartIdentity(
+  args: {
+    triggerSource: string;
+    payload:
+      Record<string, unknown>;
+  }
+) {
   const eventDedupeKey =
-    getEventDedupeKey(args.payload);
+    getEventDedupeKey(
+      args.payload
+    );
 
   if (eventDedupeKey) {
     return `event:${eventDedupeKey}`;
   }
 
   if (
-    args.triggerSource === "new_crm_contact" ||
-    args.triggerSource === "crm_status_changed"
+    args.triggerSource ===
+      "new_crm_contact" ||
+    args.triggerSource ===
+      "crm_status_changed"
   ) {
     const contactIdentity =
       getRecordIdentity(
         args.payload.contact,
-        ["id", "email", "phone"]
+        [
+          "id",
+          "email",
+          "phone",
+        ]
       );
 
     if (contactIdentity) {
@@ -212,17 +236,25 @@ function getStartIdentity(args: {
   }
 
   if (
-    args.triggerSource === "new_ai_task" ||
-    args.triggerSource === "ai_task_completed"
+    args.triggerSource ===
+      "new_ai_task" ||
+    args.triggerSource ===
+      "ai_task_completed"
   ) {
     const taskIdentity =
       getRecordIdentity(
         args.payload.task,
-        ["id", "taskId"]
+        [
+          "id",
+          "taskId",
+        ]
       ) ||
       getRecordIdentity(
         args.payload.aiTask,
-        ["id", "taskId"]
+        [
+          "id",
+          "taskId",
+        ]
       );
 
     if (taskIdentity) {
@@ -230,7 +262,10 @@ function getStartIdentity(args: {
     }
   }
 
-  if (args.triggerSource === "schedule") {
+  if (
+    args.triggerSource ===
+    "schedule"
+  ) {
     const scheduleIdentity =
       getRecordIdentity(
         args.payload,
@@ -248,29 +283,38 @@ function getStartIdentity(args: {
   }
 
   if (
-    args.triggerSource === "manual" &&
-    Object.keys(args.payload).length === 0
+    args.triggerSource ===
+      "manual" &&
+    Object.keys(
+      args.payload
+    ).length === 0
   ) {
     return "manual:no-payload";
   }
 
   return `payload:${hashString(
     JSON.stringify(
-      stableValue(args.payload)
+      stableValue(
+        args.payload
+      )
     )
   )}`;
 }
 
-export function buildAutomationStartLockKey(args: {
-  userId: string;
-  automationId: string;
-  triggerSource: string;
-  payload: Record<string, unknown>;
-}) {
+export function buildAutomationStartLockKey(
+  args: {
+    userId: string;
+    automationId: string;
+    triggerSource: string;
+    payload:
+      Record<string, unknown>;
+  }
+) {
   const identity =
     getStartIdentity({
       triggerSource:
         args.triggerSource,
+
       payload:
         args.payload,
     });
@@ -285,10 +329,12 @@ export function buildAutomationStartLockKey(args: {
   )}`;
 }
 
-export function buildAutomationContinuationLockKey(args: {
-  userId: string;
-  runId: string;
-}) {
+export function buildAutomationContinuationLockKey(
+  args: {
+    userId: string;
+    runId: string;
+  }
+) {
   return `j10:continue:${hashString(
     [
       args.userId,
@@ -297,17 +343,30 @@ export function buildAutomationContinuationLockKey(args: {
   )}`;
 }
 
-export async function acquireAutomationExecutionLock(args: {
-  supabase: SupabaseClient;
-  userId: string;
-  lockKey: string;
-  scope:
-    | "workflow_start"
-    | "run_continue";
-  automationId?: string | null;
-  runId?: string | null;
-  ttlMs?: number;
-}): Promise<AcquireAutomationExecutionLockResult> {
+export async function acquireAutomationExecutionLock(
+  args: {
+    supabase:
+      SupabaseClient;
+
+    userId: string;
+    lockKey: string;
+
+    scope:
+      | "workflow_start"
+      | "run_continue";
+
+    automationId?:
+      string | null;
+
+    runId?:
+      string | null;
+
+    ttlMs?:
+      number;
+  }
+): Promise<
+  AcquireAutomationExecutionLockResult
+> {
   const now =
     new Date();
 
@@ -335,6 +394,7 @@ export async function acquireAutomationExecutionLock(args: {
   const {
     data:
       inserted,
+
     error:
       insertError,
   } =
@@ -387,7 +447,8 @@ export async function acquireAutomationExecutionLock(args: {
     inserted
   ) {
     return {
-      acquired: true,
+      acquired:
+        true,
 
       lock: {
         lockKey:
@@ -415,7 +476,10 @@ export async function acquireAutomationExecutionLock(args: {
       } | null
     )?.code;
 
-  if (insertCode !== "23505") {
+  if (
+    insertCode !==
+    "23505"
+  ) {
     throw new Error(
       "J10 could not create the execution lock."
     );
@@ -424,6 +488,7 @@ export async function acquireAutomationExecutionLock(args: {
   const {
     data:
       recovered,
+
     error:
       recoveryError,
   } =
@@ -482,7 +547,8 @@ export async function acquireAutomationExecutionLock(args: {
 
   if (recovered) {
     return {
-      acquired: true,
+      acquired:
+        true,
 
       lock: {
         lockKey:
@@ -525,13 +591,15 @@ export async function acquireAutomationExecutionLock(args: {
       .maybeSingle();
 
   return {
-    acquired: false,
+    acquired:
+      false,
 
     lockKey:
       args.lockKey,
 
     expiresAt:
-      existing?.expires_at ??
+      existing
+        ?.expires_at ??
       null,
 
     message:
@@ -539,11 +607,18 @@ export async function acquireAutomationExecutionLock(args: {
   };
 }
 
-export async function releaseAutomationExecutionLock(args: {
-  supabase: SupabaseClient;
-  userId: string;
-  lock: AutomationExecutionLock;
-}) {
+export async function releaseAutomationExecutionLock(
+  args: {
+    supabase:
+      SupabaseClient;
+
+    userId:
+      string;
+
+    lock:
+      AutomationExecutionLock;
+  }
+) {
   const {
     error,
   } =

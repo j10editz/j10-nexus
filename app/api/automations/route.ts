@@ -23,7 +23,8 @@ type AutomationTriggerType =
   | "crm_status_changed"
   | "new_ai_task"
   | "ai_task_completed"
-  | "schedule";
+  | "schedule"
+  | "integration_event";
 
 type CreateAutomationBody = {
   name?: string;
@@ -60,6 +61,7 @@ const allowedTriggerTypes: AutomationTriggerType[] = [
   "new_ai_task",
   "ai_task_completed",
   "schedule",
+  "integration_event",
 ];
 
 async function getSupabase() {

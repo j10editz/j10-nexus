@@ -1,12 +1,25 @@
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import {
+  NextResponse,
+} from "next/server";
+
+import {
+  cookies,
+} from "next/headers";
+
+import {
+  createServerClient,
+} from "@supabase/ssr";
+
+import type {
+  SupabaseClient,
+} from "@supabase/supabase-js";
 
 type WorkflowAction = {
   order: number;
   type: string;
   label: string;
-  config?: Record<string, unknown>;
+  config?:
+    Record<string, unknown>;
 };
 
 type WorkflowBlueprint = {
@@ -14,68 +27,76 @@ type WorkflowBlueprint = {
   description: string;
   triggerType: string;
   triggerLabel: string;
-  triggerConfig: Record<string, unknown>;
-  actions: WorkflowAction[];
+  triggerConfig:
+    Record<string, unknown>;
+  actions:
+    WorkflowAction[];
 };
 
 type BuildRequest = {
   intent?: string;
   request?: string;
   recommendedTools?: string[];
-  workflowBlueprint?: WorkflowBlueprint | null;
+  workflowBlueprint?:
+    WorkflowBlueprint | null;
 };
 
-const ALLOWED_WORKFLOW_ACTIONS = new Set([
-  "send_message",
-  "wait",
-  "check_response",
-  "notify",
+const ALLOWED_WORKFLOW_ACTIONS =
+  new Set([
+    "send_message",
+    "wait",
+    "check_response",
+    "notify",
 
-  "receive_message",
-  "analyze_message",
-  "generate_response",
+    "receive_message",
+    "analyze_message",
+    "generate_response",
 
-  "analyze_audience",
-  "generate_content",
-  "launch_campaign",
-  "analyze_results",
+    "analyze_audience",
+    "generate_content",
+    "launch_campaign",
+    "analyze_results",
 
-  "classify_request",
-  "respond_or_escalate",
+    "classify_request",
+    "respond_or_escalate",
 
-  "analyze_email",
-  "send_email",
+    "analyze_email",
+    "send_email",
 
-  "execute_task",
-  "record_result",
+    "execute_task",
+    "record_result",
 
-  "analyze_request",
-]);
+    "analyze_request",
+  ]);
 
-const ALLOWED_TRIGGER_TYPES = new Set([
-  "Manual",
-  "Event",
-  "Schedule",
-  "Webhook",
-  "AI",
-]);
+const ALLOWED_TRIGGER_TYPES =
+  new Set([
+    "Manual",
+    "Event",
+    "Schedule",
+    "Webhook",
+    "AI",
+  ]);
 
 export async function POST(
   request: Request
 ) {
   try {
     const body =
-      (await request.json()) as BuildRequest;
+      (await request.json()) as
+        BuildRequest;
 
     const intent =
-      typeof body.intent === "string"
+      typeof body.intent ===
+        "string"
         ? body.intent
             .trim()
             .toLowerCase()
         : "";
 
     const originalRequest =
-      typeof body.request === "string"
+      typeof body.request ===
+        "string"
         ? body.request.trim()
         : "";
 
@@ -92,12 +113,15 @@ export async function POST(
     ) {
       return NextResponse.json(
         {
-          success: false,
+          success:
+            false,
+
           error:
             "Build request is incomplete.",
         },
         {
-          status: 400,
+          status:
+            400,
         }
       );
     }
@@ -109,12 +133,15 @@ export async function POST(
       createServerClient(
         process.env
           .NEXT_PUBLIC_SUPABASE_URL!,
+
         process.env
           .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+
         {
           cookies: {
             getAll() {
-              return cookieStore.getAll();
+              return cookieStore
+                .getAll();
             },
 
             setAll(
@@ -135,8 +162,11 @@ export async function POST(
                   }
                 );
               } catch {
-                // Cookie writes may not be
-                // available in every context.
+                /*
+                 * Cookie writes may not
+                 * be available in every
+                 * execution context.
+                 */
               }
             },
           },
@@ -144,10 +174,15 @@ export async function POST(
       );
 
     const {
-      data: { user },
-      error: userError,
+      data: {
+        user,
+      },
+
+      error:
+        userError,
     } =
-      await supabase.auth.getUser();
+      await supabase.auth
+        .getUser();
 
     if (
       userError ||
@@ -155,22 +190,30 @@ export async function POST(
     ) {
       return NextResponse.json(
         {
-          success: false,
-          error: "Unauthorized.",
+          success:
+            false,
+
+          error:
+            "Unauthorized.",
         },
         {
-          status: 401,
+          status:
+            401,
         }
       );
     }
 
     const isEmployeeIntent =
-      intent === "ai_employee" ||
-      intent === "employee";
+      intent ===
+        "ai_employee" ||
+      intent ===
+        "employee";
 
     const isWorkflowIntent =
-      intent === "workflow" ||
-      intent === "automation" ||
+      intent ===
+        "workflow" ||
+      intent ===
+        "automation" ||
       intent ===
         "automation_workflow";
 
@@ -183,8 +226,12 @@ export async function POST(
     if (isEmployeeIntent) {
       return buildEmployee({
         supabase,
-        userId: user.id,
+
+        userId:
+          user.id,
+
         originalRequest,
+
         recommendedTools,
       });
     }
@@ -206,21 +253,29 @@ export async function POST(
       ) {
         return NextResponse.json(
           {
-            success: false,
+            success:
+              false,
+
             error:
               "The approved workflow blueprint is missing or invalid.",
           },
           {
-            status: 400,
+            status:
+              400,
           }
         );
       }
 
       return buildWorkflow({
         supabase,
-        userId: user.id,
+
+        userId:
+          user.id,
+
         originalRequest,
+
         recommendedTools,
+
         blueprint,
       });
     }
@@ -233,14 +288,20 @@ export async function POST(
 
     return NextResponse.json(
       {
-        success: false,
-        deployable: false,
+        success:
+          false,
+
+        deployable:
+          false,
+
         error:
           "This J10 NEXUS resource type is not deployable yet.",
+
         intent,
       },
       {
-        status: 400,
+        status:
+          400,
       }
     );
   } catch (error) {
@@ -251,12 +312,15 @@ export async function POST(
 
     return NextResponse.json(
       {
-        success: false,
+        success:
+          false,
+
         error:
           "J10 AI could not execute the approved build.",
       },
       {
-        status: 500,
+        status:
+          500,
       }
     );
   }
@@ -274,13 +338,21 @@ async function buildEmployee({
   originalRequest,
   recommendedTools,
 }: {
-  supabase: any;
-  userId: string;
-  originalRequest: string;
-  recommendedTools: string[];
+  supabase:
+    SupabaseClient;
+
+  userId:
+    string;
+
+  originalRequest:
+    string;
+
+  recommendedTools:
+    string[];
 }) {
   const lowerRequest =
-    originalRequest.toLowerCase();
+    originalRequest
+      .toLowerCase();
 
   let employeeName =
     "J10 AI Employee";
@@ -324,7 +396,9 @@ async function buildEmployee({
     department =
       "Customer Support";
   } else if (
-    lowerRequest.includes("hr") ||
+    lowerRequest.includes(
+      "hr"
+    ) ||
     lowerRequest.includes(
       "human resources"
     )
@@ -448,57 +522,76 @@ async function buildEmployee({
 
   const avatar =
     employeeName
-      .replace("AI ", "")
+      .replace(
+        "AI ",
+        ""
+      )
       .trim()
       .charAt(0)
-      .toUpperCase() || "J";
+      .toUpperCase() ||
+    "J";
 
   const {
-    data: createdEmployee,
-    error: createError,
-  } = await supabase
-    .from("employees")
-    .insert({
-      user_id: userId,
+    data:
+      createdEmployee,
 
-      name: employeeName,
+    error:
+      createError,
+  } =
+    await supabase
+      .from(
+        "employees"
+      )
+      .insert({
+        user_id:
+          userId,
 
-      role,
+        name:
+          employeeName,
 
-      department,
+        role,
 
-      status: "Running",
+        department,
 
-      tasks_completed: 0,
+        status:
+          "Running",
 
-      revenue_generated: 0,
+        tasks_completed:
+          0,
 
-      last_active:
-        "Just now",
+        revenue_generated:
+          0,
 
-      avatar,
+        last_active:
+          "Just now",
 
-      model: "GPT-5",
-    })
-    .select(
-      `
-      id,
-      user_id,
-      name,
-      role,
-      department,
-      status,
-      tasks_completed,
-      revenue_generated,
-      last_active,
-      avatar,
-      model,
-      created_at
-      `
-    )
-    .single();
+        avatar,
 
-  if (createError) {
+        model:
+          "GPT-5",
+      })
+      .select(
+        `
+        id,
+        user_id,
+        name,
+        role,
+        department,
+        status,
+        tasks_completed,
+        revenue_generated,
+        last_active,
+        avatar,
+        model,
+        created_at
+        `
+      )
+      .single();
+
+  if (
+    createError ||
+    !createdEmployee
+  ) {
     console.error(
       "J10 AI employee build error:",
       createError
@@ -506,58 +599,66 @@ async function buildEmployee({
 
     return NextResponse.json(
       {
-        success: false,
+        success:
+          false,
+
         error:
           "J10 AI could not create the employee.",
       },
       {
-        status: 500,
+        status:
+          500,
       }
     );
   }
 
   const {
-    error: activityError,
-  } = await supabase
-    .from("activity_logs")
-    .insert({
-      user_id: userId,
+    error:
+      activityError,
+  } =
+    await supabase
+      .from(
+        "activity_logs"
+      )
+      .insert({
+        user_id:
+          userId,
 
-      action:
-        "ai_employee_created",
+        action:
+          "ai_employee_created",
 
-      entity_type:
-        "ai_employee",
+        entity_type:
+          "ai_employee",
 
-      entity_id:
-        createdEmployee.id,
+        entity_id:
+          createdEmployee.id,
 
-      title:
-        `${createdEmployee.name} created`,
+        title:
+          `${createdEmployee.name} created`,
 
-      description:
-        `${createdEmployee.name} was created by J10 AI and is now running.`,
+        description:
+          `${createdEmployee.name} was created by J10 AI and is now running.`,
 
-      metadata: {
-        source:
-          "j10_ai",
+        metadata: {
+          source:
+            "j10_ai",
 
-        original_request:
-          originalRequest,
+          original_request:
+            originalRequest,
 
-        role:
-          createdEmployee.role,
+          role:
+            createdEmployee.role,
 
-        department:
-          createdEmployee.department,
+          department:
+            createdEmployee.department,
 
-        model:
-          createdEmployee.model,
+          model:
+            createdEmployee.model,
 
-        recommended_tools:
-          recommendedTools,
-      },
-    });
+          recommended_tools:
+            recommendedTools,
+        },
+      });
 
   if (activityError) {
     console.error(
@@ -567,9 +668,11 @@ async function buildEmployee({
   }
 
   return NextResponse.json({
-    success: true,
+    success:
+      true,
 
-    deployable: true,
+    deployable:
+      true,
 
     resourceType:
       "ai_employee",
@@ -598,62 +701,73 @@ async function buildWorkflow({
   recommendedTools,
   blueprint,
 }: {
-  supabase: any;
-  userId: string;
-  originalRequest: string;
-  recommendedTools: string[];
-  blueprint: WorkflowBlueprint;
+  supabase:
+    SupabaseClient;
+
+  userId:
+    string;
+
+  originalRequest:
+    string;
+
+  recommendedTools:
+    string[];
+
+  blueprint:
+    WorkflowBlueprint;
 }) {
   /*
-   * IMPORTANT:
-   *
-   * We do NOT reinterpret the user's
-   * request here.
-   *
-   * The blueprint was already created
-   * by J10 AI and reviewed by the user.
-   *
-   * This endpoint executes that exact
-   * approved blueprint.
+   * The blueprint was already generated by J10 AI
+   * and reviewed by the user. Execute that exact
+   * approved blueprint without reinterpreting it.
    */
 
   const {
-    data: createdWorkflow,
-    error: workflowError,
-  } = await supabase
-    .from("workflows")
-    .insert({
-      user_id:
-        userId,
+    data:
+      createdWorkflow,
 
-      name:
-        blueprint.name,
+    error:
+      workflowError,
+  } =
+    await supabase
+      .from(
+        "workflows"
+      )
+      .insert({
+        user_id:
+          userId,
 
-      description:
-        blueprint.description,
+        name:
+          blueprint.name,
 
-      status:
-        "Draft",
+        description:
+          blueprint.description,
 
-      trigger_type:
-        blueprint.triggerType,
+        status:
+          "Draft",
 
-      trigger_config:
-        blueprint.triggerConfig,
+        trigger_type:
+          blueprint.triggerType,
 
-      actions:
-        blueprint.actions,
+        trigger_config:
+          blueprint.triggerConfig,
 
-      runs_count:
-        0,
+        actions:
+          blueprint.actions,
 
-      last_run_at:
-        null,
-    })
-    .select("*")
-    .single();
+        runs_count:
+          0,
 
-  if (workflowError) {
+        last_run_at:
+          null,
+      })
+      .select("*")
+      .single();
+
+  if (
+    workflowError ||
+    !createdWorkflow
+  ) {
     console.error(
       "J10 AI workflow build error:",
       workflowError
@@ -661,62 +775,69 @@ async function buildWorkflow({
 
     return NextResponse.json(
       {
-        success: false,
+        success:
+          false,
+
         error:
           "J10 AI could not create the automation.",
       },
       {
-        status: 500,
+        status:
+          500,
       }
     );
   }
 
   const {
-    error: activityError,
-  } = await supabase
-    .from("activity_logs")
-    .insert({
-      user_id:
-        userId,
+    error:
+      activityError,
+  } =
+    await supabase
+      .from(
+        "activity_logs"
+      )
+      .insert({
+        user_id:
+          userId,
 
-      action:
-        "workflow_created",
+        action:
+          "workflow_created",
 
-      entity_type:
-        "workflow",
+        entity_type:
+          "workflow",
 
-      entity_id:
-        createdWorkflow.id,
+        entity_id:
+          createdWorkflow.id,
 
-      title:
-        `${createdWorkflow.name} created`,
+        title:
+          `${createdWorkflow.name} created`,
 
-      description:
-        `${createdWorkflow.name} was created from an approved J10 AI workflow blueprint.`,
+        description:
+          `${createdWorkflow.name} was created from an approved J10 AI workflow blueprint.`,
 
-      metadata: {
-        source:
-          "j10_ai",
+        metadata: {
+          source:
+            "j10_ai",
 
-        approval_source:
-          "user_review",
+          approval_source:
+            "user_review",
 
-        original_request:
-          originalRequest,
+          original_request:
+            originalRequest,
 
-        trigger_type:
-          blueprint.triggerType,
+          trigger_type:
+            blueprint.triggerType,
 
-        trigger_label:
-          blueprint.triggerLabel,
+          trigger_label:
+            blueprint.triggerLabel,
 
-        action_count:
-          blueprint.actions.length,
+          action_count:
+            blueprint.actions.length,
 
-        recommended_tools:
-          recommendedTools,
-      },
-    });
+          recommended_tools:
+            recommendedTools,
+        },
+      });
 
   if (activityError) {
     console.error(
@@ -726,9 +847,11 @@ async function buildWorkflow({
   }
 
   return NextResponse.json({
-    success: true,
+    success:
+      true,
 
-    deployable: true,
+    deployable:
+      true,
 
     resourceType:
       "workflow",
@@ -764,7 +887,8 @@ function isValidWorkflowBlueprint(
     typeof blueprint.name !==
       "string" ||
     !blueprint.name.trim() ||
-    blueprint.name.length > 120
+    blueprint.name.length >
+      120
   ) {
     return false;
   }

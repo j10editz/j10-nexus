@@ -757,7 +757,9 @@ export async function POST(
         runStep.action_type ===
           "add_crm_note" ||
         runStep.action_type ===
-          "update_crm_status"
+          "update_crm_status" ||
+        runStep.action_type ===
+          "integration_action"
       );
 
     if (protectedAction) {

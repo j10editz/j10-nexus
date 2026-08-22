@@ -1,785 +1,657 @@
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import {
+  NextResponse,
+} from "next/server";
 
-type IntegrationStatus =
-  | "Connected"
-  | "Disconnected"
-  | "Error";
+import {
+  createIntegrationApiClient,
+  getAuthenticatedIntegrationUser,
+  integrationApiErrorResponse,
+  normalizeRequestedProviderId,
+  parseEnabledCapabilities,
+  parseIntegrationEnvironment,
+  parsePublicConfiguration,
+  parseRequestObject,
+  serializeIntegrationConnection,
+  validateProviderPublicConfiguration,
+  writeIntegrationActivity,
+} from "../../../lib/integrations/api";
 
-type CreateIntegrationRequest = {
-  provider?: string;
-  accountLabel?: string;
-};
+import {
+  createIntegrationConnection,
+  deleteIntegrationConnection,
+  getIntegrationConnectionById,
+  getIntegrationConnectionByProvider,
+  listIntegrationConnections,
+} from "../../../lib/integrations/database";
 
-const SUPPORTED_INTEGRATIONS = [
-  {
-    provider: "whatsapp",
-    name: "WhatsApp Business",
-    category: "Messaging",
-    description:
-      "Connect WhatsApp Business for customer conversations, automation and AI responses.",
-  },
-  {
-    provider: "email",
-    name: "Email",
-    category: "Communication",
-    description:
-      "Connect business email for inbox automation, responses and follow-ups.",
-  },
-  {
-    provider: "crm",
-    name: "CRM",
-    category: "Sales",
-    description:
-      "Connect customer and lead data to J10 NEXUS workflows.",
-  },
-  {
-    provider: "marketing",
-    name: "Marketing Platform",
-    category: "Marketing",
-    description:
-      "Connect advertising and campaign systems for marketing automation.",
-  },
-  {
-    provider: "notifications",
-    name: "Notification Service",
-    category: "Communication",
-    description:
-      "Connect a provider for automated alerts and notifications.",
-  },
-  {
-    provider: "google_calendar",
-    name: "Google Calendar",
-    category: "Productivity",
-    description:
-      "Connect calendars for appointments, reminders and scheduling workflows.",
-  },
-  {
-    provider: "shopify",
-    name: "Shopify",
-    category: "Commerce",
-    description:
-      "Connect store products, customers and orders to J10 NEXUS.",
-  },
-  {
-    provider: "stripe",
-    name: "Stripe",
-    category: "Payments",
-    description:
-      "Connect payment activity, customers and billing events.",
-  },
-] as const;
-
-const VALID_PROVIDERS = new Set(
-  SUPPORTED_INTEGRATIONS.map(
-    (integration) =>
-      integration.provider
-  )
-);
-
-async function getSupabase() {
-  const cookieStore =
-    await cookies();
-
-  return createServerClient(
-    process.env
-      .NEXT_PUBLIC_SUPABASE_URL!,
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            // Cookie writes may not be
-            // available in every server context.
-          }
-        },
-      },
-    }
-  );
-}
+import {
+  getIntegrationProvider,
+  listIntegrationProviders,
+} from "../../../lib/integrations/registry";
 
 /*
 ============================================================
-GET INTEGRATIONS
+GET INTEGRATION REGISTRY + CONNECTION STATUS
 ============================================================
 */
 
 export async function GET() {
   try {
     const supabase =
-      await getSupabase();
+      await createIntegrationApiClient();
 
-    const {
-      data: { user },
-      error: userError,
-    } =
-      await supabase.auth.getUser();
+    const user =
+      await getAuthenticatedIntegrationUser(
+        supabase,
+      );
 
-    if (
-      userError ||
-      !user
-    ) {
+    if (!user) {
       return NextResponse.json(
         {
-          success: false,
+          success:
+            false,
+
           error:
             "Unauthorized.",
         },
-        {
-          status: 401,
-        }
-      );
-    }
 
-    const {
-      data: rows,
-      error,
-    } = await supabase
-      .from("integrations")
-      .select(
-        `
-        id,
-        provider,
-        status,
-        account_label,
-        external_account_id,
-        metadata,
-        connected_at,
-        created_at,
-        updated_at
-        `
-      )
-      .eq(
-        "user_id",
-        user.id
-      )
-      .order(
-        "created_at",
         {
-          ascending: true,
-        }
-      );
-
-    if (error) {
-      console.error(
-        "Integration list error:",
-        error
-      );
-
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Could not load integrations.",
+          status:
+            401,
         },
-        {
-          status: 500,
-        }
       );
     }
 
-    const savedIntegrations =
-      rows ?? [];
+    const connections =
+      await listIntegrationConnections(
+        supabase,
+        user.id,
+      );
 
-    /*
-     * Merge supported integrations
-     * with the user's actual database state.
-     */
+    const connectionByProvider =
+      new Map(
+        connections.map(
+          (connection) => [
+            connection.providerId,
+            connection,
+          ],
+        ),
+      );
+
+    const providers =
+      listIntegrationProviders();
 
     const integrations =
-      SUPPORTED_INTEGRATIONS.map(
-        (definition) => {
-          const saved =
-            savedIntegrations.find(
-              (integration) =>
-                integration.provider ===
-                definition.provider
-            );
+      providers.map(
+        (provider) => {
+          const connection =
+            connectionByProvider.get(
+              provider.id,
+            ) ?? null;
+
+          const safeConnection =
+            connection
+              ? serializeIntegrationConnection(
+                  connection,
+                )
+              : null;
 
           return {
-            ...definition,
+            provider:
+              provider.id,
+
+            providerId:
+              provider.id,
+
+            name:
+              provider.name,
+
+            category:
+              provider.category,
+
+            description:
+              provider.shortDescription,
+
+            availability:
+              provider.availability,
+
+            iconKey:
+              provider.iconKey,
+
+            accentColor:
+              provider.accentColor,
+
+            auth: {
+              type:
+                provider.auth.type,
+
+              requiredScopes:
+                provider.auth
+                  .requiredScopes,
+
+              supportsRefreshTokens:
+                provider.auth
+                  .supportsRefreshTokens,
+
+              setupFields:
+                provider.auth
+                  .setupFields.map(
+                    (field) => ({
+                      key:
+                        field.key,
+
+                      label:
+                        field.label,
+
+                      kind:
+                        field.kind,
+
+                      required:
+                        field.required,
+
+                      storage:
+                        field.storage,
+
+                      placeholder:
+                        field.placeholder ??
+                        null,
+
+                      helpText:
+                        field.helpText ??
+                        null,
+                    }),
+                  ),
+            },
+
+            environments:
+              provider.environments,
+
+            webhookSupport:
+              provider.webhookSupport,
+
+            supportsHealthChecks:
+              provider.supportsHealthChecks,
+
+            capabilities:
+              provider.capabilities,
+
+            connection:
+              safeConnection,
 
             id:
-              saved?.id ??
+              safeConnection?.id ??
               null,
 
             status:
-              (saved?.status ??
-                "Disconnected") as IntegrationStatus,
+              safeConnection?.status ??
+              "not_configured",
 
             accountLabel:
-              saved?.account_label ??
+              safeConnection?.name ??
               null,
 
             externalAccountId:
-              saved?.external_account_id ??
+              safeConnection
+                ?.externalAccountId ??
               null,
 
             connectedAt:
-              saved?.connected_at ??
+              safeConnection
+                ?.lastConnectedAt ??
               null,
 
             metadata:
-              saved?.metadata ??
+              safeConnection
+                ?.publicConfiguration ??
               {},
 
+            hasCredentials:
+              safeConnection
+                ?.hasCredentials ??
+              false,
+
             registered:
-              Boolean(saved),
+              Boolean(
+                safeConnection,
+              ),
           };
-        }
+        },
       );
+
+    const registered =
+      integrations.filter(
+        (integration) =>
+          integration.registered,
+      ).length;
 
     const connected =
       integrations.filter(
         (integration) =>
           integration.status ===
-          "Connected"
+          "connected",
+      ).length;
+
+    const pending =
+      integrations.filter(
+        (integration) =>
+          integration.status ===
+          "pending",
+      ).length;
+
+    const degraded =
+      integrations.filter(
+        (integration) =>
+          integration.status ===
+          "degraded",
       ).length;
 
     const disconnected =
       integrations.filter(
         (integration) =>
           integration.status ===
-          "Disconnected"
+            "disconnected" ||
+          integration.status ===
+            "not_configured",
       ).length;
 
     const errors =
       integrations.filter(
         (integration) =>
           integration.status ===
-          "Error"
+          "error",
+      ).length;
+
+    const needsAttention =
+      integrations.filter(
+        (integration) =>
+          integration.status ===
+            "degraded" ||
+          integration.status ===
+            "disconnected" ||
+          integration.status ===
+            "error" ||
+          integration.status ===
+            "revoked",
       ).length;
 
     return NextResponse.json({
-      success: true,
+      success:
+        true,
 
       integrations,
+
+      connections:
+        connections.map(
+          serializeIntegrationConnection,
+        ),
 
       summary: {
         total:
           integrations.length,
 
+        totalProviders:
+          integrations.length,
+
+        registered,
+
         connected,
+
+        pending,
+
+        degraded,
 
         disconnected,
 
         errors,
+
+        needsAttention,
       },
     });
   } catch (error) {
-    console.error(
-      "Integrations API error:",
-      error
-    );
+    return integrationApiErrorResponse(
+      error,
 
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "J10 NEXUS could not load integrations.",
-      },
-      {
-        status: 500,
-      }
+      "J10 NEXUS could not load integrations.",
     );
   }
 }
 
 /*
 ============================================================
-REGISTER INTEGRATION
+POST — REGISTER INTEGRATION
 ============================================================
 */
 
 export async function POST(
-  request: Request
+  request:
+    Request,
 ) {
   try {
-    const body =
-      (await request.json()) as CreateIntegrationRequest;
-
-    const provider =
-      typeof body.provider ===
-      "string"
-        ? body.provider
-            .trim()
-            .toLowerCase()
-        : "";
-
-    const accountLabel =
-      typeof body.accountLabel ===
-      "string"
-        ? body.accountLabel.trim()
-        : "";
-
-    if (!provider) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Integration provider is required.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    if (
-      !VALID_PROVIDERS.has(
-        provider as
-          | "whatsapp"
-          | "email"
-          | "crm"
-          | "marketing"
-          | "notifications"
-          | "google_calendar"
-          | "shopify"
-          | "stripe"
-      )
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unsupported integration provider.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
     const supabase =
-      await getSupabase();
+      await createIntegrationApiClient();
 
-    const {
-      data: { user },
-      error: userError,
-    } =
-      await supabase.auth.getUser();
+    const user =
+      await getAuthenticatedIntegrationUser(
+        supabase,
+      );
 
-    if (
-      userError ||
-      !user
-    ) {
+    if (!user) {
       return NextResponse.json(
         {
-          success: false,
+          success:
+            false,
+
           error:
             "Unauthorized.",
         },
+
         {
-          status: 401,
-        }
+          status:
+            401,
+        },
       );
     }
 
-    /*
-     * Check first so we never
-     * accidentally overwrite an
-     * already-connected integration.
-     */
-
-    const {
-      data: existing,
-      error:
-        existingError,
-    } = await supabase
-      .from("integrations")
-      .select("*")
-      .eq(
-        "user_id",
-        user.id
-      )
-      .eq(
-        "provider",
-        provider
-      )
-      .maybeSingle();
-
-    if (existingError) {
-      console.error(
-        "Integration lookup error:",
-        existingError
+    const body =
+      parseRequestObject(
+        await request.json(),
       );
 
+    const providerId =
+      normalizeRequestedProviderId(
+        body.providerId ??
+        body.provider,
+      );
+
+    if (!providerId) {
       return NextResponse.json(
         {
-          success: false,
+          success:
+            false,
+
           error:
-            "Could not check integration.",
+            "Unsupported integration provider.",
         },
+
         {
-          status: 500,
-        }
+          status:
+            400,
+        },
       );
     }
 
-    if (existing) {
-      return NextResponse.json({
-        success: true,
+    const provider =
+      getIntegrationProvider(
+        providerId,
+      );
 
-        message:
-          "Integration is already registered.",
+    const name =
+      typeof body.name ===
+        "string"
+        ? body.name.trim()
+        : typeof body.accountLabel ===
+            "string"
+          ? body.accountLabel.trim()
+          : "";
 
-        integration:
-          existing,
-      });
-    }
-
-    /*
-     * Registration does NOT mean
-     * the provider is connected.
-     *
-     * Real OAuth/API connection
-     * will change this later.
-     */
-
-    const {
-      data: integration,
-      error: createError,
-    } = await supabase
-      .from("integrations")
-      .insert({
-        user_id:
-          user.id,
-
-        provider,
-
-        status:
-          "Disconnected",
-
-        account_label:
-          accountLabel ||
-          null,
-
-        metadata: {},
-
-        connected_at:
-          null,
-      })
-      .select("*")
-      .single();
+    const environment =
+      parseIntegrationEnvironment(
+        body.environment,
+      );
 
     if (
-      createError ||
-      !integration
+      !provider.environments.includes(
+        environment,
+      )
     ) {
-      console.error(
-        "Integration registration error:",
-        createError
-      );
-
       return NextResponse.json(
         {
-          success: false,
+          success:
+            false,
+
           error:
-            "Could not register integration.",
+            `${provider.name} does not support the ${environment} environment.`,
         },
+
         {
-          status: 500,
-        }
+          status:
+            400,
+        },
       );
     }
 
-    const definition =
-      SUPPORTED_INTEGRATIONS.find(
-        (item) =>
-          item.provider ===
-          provider
+    const publicConfiguration =
+      parsePublicConfiguration(
+        body.publicConfiguration ??
+        body.configuration,
       );
 
-    /*
-     * Record activity.
-     */
+    validateProviderPublicConfiguration(
+      providerId,
+      publicConfiguration,
+    );
 
-    const {
-      error: activityError,
-    } = await supabase
-      .from("activity_logs")
-      .insert({
-        user_id:
+    const enabledCapabilities =
+      parseEnabledCapabilities(
+        body.enabledCapabilities,
+      );
+
+    const connection =
+      await createIntegrationConnection(
+        supabase,
+        user.id,
+        {
+          providerId,
+
+          name:
+            name ||
+            provider.name,
+
+          environment,
+
+          publicConfiguration,
+
+          enabledCapabilities,
+        },
+      );
+
+    await writeIntegrationActivity(
+      supabase,
+      {
+        userId:
           user.id,
 
         action:
           "integration_registered",
 
-        entity_type:
-          "integration",
-
-        entity_id:
-          integration.id,
+        entityId:
+          connection.id,
 
         title:
-          `${definition?.name ?? provider} added`,
+          `${provider.name} added`,
 
         description:
-          `${definition?.name ?? provider} was added to the workspace and is awaiting connection.`,
+          `${provider.name} was registered and is awaiting connection readiness.`,
 
         metadata: {
-          provider,
+          provider_id:
+            providerId,
+
+          environment,
 
           status:
-            "Disconnected",
+            connection.status,
+
+          source:
+            "integration_api_v2",
         },
-      });
-
-    if (activityError) {
-      console.error(
-        "Integration activity log error:",
-        activityError
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-
-      message:
-        "Integration registered successfully.",
-
-      integration,
-    });
-  } catch (error) {
-    console.error(
-      "Integration POST error:",
-      error
+      },
     );
 
     return NextResponse.json(
       {
-        success: false,
-        error:
-          "J10 NEXUS could not register the integration.",
+        success:
+          true,
+
+        message:
+          `${provider.name} registered successfully.`,
+
+        integration:
+          serializeIntegrationConnection(
+            connection,
+          ),
       },
+
       {
-        status: 500,
-      }
+        status:
+          201,
+      },
+    );
+  } catch (error) {
+    return integrationApiErrorResponse(
+      error,
+
+      "J10 NEXUS could not register the integration.",
     );
   }
 }
 
 /*
 ============================================================
-REMOVE / DISCONNECT REGISTRY ENTRY
+DELETE — COMPATIBILITY REMOVAL ENDPOINT
 ============================================================
 */
 
 export async function DELETE(
-  request: Request
+  request:
+    Request,
 ) {
   try {
-    const url =
-      new URL(request.url);
-
-    const provider =
-      (
-        url.searchParams.get(
-          "provider"
-        ) ?? ""
-      )
-        .trim()
-        .toLowerCase();
-
-    if (!provider) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Integration provider is required.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
     const supabase =
-      await getSupabase();
+      await createIntegrationApiClient();
 
-    const {
-      data: { user },
-      error: userError,
-    } =
-      await supabase.auth.getUser();
+    const user =
+      await getAuthenticatedIntegrationUser(
+        supabase,
+      );
 
-    if (
-      userError ||
-      !user
-    ) {
+    if (!user) {
       return NextResponse.json(
         {
-          success: false,
+          success:
+            false,
+
           error:
             "Unauthorized.",
         },
+
         {
-          status: 401,
-        }
-      );
-    }
-
-    const {
-      data: integration,
-      error: lookupError,
-    } = await supabase
-      .from("integrations")
-      .select("*")
-      .eq(
-        "user_id",
-        user.id
-      )
-      .eq(
-        "provider",
-        provider
-      )
-      .maybeSingle();
-
-    if (lookupError) {
-      console.error(
-        "Integration delete lookup error:",
-        lookupError
-      );
-
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Could not load integration.",
+          status:
+            401,
         },
-        {
-          status: 500,
-        }
       );
     }
 
-    if (!integration) {
+    const url =
+      new URL(
+        request.url,
+      );
+
+    const connectionId =
+      url.searchParams
+        .get("id")
+        ?.trim() ??
+      "";
+
+    const providerId =
+      normalizeRequestedProviderId(
+        url.searchParams.get(
+          "providerId",
+        ) ??
+        url.searchParams.get(
+          "provider",
+        ),
+      );
+
+    const connection =
+      connectionId
+        ? await getIntegrationConnectionById(
+            supabase,
+            user.id,
+            connectionId,
+          )
+        : providerId
+          ? await getIntegrationConnectionByProvider(
+              supabase,
+              user.id,
+              providerId,
+            )
+          : null;
+
+    if (!connection) {
       return NextResponse.json({
-        success: true,
+        success:
+          true,
 
         message:
-          "Integration is already disconnected.",
+          "Integration is already removed.",
       });
     }
 
-    const {
-      error: deleteError,
-    } = await supabase
-      .from("integrations")
-      .delete()
-      .eq(
-        "id",
-        integration.id
-      )
-      .eq(
-        "user_id",
-        user.id
+    const provider =
+      getIntegrationProvider(
+        connection.providerId,
       );
 
-    if (deleteError) {
-      console.error(
-        "Integration deletion error:",
-        deleteError
-      );
+    await deleteIntegrationConnection(
+      supabase,
+      user.id,
+      connection.id,
+    );
 
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Could not remove integration.",
-        },
-        {
-          status: 500,
-        }
-      );
-    }
-
-    const definition =
-      SUPPORTED_INTEGRATIONS.find(
-        (item) =>
-          item.provider ===
-          provider
-      );
-
-    const {
-      error: activityError,
-    } = await supabase
-      .from("activity_logs")
-      .insert({
-        user_id:
+    await writeIntegrationActivity(
+      supabase,
+      {
+        userId:
           user.id,
 
         action:
           "integration_removed",
 
-        entity_type:
-          "integration",
-
-        entity_id:
+        entityId:
           null,
 
         title:
-          `${definition?.name ?? provider} removed`,
+          `${provider.name} removed`,
 
         description:
-          `${definition?.name ?? provider} was removed from the workspace.`,
+          `${provider.name} was removed from the workspace.`,
 
         metadata: {
-          provider,
+          provider_id:
+            provider.id,
 
           previous_status:
-            integration.status,
+            connection.status,
+
+          source:
+            "integration_api_v2",
         },
-      });
-
-    if (activityError) {
-      console.error(
-        "Integration removal activity error:",
-        activityError
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-
-      message:
-        "Integration removed successfully.",
-    });
-  } catch (error) {
-    console.error(
-      "Integration DELETE error:",
-      error
+      },
     );
 
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "J10 NEXUS could not remove the integration.",
-      },
-      {
-        status: 500,
-      }
+    return NextResponse.json({
+      success:
+        true,
+
+      message:
+        `${provider.name} removed successfully.`,
+    });
+  } catch (error) {
+    return integrationApiErrorResponse(
+      error,
+
+      "J10 NEXUS could not remove the integration.",
     );
   }
 }

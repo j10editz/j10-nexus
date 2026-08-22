@@ -1,15 +1,12 @@
 import {
+  resolveAutomationRequestActor,
+} from "@/lib/automation/bridge-auth";
+import {
   NextRequest,
   NextResponse,
 } from "next/server";
 
-import {
-  cookies,
-} from "next/headers";
 
-import {
-  createServerClient,
-} from "@supabase/ssr";
 
 import type {
   SupabaseClient,
@@ -56,7 +53,8 @@ type TriggerSource =
   | "crm_status_changed"
   | "new_ai_task"
   | "ai_task_completed"
-  | "schedule";
+  | "schedule"
+  | "integration_event";
 
 const SUPPORTED_TRIGGER_SOURCES: TriggerSource[] = [
   "manual",
@@ -65,6 +63,7 @@ const SUPPORTED_TRIGGER_SOURCES: TriggerSource[] = [
   "new_ai_task",
   "ai_task_completed",
   "schedule",
+  "integration_event",
 ];
 
 function normalizeTriggerSource(
@@ -216,46 +215,6 @@ function getExecutionMode() {
   return process.env.J10_AI_MODE === "live"
     ? "live"
     : "development";
-}
-
-async function getSupabase() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            /*
-            Cookie mutation may not be available
-            in every route-handler context.
-            */
-          }
-        },
-      },
-    }
-  );
 }
 
 function safeCost(
@@ -511,22 +470,22 @@ export async function POST(
 
     automationId = id;
 
+    const actor =
+      await resolveAutomationRequestActor(
+        request,
+        {
+          expectedAutomationId:
+            id,
+        }
+      );
+
     const supabase =
-      await getSupabase();
+      actor.supabase;
 
-    const {
-      data: {
-        user,
-      },
-      error:
-        userError,
-    } =
-      await supabase.auth.getUser();
+    const user =
+      actor.user;
 
-    if (
-      userError ||
-      !user
-    ) {
+    if (!user) {
       return NextResponse.json(
         {
           success: false,
@@ -3570,15 +3529,21 @@ export async function POST(
     */
 
     try {
-      const supabase =
-        await getSupabase();
+      const recoveryActor =
+        await resolveAutomationRequestActor(
+          request,
+          {
+            expectedAutomationId:
+              automationId ||
+              undefined,
+          }
+        );
 
-      const {
-        data: {
-          user,
-        },
-      } =
-        await supabase.auth.getUser();
+      const supabase =
+        recoveryActor.supabase;
+
+      const user =
+        recoveryActor.user;
 
       let failureResolution:
         ReturnType<

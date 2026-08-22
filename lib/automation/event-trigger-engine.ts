@@ -7,11 +7,17 @@ import {
   randomUUID,
 } from "node:crypto";
 
+import {
+  createAutomationBridgeCookieHeader,
+  hasAutomationBridgeCookie,
+} from "./bridge-auth";
+
 export type AutomationEventTrigger =
   | "new_crm_contact"
   | "crm_status_changed"
   | "new_ai_task"
-  | "ai_task_completed";
+  | "ai_task_completed"
+  | "integration_event";
 
 type TriggerFilterOperator =
   | "equals"
@@ -104,6 +110,7 @@ type FilterEvaluation = {
 };
 
 const MAX_EVENT_DEPTH = 4;
+
 const EVENT_DEDUPE_WINDOW_MS =
   10 * 60 * 1000;
 
@@ -122,7 +129,7 @@ const SUPPORTED_FILTER_OPERATORS =
   ]);
 
 function safeDepth(
-  value: unknown
+  value: unknown,
 ) {
   const parsed =
     Number(value ?? 0);
@@ -130,141 +137,105 @@ function safeDepth(
   return Number.isFinite(parsed)
     ? Math.max(
         0,
-        Math.floor(parsed)
+        Math.floor(parsed),
       )
     : 0;
 }
 
 function isRecord(
-  value: unknown
-): value is Record<
-  string,
-  unknown
-> {
-  return (
-    Boolean(value) &&
-    typeof value ===
-      "object" &&
-    !Array.isArray(value)
-  );
+  value: unknown,
+): value is Record<string, unknown> {
+  return Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value);
 }
 
-
 function normalizeEventIdentity(
-  value: unknown
+  value: unknown,
 ) {
-  return typeof value ===
-    "string"
+  return typeof value === "string"
     ? value.trim()
     : "";
 }
 
 function stableEventValue(
-  value: unknown
+  value: unknown,
 ): unknown {
   if (
     value === null ||
     value === undefined ||
-    typeof value ===
-      "string" ||
-    typeof value ===
-      "number" ||
-    typeof value ===
-      "boolean"
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
   ) {
     return value ?? null;
   }
 
-  if (
-    Array.isArray(
-      value
-    )
-  ) {
+  if (Array.isArray(value)) {
     return value.map(
-      stableEventValue
+      stableEventValue,
     );
   }
 
-  if (
-    isRecord(
-      value
-    )
-  ) {
-    const result: Record<
-      string,
-      unknown
-    > = {};
+  if (isRecord(value)) {
+    const result:
+      Record<string, unknown> = {};
 
     for (
       const key of
-      Object.keys(
-        value
-      ).sort()
+        Object.keys(value).sort()
     ) {
       /*
-      __j10_event contains delivery metadata such as event IDs,
-      timestamps and depth. It must never alter the business
-      event fingerprint.
+      Delivery metadata must never alter the
+      business-event fingerprint.
       */
       if (
-        key ===
-        "__j10_event"
+        key === "__j10_event"
       ) {
         continue;
       }
 
       result[key] =
         stableEventValue(
-          value[key]
+          value[key],
         );
     }
 
     return result;
   }
 
-  return String(
-    value
-  );
+  return String(value);
 }
 
 function getIncomingEventMeta(
-  payload: Record<
-    string,
-    unknown
-  >
+  payload:
+    Record<string, unknown>,
 ) {
   return isRecord(
-    payload.__j10_event
+    payload.__j10_event,
   )
     ? payload.__j10_event
     : null;
 }
 
 function buildEventDedupeKey(
-  triggerType: AutomationEventTrigger,
-  payload: Record<
-    string,
-    unknown
-  >
+  triggerType:
+    AutomationEventTrigger,
+  payload:
+    Record<string, unknown>,
 ) {
   const canonical =
     JSON.stringify({
       triggerType,
       payload:
         stableEventValue(
-          payload
+          payload,
         ),
     });
 
-  return createHash(
-    "sha256"
-  )
-    .update(
-      canonical
-    )
-    .digest(
-      "hex"
-    );
+  return createHash("sha256")
+    .update(canonical)
+    .digest("hex");
 }
 
 async function findDuplicateAutomationRun({
@@ -281,7 +252,7 @@ async function findDuplicateAutomationRun({
   const windowStart =
     new Date(
       Date.now() -
-        EVENT_DEDUPE_WINDOW_MS
+        EVENT_DEDUPE_WINDOW_MS,
     ).toISOString();
 
   const {
@@ -289,27 +260,25 @@ async function findDuplicateAutomationRun({
     error,
   } =
     await supabase
-      .from(
-        "automation_runs"
-      )
+      .from("automation_runs")
       .select(
         `
         id,
         status,
         started_at
-        `
+        `,
       )
       .eq(
         "user_id",
-        userId
+        userId,
       )
       .eq(
         "automation_id",
-        automationId
+        automationId,
       )
       .gte(
         "started_at",
-        windowStart
+        windowStart,
       )
       .contains(
         "trigger_payload",
@@ -317,21 +286,20 @@ async function findDuplicateAutomationRun({
           __j10_event: {
             dedupeKey,
           },
-        }
+        },
       )
       .order(
         "started_at",
         {
-          ascending:
-            false,
-        }
+          ascending: false,
+        },
       )
       .limit(1)
       .maybeSingle();
 
   if (error) {
     throw new Error(
-      "J10 could not verify event idempotency."
+      "J10 could not verify event idempotency.",
     );
   }
 
@@ -339,13 +307,10 @@ async function findDuplicateAutomationRun({
 }
 
 function normalizeFilterOperator(
-  value: unknown
-):
-  | TriggerFilterOperator
-  | null {
+  value: unknown,
+): TriggerFilterOperator | null {
   if (
-    typeof value !==
-    "string"
+    typeof value !== "string"
   ) {
     return null;
   }
@@ -356,94 +321,79 @@ function normalizeFilterOperator(
       .toLowerCase()
       .replace(
         /[\s-]+/g,
-        "_"
+        "_",
       );
 
-  const aliases: Record<
-    string,
-    TriggerFilterOperator
-  > = {
-    "=":
-      "equals",
-    "==":
-      "equals",
-    "===":
-      "equals",
-    eq:
-      "equals",
-    equals:
-      "equals",
+  const aliases:
+    Record<
+      string,
+      TriggerFilterOperator
+    > = {
+      "=": "equals",
+      "==": "equals",
+      "===": "equals",
+      eq: "equals",
+      equals: "equals",
 
-    "!=":
-      "not_equals",
-    "!==":
-      "not_equals",
-    neq:
-      "not_equals",
-    not_equals:
-      "not_equals",
+      "!=": "not_equals",
+      "!==": "not_equals",
+      neq: "not_equals",
+      not_equals:
+        "not_equals",
 
-    ">":
-      "greater_than",
-    gt:
-      "greater_than",
-    greater_than:
-      "greater_than",
+      ">": "greater_than",
+      gt: "greater_than",
+      greater_than:
+        "greater_than",
 
-    ">=":
-      "greater_than_or_equal",
-    gte:
-      "greater_than_or_equal",
-    greater_than_or_equal:
-      "greater_than_or_equal",
-    greater_than_or_equals:
-      "greater_than_or_equal",
+      ">=":
+        "greater_than_or_equal",
+      gte:
+        "greater_than_or_equal",
+      greater_than_or_equal:
+        "greater_than_or_equal",
+      greater_than_or_equals:
+        "greater_than_or_equal",
 
-    "<":
-      "less_than",
-    lt:
-      "less_than",
-    less_than:
-      "less_than",
+      "<": "less_than",
+      lt: "less_than",
+      less_than:
+        "less_than",
 
-    "<=":
-      "less_than_or_equal",
-    lte:
-      "less_than_or_equal",
-    less_than_or_equal:
-      "less_than_or_equal",
-    less_than_or_equals:
-      "less_than_or_equal",
+      "<=":
+        "less_than_or_equal",
+      lte:
+        "less_than_or_equal",
+      less_than_or_equal:
+        "less_than_or_equal",
+      less_than_or_equals:
+        "less_than_or_equal",
 
-    contains:
-      "contains",
-    not_contains:
-      "not_contains",
-    exists:
-      "exists",
-    not_exists:
-      "not_exists",
-  };
+      contains:
+        "contains",
+      not_contains:
+        "not_contains",
+      exists:
+        "exists",
+      not_exists:
+        "not_exists",
+    };
 
   const operator =
-    aliases[
-      normalized
-    ];
+    aliases[normalized];
 
   return operator &&
-    SUPPORTED_FILTER_OPERATORS.has(
-      operator
-    )
+    SUPPORTED_FILTER_OPERATORS
+      .has(operator)
     ? operator
     : null;
 }
 
 function normalizeFilterField(
-  value: unknown
+  value: unknown,
 ) {
   if (
-    typeof value !==
-    "string"
+    typeof value !== "string"
   ) {
     return "";
   }
@@ -453,33 +403,33 @@ function normalizeFilterField(
       .trim()
       .replace(
         /^\{\{\s*/,
-        ""
+        "",
       )
       .replace(
         /\s*\}\}$/,
-        ""
+        "",
       )
       .trim();
 
   if (
     field.startsWith(
-      "trigger."
+      "trigger.",
     )
   ) {
     field =
       field.slice(
-        "trigger.".length
+        "trigger.".length,
       );
   }
 
   if (
     field.startsWith(
-      "payload."
+      "payload.",
     )
   ) {
     field =
       field.slice(
-        "payload.".length
+        "payload.".length,
       );
   }
 
@@ -487,71 +437,58 @@ function normalizeFilterField(
 }
 
 function tokenizePath(
-  path: string
+  path: string,
 ) {
   return path
     .replace(
       /\[(\d+)\]/g,
-      ".$1"
+      ".$1",
     )
     .split(".")
     .map(
       (part) =>
-        part.trim()
+        part.trim(),
     )
     .filter(Boolean);
 }
 
 function getNestedValue(
-  source: Record<
-    string,
-    unknown
-  >,
-  path: string
+  source:
+    Record<string, unknown>,
+  path: string,
 ): unknown {
   const parts =
     tokenizePath(path);
 
   if (
-    parts.length ===
-    0
+    parts.length === 0
   ) {
     return undefined;
   }
 
   let current:
-    unknown =
-    source;
+    unknown = source;
 
   for (
     const part of parts
   ) {
     if (
-      !isRecord(
-        current
-      ) &&
-      !Array.isArray(
-        current
-      )
+      !isRecord(current) &&
+      !Array.isArray(current)
     ) {
       return undefined;
     }
 
     if (
-      Array.isArray(
-        current
-      )
+      Array.isArray(current)
     ) {
       const index =
         Number(part);
 
       if (
-        !Number.isInteger(
-          index
-        ) ||
+        !Number.isInteger(index) ||
         index < 0 ||
-        index >=
-          current.length
+        index >= current.length
       ) {
         return undefined;
       }
@@ -570,18 +507,16 @@ function getNestedValue(
 }
 
 function normalizeBoolean(
-  value: unknown
+  value: unknown,
 ) {
   if (
-    typeof value ===
-    "boolean"
+    typeof value === "boolean"
   ) {
     return value;
   }
 
   if (
-    typeof value ===
-    "string"
+    typeof value === "string"
   ) {
     const normalized =
       value
@@ -589,34 +524,28 @@ function normalizeBoolean(
         .toLowerCase();
 
     if (
-      normalized ===
-      "true"
+      normalized === "true"
     ) {
       return true;
     }
 
     if (
-      normalized ===
-      "false"
+      normalized === "false"
     ) {
       return false;
     }
   }
 
-  return Boolean(
-    value
-  );
+  return Boolean(value);
 }
 
 function valuesEqual(
   left: unknown,
-  right: unknown
+  right: unknown,
 ) {
   if (
-    typeof left ===
-      "number" ||
-    typeof right ===
-      "number"
+    typeof left === "number" ||
+    typeof right === "number"
   ) {
     const leftNumber =
       Number(left);
@@ -626,10 +555,10 @@ function valuesEqual(
 
     if (
       Number.isFinite(
-        leftNumber
+        leftNumber,
       ) &&
       Number.isFinite(
-        rightNumber
+        rightNumber,
       )
     ) {
       return (
@@ -640,18 +569,12 @@ function valuesEqual(
   }
 
   if (
-    typeof left ===
-      "boolean" ||
-    typeof right ===
-      "boolean"
+    typeof left === "boolean" ||
+    typeof right === "boolean"
   ) {
     return (
-      normalizeBoolean(
-        left
-      ) ===
-      normalizeBoolean(
-        right
-      )
+      normalizeBoolean(left) ===
+      normalizeBoolean(right)
     );
   }
 
@@ -659,26 +582,17 @@ function valuesEqual(
     left === null ||
     right === null
   ) {
-    return (
-      left ===
-      right
-    );
+    return left === right;
   }
 
   if (
-    typeof left ===
-      "object" ||
-    typeof right ===
-      "object"
+    typeof left === "object" ||
+    typeof right === "object"
   ) {
     try {
       return (
-        JSON.stringify(
-          left
-        ) ===
-        JSON.stringify(
-          right
-        )
+        JSON.stringify(left) ===
+        JSON.stringify(right)
       );
     } catch {
       return false;
@@ -686,57 +600,48 @@ function valuesEqual(
   }
 
   return (
-    String(
-      left ?? ""
-    ) ===
-    String(
-      right ?? ""
-    )
+    String(left ?? "") ===
+    String(right ?? "")
   );
 }
 
 function containsValue(
   actual: unknown,
-  expected: unknown
+  expected: unknown,
 ) {
   if (
-    typeof actual ===
-    "string"
+    typeof actual === "string"
   ) {
     return actual
       .toLowerCase()
       .includes(
         String(
-          expected ?? ""
-        ).toLowerCase()
+          expected ?? "",
+        ).toLowerCase(),
       );
   }
 
   if (
-    Array.isArray(
-      actual
-    )
+    Array.isArray(actual)
   ) {
     return actual.some(
       (item) =>
         valuesEqual(
           item,
-          expected
-        )
+          expected,
+        ),
     );
   }
 
   if (
-    isRecord(
-      actual
-    )
+    isRecord(actual)
   ) {
     return Object.prototype
       .hasOwnProperty.call(
         actual,
         String(
-          expected ?? ""
-        )
+          expected ?? "",
+        ),
       );
   }
 
@@ -748,8 +653,8 @@ function numericCompare(
   expected: unknown,
   compare: (
     left: number,
-    right: number
-  ) => boolean
+    right: number,
+  ) => boolean,
 ) {
   const left =
     Number(actual);
@@ -758,32 +663,27 @@ function numericCompare(
     Number(expected);
 
   if (
-    !Number.isFinite(
-      left
-    ) ||
-    !Number.isFinite(
-      right
-    )
+    !Number.isFinite(left) ||
+    !Number.isFinite(right)
   ) {
     return false;
   }
 
   return compare(
     left,
-    right
+    right,
   );
 }
 
 function evaluateTriggerFilter(
-  payload: Record<
-    string,
-    unknown
-  >,
-  filter: TriggerFilter
+  payload:
+    Record<string, unknown>,
+  filter:
+    TriggerFilter,
 ) {
   const field =
     normalizeFilterField(
-      filter.field
+      filter.field,
     );
 
   if (!field) {
@@ -792,7 +692,7 @@ function evaluateTriggerFilter(
 
   const operator =
     normalizeFilterOperator(
-      filter.operator
+      filter.operator,
     );
 
   if (!operator) {
@@ -802,22 +702,20 @@ function evaluateTriggerFilter(
   const actual =
     getNestedValue(
       payload,
-      field
+      field,
     );
 
-  switch (
-    operator
-  ) {
+  switch (operator) {
     case "equals":
       return valuesEqual(
         actual,
-        filter.value
+        filter.value,
       );
 
     case "not_equals":
       return !valuesEqual(
         actual,
-        filter.value
+        filter.value,
       );
 
     case "greater_than":
@@ -826,10 +724,8 @@ function evaluateTriggerFilter(
         filter.value,
         (
           left,
-          right
-        ) =>
-          left >
-          right
+          right,
+        ) => left > right,
       );
 
     case "greater_than_or_equal":
@@ -838,10 +734,8 @@ function evaluateTriggerFilter(
         filter.value,
         (
           left,
-          right
-        ) =>
-          left >=
-          right
+          right,
+        ) => left >= right,
       );
 
     case "less_than":
@@ -850,10 +744,8 @@ function evaluateTriggerFilter(
         filter.value,
         (
           left,
-          right
-        ) =>
-          left <
-          right
+          right,
+        ) => left < right,
       );
 
     case "less_than_or_equal":
@@ -862,57 +754,47 @@ function evaluateTriggerFilter(
         filter.value,
         (
           left,
-          right
-        ) =>
-          left <=
-          right
+          right,
+        ) => left <= right,
       );
 
     case "contains":
       return containsValue(
         actual,
-        filter.value
+        filter.value,
       );
 
     case "not_contains":
       return !containsValue(
         actual,
-        filter.value
+        filter.value,
       );
 
     case "exists":
       return (
-        actual !==
-          undefined &&
-        actual !==
-          null
+        actual !== undefined &&
+        actual !== null
       );
 
     case "not_exists":
       return (
-        actual ===
-          undefined ||
-        actual ===
-          null
+        actual === undefined ||
+        actual === null
       );
   }
 }
 
 function parseTriggerFilters(
   triggerConfig:
-    | Record<
-        string,
-        unknown
-      >
-    | null
+    TriggerFilterConfig |
+    Record<string, unknown> |
+    null,
 ): {
   filters: TriggerFilter[];
   mode: "all" | "any";
   invalid: boolean;
 } {
-  if (
-    !triggerConfig
-  ) {
+  if (!triggerConfig) {
     return {
       filters: [],
       mode: "all",
@@ -924,10 +806,8 @@ function parseTriggerFilters(
     triggerConfig.filters;
 
   if (
-    rawFilters ===
-      undefined ||
-    rawFilters ===
-      null
+    rawFilters === undefined ||
+    rawFilters === null
   ) {
     return {
       filters: [],
@@ -937,9 +817,7 @@ function parseTriggerFilters(
   }
 
   if (
-    !Array.isArray(
-      rawFilters
-    )
+    !Array.isArray(rawFilters)
   ) {
     return {
       filters: [],
@@ -962,9 +840,7 @@ function parseTriggerFilters(
       rawFilters
   ) {
     if (
-      !isRecord(
-        rawFilter
-      )
+      !isRecord(rawFilter)
     ) {
       return {
         filters: [],
@@ -975,12 +851,12 @@ function parseTriggerFilters(
 
     const field =
       normalizeFilterField(
-        rawFilter.field
+        rawFilter.field,
       );
 
     const operator =
       normalizeFilterOperator(
-        rawFilter.operator
+        rawFilter.operator,
       );
 
     if (
@@ -1010,20 +886,17 @@ function parseTriggerFilters(
 }
 
 function evaluateWorkflowFilters(
-  workflow: EventWorkflow,
-  payload: Record<
-    string,
-    unknown
-  >
+  workflow:
+    EventWorkflow,
+  payload:
+    Record<string, unknown>,
 ): FilterEvaluation {
   const parsed =
     parseTriggerFilters(
-      workflow.trigger_config
+      workflow.trigger_config,
     );
 
-  if (
-    parsed.invalid
-  ) {
+  if (parsed.invalid) {
     return {
       passed: false,
       reason:
@@ -1032,8 +905,7 @@ function evaluateWorkflowFilters(
   }
 
   if (
-    parsed.filters.length ===
-    0
+    parsed.filters.length === 0
   ) {
     return {
       passed: true,
@@ -1047,18 +919,17 @@ function evaluateWorkflowFilters(
       (filter) =>
         evaluateTriggerFilter(
           payload,
-          filter
-        )
+          filter,
+        ),
     );
 
   const passed =
-    parsed.mode ===
-      "any"
+    parsed.mode === "any"
       ? evaluations.some(
-          Boolean
+          Boolean,
         )
       : evaluations.every(
-          Boolean
+          Boolean,
         );
 
   if (passed) {
@@ -1077,7 +948,7 @@ function evaluateWorkflowFilters(
 }
 
 async function parseJsonResponse<T>(
-  response: Response
+  response: Response,
 ): Promise<T> {
   const text =
     await response.text();
@@ -1087,9 +958,7 @@ async function parseJsonResponse<T>(
   }
 
   try {
-    return JSON.parse(
-      text
-    ) as T;
+    return JSON.parse(text) as T;
   } catch {
     return {} as T;
   }
@@ -1097,12 +966,9 @@ async function parseJsonResponse<T>(
 
 export function getAutomationEventDepth(
   payload:
-    | Record<
-        string,
-        unknown
-      >
+    | Record<string, unknown>
     | null
-    | undefined
+    | undefined,
 ) {
   if (!payload) {
     return 0;
@@ -1113,8 +979,7 @@ export function getAutomationEventDepth(
 
   if (
     !meta ||
-    typeof meta !==
-      "object" ||
+    typeof meta !== "object" ||
     Array.isArray(meta)
   ) {
     return 0;
@@ -1122,11 +987,9 @@ export function getAutomationEventDepth(
 
   return safeDepth(
     (
-      meta as Record<
-        string,
-        unknown
-      >
-    ).depth
+      meta as
+        Record<string, unknown>
+    ).depth,
   );
 }
 
@@ -1149,60 +1012,55 @@ export async function dispatchAutomationEvent({
 }: DispatchAutomationEventArgs): Promise<AutomationEventDispatchResult> {
   const incomingEventMeta =
     getIncomingEventMeta(
-      payload
+      payload,
     );
 
   const eventId =
     normalizeEventIdentity(
-      requestedEventId
+      requestedEventId,
     ) ||
     normalizeEventIdentity(
-      incomingEventMeta?.id
+      incomingEventMeta?.id,
     ) ||
     randomUUID();
 
   const dedupeKey =
     normalizeEventIdentity(
-      requestedDedupeKey
+      requestedDedupeKey,
     ) ||
     normalizeEventIdentity(
-      incomingEventMeta?.dedupeKey
+      incomingEventMeta
+        ?.dedupeKey,
     ) ||
     buildEventDedupeKey(
       triggerType,
-      payload
+      payload,
     );
 
   const depth =
     safeDepth(
-      parentDepth
+      parentDepth,
     ) + 1;
 
-  const baseResult: AutomationEventDispatchResult = {
-    success: true,
-    triggerType,
-    eventId,
-    depth,
-    matched: 0,
-    filtered: 0,
-    deduplicated: 0,
-    executed: 0,
-    completed: 0,
-    awaitingApproval: 0,
-    failed: 0,
-    skipped: 0,
-    results: [],
-  };
-
-  /*
-  ============================================================
-  LOOP / CHAIN PROTECTION
-  ============================================================
-  */
+  const baseResult:
+    AutomationEventDispatchResult = {
+      success: true,
+      triggerType,
+      eventId,
+      depth,
+      matched: 0,
+      filtered: 0,
+      deduplicated: 0,
+      executed: 0,
+      completed: 0,
+      awaitingApproval: 0,
+      failed: 0,
+      skipped: 0,
+      results: [],
+    };
 
   if (
-    depth >
-    MAX_EVENT_DEPTH
+    depth > MAX_EVENT_DEPTH
   ) {
     return {
       ...baseResult,
@@ -1229,20 +1087,12 @@ export async function dispatchAutomationEvent({
     };
   }
 
-  /*
-  ============================================================
-  MATCH ACTIVE WORKFLOWS
-  ============================================================
-  */
-
   const {
     data,
     error,
   } =
     await supabase
-      .from(
-        "automations"
-      )
+      .from("automations")
       .select(
         `
         id,
@@ -1250,25 +1100,25 @@ export async function dispatchAutomationEvent({
         trigger_type,
         status,
         trigger_config
-        `
+        `,
       )
       .eq(
         "user_id",
-        userId
+        userId,
       )
       .eq(
         "status",
-        "active"
+        "active",
       )
       .eq(
         "trigger_type",
-        triggerType
+        triggerType,
       );
 
   if (error) {
     console.error(
       "J10 event workflow lookup error:",
-      error
+      error,
     );
 
     return {
@@ -1297,38 +1147,21 @@ export async function dispatchAutomationEvent({
   }
 
   const workflows =
-    (data ??
-      []) as EventWorkflow[];
+    (data ?? []) as
+      EventWorkflow[];
 
-  /*
-  Keep matched as trigger-type matches for backward compatibility.
-  Filtered is reported separately.
-  */
   baseResult.matched =
     workflows.length;
 
-  /*
-  ============================================================
-  EXECUTE MATCHED WORKFLOWS
-  ============================================================
-  */
-
   for (
-    const workflow of
-      workflows
+    const workflow of workflows
   ) {
-    /*
-    Prevent the workflow that created the event from
-    immediately triggering itself.
-    */
-
     if (
       originAutomationId &&
       workflow.id ===
         originAutomationId
     ) {
-      baseResult.skipped +=
-        1;
+      baseResult.skipped += 1;
 
       baseResult.results.push({
         automationId:
@@ -1350,49 +1183,17 @@ export async function dispatchAutomationEvent({
       continue;
     }
 
-    /*
-    ============================================================
-    13H — TRIGGER FILTERS
-
-    Filters live in automations.trigger_config:
-
-    {
-      "filterMode": "all",
-      "filters": [
-        {
-          "field": "contact.type",
-          "operator": "equals",
-          "value": "Lead"
-        },
-        {
-          "field": "contact.estimatedValue",
-          "operator": "greater_than_or_equal",
-          "value": 5000
-        }
-      ]
-    }
-
-    Important:
-    - filtered events never call the workflow execution route
-    - therefore they create no automation run
-    - therefore they increment no execution counter
-    ============================================================
-    */
-
     const filterEvaluation =
       evaluateWorkflowFilters(
         workflow,
-        payload
+        payload,
       );
 
     if (
       !filterEvaluation.passed
     ) {
-      baseResult.filtered +=
-        1;
-
-      baseResult.skipped +=
-        1;
+      baseResult.filtered += 1;
+      baseResult.skipped += 1;
 
       baseResult.results.push({
         automationId:
@@ -1414,17 +1215,6 @@ export async function dispatchAutomationEvent({
       continue;
     }
 
-    /*
-    ============================================================
-    13I — EVENT DEDUPLICATION / IDEMPOTENCY
-
-    event + automation should create at most one execution
-    inside the retry window. This prevents duplicate AI tasks,
-    CRM writes and other side effects when an event delivery is
-    retried.
-    ============================================================
-    */
-
     try {
       const duplicateRun =
         await findDuplicateAutomationRun({
@@ -1435,14 +1225,11 @@ export async function dispatchAutomationEvent({
           dedupeKey,
         });
 
-      if (
-        duplicateRun
-      ) {
-        baseResult.deduplicated +=
-          1;
+      if (duplicateRun) {
+        baseResult
+          .deduplicated += 1;
 
-        baseResult.skipped +=
-          1;
+        baseResult.skipped += 1;
 
         baseResult.results.push({
           automationId:
@@ -1464,8 +1251,7 @@ export async function dispatchAutomationEvent({
         continue;
       }
     } catch (error) {
-      baseResult.failed +=
-        1;
+      baseResult.failed += 1;
 
       baseResult.results.push({
         automationId:
@@ -1489,55 +1275,72 @@ export async function dispatchAutomationEvent({
       continue;
     }
 
-    const eventPayload: Record<
-      string,
-      unknown
-    > = {
-      ...payload,
+    const eventPayload:
+      Record<string, unknown> = {
+        ...payload,
 
-      __j10_event: {
-        id:
-          eventId,
+        __j10_event: {
+          id:
+            eventId,
 
-        type:
-          triggerType,
+          type:
+            triggerType,
 
-        occurredAt:
-          new Date().toISOString(),
+          occurredAt:
+            new Date()
+              .toISOString(),
 
-        depth,
+          depth,
 
-        originAutomationId:
-          originAutomationId ??
-          null,
+          originAutomationId:
+            originAutomationId ??
+            null,
 
-        dedupeKey,
+          dedupeKey,
 
-        dedupeWindowMinutes:
-          EVENT_DEDUPE_WINDOW_MS /
-          60000,
+          dedupeWindowMinutes:
+            EVENT_DEDUPE_WINDOW_MS /
+            60000,
 
-        triggerFilters:
-          filterEvaluation.reason,
-      },
-    };
+          triggerFilters:
+            filterEvaluation.reason,
+        },
+      };
+
+    /*
+    Browser-triggered workflows retain their authenticated
+    Supabase cookie.
+
+    External or chained bridge events receive a new signed,
+    workflow-scoped internal cookie.
+    */
+    const dispatchCookieHeader =
+      cookieHeader &&
+      !hasAutomationBridgeCookie(
+        cookieHeader,
+      )
+        ? cookieHeader
+        : createAutomationBridgeCookieHeader(
+            userId,
+            workflow.id,
+            eventId,
+          );
 
     try {
       const response =
         await fetch(
           `${origin}/api/automations/${encodeURIComponent(
-            workflow.id
+            workflow.id,
           )}/run`,
           {
-            method:
-              "POST",
+            method: "POST",
 
             headers: {
               "Content-Type":
                 "application/json",
 
               cookie:
-                cookieHeader,
+                dispatchCookieHeader,
             },
 
             cache:
@@ -1551,13 +1354,13 @@ export async function dispatchAutomationEvent({
                 triggerPayload:
                   eventPayload,
               }),
-          }
+          },
         );
 
       const result =
-        await parseJsonResponse<EventRunResponse>(
-          response
-        );
+        await parseJsonResponse<
+          EventRunResponse
+        >(response);
 
       if (
         result.duplicate ||
@@ -1565,11 +1368,10 @@ export async function dispatchAutomationEvent({
         result.status ===
           "duplicate"
       ) {
-        baseResult.deduplicated +=
-          1;
+        baseResult
+          .deduplicated += 1;
 
-        baseResult.skipped +=
-          1;
+        baseResult.skipped += 1;
 
         baseResult.results.push({
           automationId:
@@ -1593,16 +1395,13 @@ export async function dispatchAutomationEvent({
         continue;
       }
 
-      baseResult.executed +=
-        1;
+      baseResult.executed += 1;
 
       if (
         !response.ok ||
-        result.success ===
-          false
+        result.success === false
       ) {
-        baseResult.failed +=
-          1;
+        baseResult.failed += 1;
 
         baseResult.results.push({
           automationId:
@@ -1632,8 +1431,8 @@ export async function dispatchAutomationEvent({
         result.status ===
           "awaiting_approval"
       ) {
-        baseResult.awaitingApproval +=
-          1;
+        baseResult
+          .awaitingApproval += 1;
 
         baseResult.results.push({
           automationId:
@@ -1657,8 +1456,7 @@ export async function dispatchAutomationEvent({
         continue;
       }
 
-      baseResult.completed +=
-        1;
+      baseResult.completed += 1;
 
       baseResult.results.push({
         automationId:
@@ -1679,11 +1477,8 @@ export async function dispatchAutomationEvent({
           "Event-triggered workflow completed.",
       });
     } catch (error) {
-      baseResult.executed +=
-        1;
-
-      baseResult.failed +=
-        1;
+      baseResult.executed += 1;
+      baseResult.failed += 1;
 
       baseResult.results.push({
         automationId:
@@ -1707,8 +1502,7 @@ export async function dispatchAutomationEvent({
   }
 
   baseResult.success =
-    baseResult.failed ===
-    0;
+    baseResult.failed === 0;
 
   return baseResult;
 }

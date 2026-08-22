@@ -1,13 +1,11 @@
-import ModulePage from "@/ui/ModulePage";
-import { BarChart3 } from "lucide-react";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
+
+import IntegrationAnalyticsDashboard from "@/components/integrations/IntegrationAnalyticsDashboard";
 
 export default function AnalyticsPage() {
   return (
-    <ModulePage
-      title="Analytics"
-      description="Monitor performance, KPIs and business intelligence."
-      icon={<BarChart3 size={28} />}
-      action="Generate Report"
-    />
+    <DashboardLayout>
+      <IntegrationAnalyticsDashboard />
+    </DashboardLayout>
   );
 }

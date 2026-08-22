@@ -29,7 +29,8 @@ type AutomationTriggerType =
   | "crm_status_changed"
   | "new_ai_task"
   | "ai_task_completed"
-  | "schedule";
+  | "schedule"
+  | "integration_event";
 
 type AutomationAction =
   | "pause"
@@ -75,6 +76,7 @@ const allowedTriggerTypes: AutomationTriggerType[] = [
   "new_ai_task",
   "ai_task_completed",
   "schedule",
+  "integration_event",
 ];
 
 const allowedActions: AutomationAction[] = [

@@ -1,6 +1,8 @@
+import {
+  hasAutomationBridgeCookie,
+  resolveAutomationRequestActor,
+} from "@/lib/automation/bridge-auth";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
 
 import { runJ10AI } from "@/lib/ai/runtime";
 
@@ -362,49 +364,6 @@ SUPABASE
 ============================================================
 */
 
-async function getSupabase() {
-  const cookieStore =
-    await cookies();
-
-  return createServerClient(
-    process.env
-      .NEXT_PUBLIC_SUPABASE_URL!,
-
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            /*
-            Cookie writes may not be available
-            in every server context.
-            */
-          }
-        },
-      },
-    }
-  );
-}
 
 /*
 ============================================================
@@ -412,22 +371,6 @@ AUTH
 ============================================================
 */
 
-async function getAuthenticatedUser() {
-  const supabase =
-    await getSupabase();
-
-  const {
-    data: { user },
-    error,
-  } =
-    await supabase.auth.getUser();
-
-  return {
-    supabase,
-    user,
-    error,
-  };
-}
 
 /*
 ============================================================
@@ -472,18 +415,18 @@ export async function POST(
   ============================================================
   */
 
-  const {
-    supabase,
-    user,
-    error:
-      userError,
-  } =
-    await getAuthenticatedUser();
+  const actor =
+    await resolveAutomationRequestActor(
+      request
+    );
 
-  if (
-    userError ||
-    !user
-  ) {
+  const supabase =
+    actor.supabase;
+
+  const user =
+    actor.user;
+
+  if (!user) {
     return NextResponse.json(
       {
         success: false,
@@ -558,6 +501,61 @@ export async function POST(
 
   const task =
     taskData as AITaskRecord;
+
+  const workflowScope =
+    extractWorkflowCollaborationMetadata(
+      task.input_text
+    ).workflowId;
+
+  const bridgeRequest =
+    hasAutomationBridgeCookie(
+      request.headers.get(
+        "cookie"
+      ) ?? ""
+    );
+
+  if (
+    bridgeRequest &&
+    !workflowScope
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "J10 blocked an unscoped automation bridge request.",
+      },
+      {
+        status: 403,
+      }
+    );
+  }
+
+  const scopedActor =
+    await resolveAutomationRequestActor(
+      request,
+      {
+        expectedAutomationId:
+          workflowScope ??
+          undefined,
+      }
+    );
+
+  if (
+    !scopedActor.user ||
+    scopedActor.user.id !==
+      user.id
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "Forbidden.",
+      },
+      {
+        status: 403,
+      }
+    );
+  }
 
   /*
   ============================================================
@@ -1239,7 +1237,7 @@ actually executed them.
         .limit(1)
         .maybeSingle();
 
-    let originAutomationId:
+    const originAutomationId:
       | string
       | null =
       originRunStep?.automation_id ??

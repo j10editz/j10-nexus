@@ -1,10 +1,15 @@
+import {
+  executeIntegrationAutomationAction,
+} from "@/lib/integrations/automation-action-bridge";
+
 export type AutomationActionType =
   | "analyze_crm"
   | "generate_recommendation"
   | "add_crm_note"
   | "update_crm_status"
   | "run_research"
-  | "record_activity";
+  | "record_activity"
+  | "integration_action";
 
 export type AutomationActionStatus =
   | "completed"
@@ -18,14 +23,16 @@ export type AutomationSafetyClassification =
 
 export type AutomationSafetyPolicy = {
   operation: string;
-  classification: AutomationSafetyClassification;
+  classification:
+    AutomationSafetyClassification;
   requiresHumanApproval: boolean;
   allowAutomaticExecution: boolean;
   reason: string;
 };
 
 export type AutomationActionContext = {
-  actionType: AutomationActionType;
+  actionType:
+    AutomationActionType;
 
   workflowId: string;
   workflowName: string;
@@ -36,42 +43,35 @@ export type AutomationActionContext = {
 
   instructions: string | null;
 
-  triggerPayload: Record<string, unknown>;
+  triggerPayload:
+    Record<string, unknown>;
 
-  workflowContext?: Record<string, unknown> | null;
+  workflowContext?:
+    | Record<string, unknown>
+    | null;
 
   employeeId?: string | null;
   employeeName?: string | null;
+
+  approvalRunStepId?:
+    | string
+    | null;
 };
 
 export type AutomationActionResult = {
   success: boolean;
-
-  status: AutomationActionStatus;
-
-  actionType: AutomationActionType;
-
+  status:
+    AutomationActionStatus;
+  actionType:
+    AutomationActionType;
   resultText: string;
-
-  requiresHumanApproval: boolean;
-
-  sideEffectBlocked: boolean;
-
-  metadata: Record<string, unknown>;
+  requiresHumanApproval:
+    boolean;
+  sideEffectBlocked:
+    boolean;
+  metadata:
+    Record<string, unknown>;
 };
-
-/*
-============================================================
-J10 CENTRAL AUTOMATION SAFETY POLICY
-
-Safe intelligence work can execute automatically.
-
-Business mutations and high-risk external operations require
-explicit human approval.
-
-Unknown operations fail closed.
-============================================================
-*/
 
 const SAFE_OPERATIONS =
   new Set([
@@ -89,16 +89,8 @@ const SAFE_OPERATIONS =
 
 const HUMAN_CONTROLLED_OPERATIONS =
   new Set([
-    /*
-    Current connected J10 CRM mutations.
-    */
     "add_crm_note",
     "update_crm_status",
-
-    /*
-    Reserved safety categories for future connectors.
-    They are protected by policy before those connectors exist.
-    */
     "close_deal",
     "send_external_message",
     "send_email",
@@ -109,10 +101,11 @@ const HUMAN_CONTROLLED_OPERATIONS =
     "delete_crm_contact",
     "account_change",
     "permission_change",
+    "integration_action",
   ]);
 
 export function getAutomationSafetyPolicy(
-  operation: string
+  operation: string,
 ): AutomationSafetyPolicy {
   const normalized =
     operation
@@ -121,7 +114,7 @@ export function getAutomationSafetyPolicy(
 
   if (
     SAFE_OPERATIONS.has(
-      normalized
+      normalized,
     )
   ) {
     return {
@@ -143,9 +136,8 @@ export function getAutomationSafetyPolicy(
   }
 
   if (
-    HUMAN_CONTROLLED_OPERATIONS.has(
-      normalized
-    )
+    HUMAN_CONTROLLED_OPERATIONS
+      .has(normalized)
   ) {
     return {
       operation:
@@ -192,8 +184,9 @@ export function isProtectedAutomationAction(
   operation:
     | string
     | null
-    | undefined
-): operation is ProtectedAutomationAction {
+    | undefined,
+): operation is
+  ProtectedAutomationAction {
   if (!operation) {
     return false;
   }
@@ -207,8 +200,9 @@ export function isProtectedAutomationAction(
 }
 
 export function isAutomationActionType(
-  value: string
-): value is AutomationActionType {
+  value: string,
+): value is
+  AutomationActionType {
   return [
     "analyze_crm",
     "generate_recommendation",
@@ -216,19 +210,22 @@ export function isAutomationActionType(
     "update_crm_status",
     "run_research",
     "record_activity",
+    "integration_action",
   ].includes(value);
 }
 
 export function requiresHumanApprovalForAction(
-  actionType: AutomationActionType
+  actionType:
+    AutomationActionType,
 ) {
   return getAutomationSafetyPolicy(
-    actionType
+    actionType,
   ).requiresHumanApproval;
 }
 
 export async function executeAutomationAction(
-  context: AutomationActionContext
+  context:
+    AutomationActionContext,
 ): Promise<AutomationActionResult> {
   const {
     actionType,
@@ -239,13 +236,15 @@ export async function executeAutomationAction(
     stepName,
     instructions,
     triggerPayload,
+    workflowContext,
     employeeId,
     employeeName,
+    approvalRunStepId,
   } = context;
 
   const safety =
     getAutomationSafetyPolicy(
-      actionType
+      actionType,
     );
 
   const baseMetadata = {
@@ -254,10 +253,13 @@ export async function executeAutomationAction(
     stepId,
     stepOrder,
     stepName,
+
     employeeId:
       employeeId ?? null,
+
     employeeName:
       employeeName ?? null,
+
     triggerPayload,
 
     safety: {
@@ -265,33 +267,71 @@ export async function executeAutomationAction(
         safety.classification,
 
       requiresHumanApproval:
-        safety.requiresHumanApproval,
+        safety
+          .requiresHumanApproval,
 
       allowAutomaticExecution:
-        safety.allowAutomaticExecution,
+        safety
+          .allowAutomaticExecution,
 
       reason:
         safety.reason,
     },
   };
 
-  /*
-  ============================================================
-  CRM ANALYSIS
-  Safe read/analyze operation.
-  ============================================================
-  */
+  if (
+    actionType ===
+      "integration_action"
+  ) {
+    const bridgeResult =
+      await executeIntegrationAutomationAction({
+        workflowId,
+        workflowName,
+        stepId,
+        stepOrder,
+        workflowContext,
+        approvalRunStepId,
+      });
+
+    return {
+      success:
+        bridgeResult.success,
+
+      status:
+        bridgeResult.status,
+
+      actionType,
+
+      resultText:
+        bridgeResult.resultText,
+
+      requiresHumanApproval:
+        bridgeResult
+          .requiresHumanApproval,
+
+      sideEffectBlocked:
+        bridgeResult
+          .sideEffectBlocked,
+
+      metadata: {
+        ...baseMetadata,
+
+        operation:
+          "integration_automation",
+
+        bridge:
+          bridgeResult.metadata,
+      },
+    };
+  }
 
   if (
     actionType ===
-    "analyze_crm"
+      "analyze_crm"
   ) {
     return {
       success: true,
-
-      status:
-        "completed",
-
+      status: "completed",
       actionType,
 
       resultText: [
@@ -315,30 +355,19 @@ export async function executeAutomationAction(
 
       metadata: {
         ...baseMetadata,
-
         operation:
           "analysis",
       },
     };
   }
 
-  /*
-  ============================================================
-  RECOMMENDATION
-  Safe recommendation-only operation.
-  ============================================================
-  */
-
   if (
     actionType ===
-    "generate_recommendation"
+      "generate_recommendation"
   ) {
     return {
       success: true,
-
-      status:
-        "completed",
-
+      status: "completed",
       actionType,
 
       resultText: [
@@ -363,26 +392,15 @@ export async function executeAutomationAction(
 
       metadata: {
         ...baseMetadata,
-
         operation:
           "recommendation",
       },
     };
   }
 
-  /*
-  ============================================================
-  CRM NOTE
-  Connected CRM mutation.
-
-  The Action Engine prepares the request but NEVER performs the
-  mutation before human approval.
-  ============================================================
-  */
-
   if (
     actionType ===
-    "add_crm_note"
+      "add_crm_note"
   ) {
     return {
       success: true,
@@ -422,19 +440,9 @@ export async function executeAutomationAction(
     };
   }
 
-  /*
-  ============================================================
-  CRM STATUS
-  Connected CRM mutation.
-
-  The Action Engine prepares the request but NEVER performs the
-  mutation before human approval.
-  ============================================================
-  */
-
   if (
     actionType ===
-    "update_crm_status"
+      "update_crm_status"
   ) {
     return {
       success: true,
@@ -474,26 +482,13 @@ export async function executeAutomationAction(
     };
   }
 
-  /*
-  ============================================================
-  RESEARCH ACTION
-  Safe internal research preparation.
-
-  Dedicated AI Employee task execution remains handled by the
-  existing J10 workforce engine.
-  ============================================================
-  */
-
   if (
     actionType ===
-    "run_research"
+      "run_research"
   ) {
     return {
       success: true,
-
-      status:
-        "completed",
-
+      status: "completed",
       actionType,
 
       resultText: [
@@ -520,30 +515,19 @@ export async function executeAutomationAction(
 
       metadata: {
         ...baseMetadata,
-
         operation:
           "research",
       },
     };
   }
 
-  /*
-  ============================================================
-  ACTIVITY
-  Safe internal operational event.
-  ============================================================
-  */
-
   if (
     actionType ===
-    "record_activity"
+      "record_activity"
   ) {
     return {
       success: true,
-
-      status:
-        "completed",
-
+      status: "completed",
       actionType,
 
       resultText:
@@ -558,26 +542,15 @@ export async function executeAutomationAction(
 
       metadata: {
         ...baseMetadata,
-
         operation:
           "activity",
       },
     };
   }
 
-  /*
-  ============================================================
-  SAFETY FALLBACK
-  Unknown action execution fails closed.
-  ============================================================
-  */
-
   return {
     success: false,
-
-    status:
-      "failed",
-
+    status: "failed",
     actionType,
 
     resultText:
@@ -591,7 +564,6 @@ export async function executeAutomationAction(
 
     metadata: {
       ...baseMetadata,
-
       operation:
         "unknown",
     },
