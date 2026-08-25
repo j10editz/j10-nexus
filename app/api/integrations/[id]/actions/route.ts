@@ -24,6 +24,10 @@ import {
 } from "../../../../../lib/integrations/database";
 
 import {
+  executeLiveIntegrationAction,
+} from "../../../../../lib/integrations/live-action-execution";
+
+import {
   createIntegrationActionFingerprint,
   createIntegrationActionPlan,
   evaluateIntegrationActionPolicy,
@@ -596,11 +600,25 @@ export async function POST(
 
     try {
       const adapterResult =
-        await executeIntegrationActionPlan(
-          plan,
-          actionRequest,
-          activeExecution.id,
-        );
+        mode === "live"
+          ? await executeLiveIntegrationAction({
+              supabase,
+              userId:
+                user.id,
+              connection,
+              request:
+                actionRequest,
+              executionId:
+                activeExecution.id,
+              correlationId,
+              signal:
+                request.signal,
+            })
+          : await executeIntegrationActionPlan(
+              plan,
+              actionRequest,
+              activeExecution.id,
+            );
 
       if (!adapterResult.success) {
         const code =

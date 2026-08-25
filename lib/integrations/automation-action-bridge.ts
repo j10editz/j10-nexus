@@ -41,6 +41,10 @@ import {
 } from "./external-action-adapter";
 
 import {
+  executeLiveIntegrationAction,
+} from "./live-action-execution";
+
+import {
   claimIntegrationActionExecution,
   finishIntegrationActionExecution,
   resumeApprovedIntegrationActionExecution,
@@ -241,9 +245,20 @@ function readActionConfig(
       nested.mode,
     );
 
+  const actionInput =
+    isRecord(
+      nested.input,
+    )
+      ? nested.input
+      : isRecord(
+          root.input,
+        )
+        ? root.input
+        : {};
+
   const resolvedInput =
     resolveTemplateValue(
-      nested.input ?? {},
+      actionInput,
       workflowContext,
     );
 
@@ -897,11 +912,28 @@ export async function executeIntegrationAutomationAction(args: {
 
   try {
     const adapterResult =
-      await executeIntegrationActionPlan(
-        plan,
-        actionRequest,
-        activeExecution.id,
-      );
+      config.mode === "live"
+        ? await executeLiveIntegrationAction({
+            supabase,
+            userId:
+              automation.user_id,
+            connection,
+            request:
+              actionRequest,
+            executionId:
+              activeExecution.id,
+            correlationId:
+              executionId,
+            signal:
+              AbortSignal.timeout(
+                20_000,
+              ),
+          })
+        : await executeIntegrationActionPlan(
+            plan,
+            actionRequest,
+            activeExecution.id,
+          );
 
     const execution =
       await finishIntegrationActionExecution(
@@ -1021,8 +1053,8 @@ export async function executeIntegrationAutomationAction(args: {
           : `${capability.name} did not complete successfully.`,
 
       /*
-      Simulation and sandbox mode never create a real external
-      side effect. Live execution remains blocked above for 14K.
+      Live provider actions reach installed runtimes only after
+      policy evaluation and verified human approval both pass.
       */
       requiresHumanApproval:
         false,

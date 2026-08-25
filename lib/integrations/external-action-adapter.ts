@@ -611,15 +611,34 @@ export function evaluateIntegrationActionPolicy(
     );
 
   if (
-    mode === "live"
+    mode === "live" &&
+    connection.environment !==
+      "production"
   ) {
     return {
       allowed: false,
       requiresHumanApproval: true,
       risk,
-      code: "INTEGRATION_LIVE_ADAPTER_NOT_INSTALLED",
+      code:
+        "INTEGRATION_LIVE_ENVIRONMENT_REQUIRED",
       reason:
-        "This live provider adapter is not installed. J10 will not treat human approval as permission to execute an unavailable live adapter.",
+        "Live provider actions require a production integration connection.",
+    };
+  }
+
+  if (
+    mode === "live" &&
+    connection.status !==
+      "connected"
+  ) {
+    return {
+      allowed: false,
+      requiresHumanApproval: true,
+      risk,
+      code:
+        "INTEGRATION_LIVE_CONNECTION_NOT_READY",
+      reason:
+        "Live provider actions require a connected and authorized integration.",
     };
   }
 
@@ -684,13 +703,17 @@ export function evaluateIntegrationActionPolicy(
       ),
     risk,
     code:
-      mode === "sandbox"
-        ? "DEVELOPMENT_SANDBOX_ALLOWED"
-        : "SIMULATION_ALLOWED",
+      mode === "live"
+        ? "LIVE_RUNTIME_ALLOWED"
+        : mode === "sandbox"
+          ? "DEVELOPMENT_SANDBOX_ALLOWED"
+          : "SIMULATION_ALLOWED",
     reason:
-      mode === "sandbox"
-        ? "The action may execute only against the isolated J10 development sandbox."
-        : "The action will be validated and planned without an external side effect.",
+      mode === "live"
+        ? "The installed live provider runtime may execute after all J10 policy and approval requirements pass."
+        : mode === "sandbox"
+          ? "The action may execute only against the isolated J10 development sandbox."
+          : "The action will be validated and planned without an external side effect.",
   };
 }
 
@@ -759,7 +782,9 @@ export function createIntegrationActionPlan(
     environment:
       connection.environment,
     adapter:
-      `${provider.id}.day14i`,
+      request.mode === "live"
+        ? `${provider.id}.runtime`
+        : `${provider.id}.day14i`,
     operation,
     inputKeys:
       Object.keys(request.input)
@@ -768,7 +793,9 @@ export function createIntegrationActionPlan(
     method:
       request.mode === "sandbox"
         ? "POST"
-        : "NONE",
+        : request.mode === "live"
+          ? "PROVIDER"
+          : "NONE",
   };
 }
 

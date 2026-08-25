@@ -279,16 +279,6 @@ function setupBlockReason(
     return "Coming soon";
   }
 
-  if (
-    integration.auth.type ===
-      "oauth2" &&
-    integration.auth.setupFields
-      .length === 0 &&
-    !integration.registered
-  ) {
-    return "OAuth coming next";
-  }
-
   return null;
 }
 
@@ -881,6 +871,38 @@ export default function IntegrationsPage() {
               `Could not secure ${integration.name} credentials.`,
           );
         }
+      }
+
+      if (
+        integration.auth.type ===
+        "oauth2"
+      ) {
+        setSelectedIntegration(
+          null,
+        );
+
+        setSuccessMessage(
+          `Redirecting to ${integration.name} authorization...`,
+        );
+
+        const authorizationUrl =
+          new URL(
+            `/api/integrations/${encodeURIComponent(
+              connectionId,
+            )}/oauth/authorize`,
+            window.location.origin,
+          );
+
+        authorizationUrl.searchParams.set(
+          "returnTo",
+          "/dashboard/settings/integrations",
+        );
+
+        window.location.assign(
+          authorizationUrl.toString(),
+        );
+
+        return;
       }
 
       setSelectedIntegration(
@@ -1532,18 +1554,29 @@ function IntegrationCard({
       integration,
     );
 
+  const isOAuth =
+    integration.auth.type ===
+    "oauth2";
+
   const buttonLabel =
     blockReason
       ? blockReason
-      : !integration.registered
-        ? "Set up integration"
-        : integration.status ===
-            "connected"
-          ? "Manage connection"
-          : integration
-                .hasCredentials
-            ? "Review setup"
-            : "Secure credentials";
+      : isOAuth
+        ? !integration.registered
+          ? "Connect with OAuth"
+          : integration.status ===
+              "connected"
+            ? "Manage OAuth connection"
+            : "Authorize with OAuth"
+        : !integration.registered
+          ? "Set up integration"
+          : integration.status ===
+              "connected"
+            ? "Manage connection"
+            : integration
+                  .hasCredentials
+              ? "Review setup"
+              : "Secure credentials";
 
   return (
     <article className="group relative overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0d0e12] p-5 transition duration-300 hover:-translate-y-0.5 hover:border-violet-500/25">
@@ -2336,12 +2369,19 @@ function SetupModal({
             )}
 
             {saving
-              ? "Saving securely..."
-              : integration.registered
-                ? integration.hasCredentials
-                  ? "Save credential changes"
-                  : "Secure credentials"
-                : "Add to workspace"}
+              ? isOAuth
+                ? "Starting authorization..."
+                : "Saving securely..."
+              : isOAuth
+                ? integration.status ===
+                    "connected"
+                  ? "Reconnect with OAuth"
+                  : "Connect with OAuth"
+                : integration.registered
+                  ? integration.hasCredentials
+                    ? "Save credential changes"
+                    : "Secure credentials"
+                  : "Add to workspace"}
           </button>
         </div>
       </div>
