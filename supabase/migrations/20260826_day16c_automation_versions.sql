@@ -398,4 +398,3 @@ grant all
   to service_role;
 
 commit;
-
