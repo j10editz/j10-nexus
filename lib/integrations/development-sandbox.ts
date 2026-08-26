@@ -707,7 +707,7 @@ const SCENARIOS:
 
         assertSandbox(
           policy.code ===
-            "INTEGRATION_LIVE_ADAPTER_NOT_INSTALLED",
+            "INTEGRATION_LIVE_ENVIRONMENT_REQUIRED",
 
           "Live mode returned the wrong guardrail code.",
         );

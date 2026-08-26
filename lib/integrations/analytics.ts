@@ -477,9 +477,11 @@ export async function getIntegrationAnalytics(
 ): Promise<IntegrationAnalyticsSnapshot> {
   const periodEnd = new Date();
 
-  const periodStart = new Date(
-    periodEnd.getTime() -
-    periodDays * DAY_MS,
+  const periodStart = startOfUtcDay(
+    new Date(
+      periodEnd.getTime() -
+      (periodDays - 1) * DAY_MS,
+    ),
   );
 
   const [
