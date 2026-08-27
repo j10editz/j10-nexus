@@ -660,19 +660,6 @@ export function evaluateIntegrationActionPolicy(
     };
   }
 
-  if (
-    mode === "sandbox" &&
-    connection.environment === "production"
-  ) {
-    return {
-      allowed: false,
-      requiresHumanApproval: true,
-      risk,
-      code: "SANDBOX_BLOCKED_FOR_PRODUCTION_CONNECTION",
-      reason:
-        "A production connection cannot execute through the development sandbox.",
-    };
-  }
 
   const provider =
     getIntegrationProvider(
