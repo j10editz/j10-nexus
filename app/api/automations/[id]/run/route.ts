@@ -435,6 +435,85 @@ function getStepGraphNodeId(
     : null;
 }
 
+async function assertStartVersionIntegrity(args: {
+  supabase: SupabaseClient;
+  userId: string;
+  automationId: string;
+  automationVersionId: string | null;
+  steps: AutomationStep[];
+}) {
+  if (!args.automationVersionId) {
+    return;
+  }
+
+  const {
+    data,
+    error,
+  } = await args.supabase
+    .from("automation_version_steps")
+    .select(
+      `
+      graph_node_id,
+      step_order,
+      is_enabled
+      `
+    )
+    .eq("automation_version_id", args.automationVersionId)
+    .eq("automation_id", args.automationId)
+    .eq("user_id", args.userId)
+    .eq("is_enabled", true)
+    .order("step_order", {
+      ascending: true,
+    });
+
+  if (error) {
+    console.error(
+      "Start version integrity lookup error:",
+      error
+    );
+
+    throw new Error(
+      "J10 could not verify the published workflow version before execution."
+    );
+  }
+
+  const versionSteps =
+    (data ?? []) as Array<{
+      graph_node_id: string | null;
+      step_order: number;
+      is_enabled: boolean;
+    }>;
+
+  if (versionSteps.length !== args.steps.length) {
+    throw new Error(
+      "J10 blocked execution because live workflow steps no longer match the published version."
+    );
+  }
+
+  for (let index = 0; index < versionSteps.length; index += 1) {
+    const versionStep = versionSteps[index];
+    const liveStep = args.steps[index];
+
+    if (!liveStep) {
+      throw new Error(
+        "J10 blocked execution because a published workflow step is missing from live runtime."
+      );
+    }
+
+    const liveNodeId =
+      getStepGraphNodeId(liveStep);
+
+    if (
+      versionStep.step_order !== liveStep.step_order ||
+      versionStep.graph_node_id !== liveNodeId
+    ) {
+      throw new Error(
+        "J10 blocked execution because live runtime step order or graph node identity drifted from the published version."
+      );
+    }
+  }
+}
+
 /*
 ============================================================
 POST
@@ -1002,6 +1081,14 @@ export async function POST(
     const steps =
       (rawSteps ??
         []) as AutomationStep[];
+
+    await assertStartVersionIntegrity({
+      supabase,
+      userId: user.id,
+      automationId: automation.id,
+      automationVersionId,
+      steps,
+    });
 
     loadedSteps =
       steps;
