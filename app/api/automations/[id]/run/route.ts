@@ -587,6 +587,7 @@ export async function POST(
           status,
           trigger_type,
           trigger_config,
+          published_version_id,
           total_executions,
           successful_executions,
           failed_executions,
@@ -689,9 +690,73 @@ export async function POST(
       );
     }
 
+    const publishedVersionId =
+      typeof automation.published_version_id === "string"
+        ? automation.published_version_id
+        : null;
+
+    const {
+      data: publishedVersion,
+      error: publishedVersionError,
+    } = publishedVersionId
+      ? await supabase
+          .from("automation_versions")
+          .select(
+            `
+            id,
+            version_number,
+            status,
+            graph_version,
+            graph_snapshot
+            `
+          )
+          .eq("id", publishedVersionId)
+          .eq("automation_id", automation.id)
+          .eq("user_id", user.id)
+          .eq("status", "published")
+          .maybeSingle()
+      : {
+          data: null,
+          error: null,
+        };
+
+    if (publishedVersionError) {
+      console.error(
+        "Published automation version lookup error:",
+        publishedVersionError
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Could not verify the published workflow version.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    if (
+      publishedVersionId &&
+      !publishedVersion
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "This workflow points to a published version that could not be loaded.",
+        },
+        {
+          status: 409,
+        }
+      );
+    }
+
     /*
     ============================================================
-    13I — EXECUTION-LEVEL IDEMPOTENCY
+    13I - EXECUTION-LEVEL IDEMPOTENCY
 
     The event dispatcher performs the first duplicate check.
     This second guard protects the execution route itself from
@@ -934,6 +999,12 @@ export async function POST(
           user_id:
             user.id,
 
+          automation_version_id:
+            publishedVersion?.id ?? null,
+
+          graph_snapshot:
+            publishedVersion?.graph_snapshot ?? null,
+
           trigger_type:
             triggerSource,
 
@@ -965,6 +1036,8 @@ export async function POST(
           id,
           automation_id,
           user_id,
+          automation_version_id,
+          graph_snapshot,
           trigger_type,
           status,
           current_step_order,
@@ -3600,7 +3673,7 @@ export async function POST(
 
       /*
       ==========================================================
-      13J — RECORD FAILED ATTEMPT
+      13J - RECORD FAILED ATTEMPT
       ==========================================================
       */
 

@@ -378,6 +378,8 @@ export async function POST(
         id,
         automation_id,
         user_id,
+        automation_version_id,
+        graph_snapshot,
         trigger_type,
         trigger_payload,
         status,
@@ -861,7 +863,7 @@ export async function POST(
 
   /*
   ============================================================
-  13M FIX — ACTIVE EXECUTION SEGMENT
+  13M FIX - ACTIVE EXECUTION SEGMENT
 
   Human approval time is intentionally excluded from workflow
   runtime guardrails. The original run.started_at remains the
