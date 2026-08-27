@@ -32,6 +32,16 @@ type RouteContext = {
 
 type PublishWorkflowBody = {
   graph?: unknown;
+  activate?: boolean;
+};
+
+type RuntimeSwitchResult = {
+  success?: boolean;
+  automationId?: string;
+  automationVersionId?: string;
+  versionNumber?: number;
+  stepCount?: number;
+  activated?: boolean;
 };
 
 type AutomationRow = {
@@ -409,19 +419,53 @@ export async function POST(
       );
     }
 
+    const activateRuntime =
+      body.activate !== false;
+
+    const {
+      data: runtimeSwitch,
+      error: runtimeSwitchError,
+    } = await supabase.rpc(
+      "publish_automation_version_runtime",
+      {
+        p_automation_id: automationRow.id,
+        p_automation_version_id: publishedVersion.id,
+        p_activate: activateRuntime,
+      }
+    );
+
+    if (runtimeSwitchError) {
+      console.error(
+        "Publish runtime switch error:",
+        runtimeSwitchError
+      );
+
+      await archiveVersion(
+        supabase,
+        createdVersionId,
+        user.id
+      );
+
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Workflow version was created, but J10 could not switch runtime steps atomically.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    const runtimeSwitchResult =
+      runtimeSwitch as RuntimeSwitchResult | null;
+
     const {
       data: updatedAutomation,
-      error: updateAutomationError,
+      error: updatedAutomationError,
     } = await supabase
       .from("automations")
-      .update({
-        draft_graph: graph,
-        draft_graph_version: graph.version,
-        published_version_id: publishedVersion.id,
-        last_published_at: now,
-      })
-      .eq("id", automationRow.id)
-      .eq("user_id", user.id)
       .select(
         `
         id,
@@ -437,43 +481,30 @@ export async function POST(
         last_published_at
         `
       )
+      .eq("id", automationRow.id)
+      .eq("user_id", user.id)
       .single();
 
     if (
-      updateAutomationError ||
+      updatedAutomationError ||
       !updatedAutomation
     ) {
       console.error(
-        "Publish automation metadata update error:",
-        updateAutomationError
-      );
-
-      await archiveVersion(
-        supabase,
-        createdVersionId,
-        user.id
+        "Publish automation reload error:",
+        updatedAutomationError
       );
 
       return NextResponse.json(
         {
           success: false,
           error:
-            "Workflow version was created, but workflow metadata could not be linked.",
+            "Workflow runtime switched, but J10 could not reload publish metadata.",
         },
         {
           status: 500,
         }
       );
     }
-
-    await retirePreviousVersion({
-      supabase,
-      userId: user.id,
-      previousVersionId:
-        automationRow.published_version_id ?? null,
-      newVersionId: publishedVersion.id,
-      retiredAt: now,
-    });
 
     await recordPublishActivity({
       supabase,
@@ -484,16 +515,18 @@ export async function POST(
       versionNumber: publishedVersion.version_number,
       graph,
       stepCount: compiled.steps.length,
+      activated: body.activate !== false,
     });
 
     return NextResponse.json({
       success: true,
       message:
-        "Workflow version published. Runtime switching will be enabled by the Day 16E atomic publish transaction.",
+        "Workflow version published and runtime steps switched atomically.",
       automation: updatedAutomation,
       version: publishedVersion,
       stepCount: compiled.steps.length,
-      runtimeSwitchRequired: true,
+      runtimeSwitch: runtimeSwitchResult,
+      runtimeSwitchRequired: false,
       warnings: compiled.warnings,
     });
   } catch (error) {
@@ -865,6 +898,7 @@ async function recordPublishActivity({
   versionNumber,
   graph,
   stepCount,
+  activated,
 }: {
   supabase: Awaited<ReturnType<typeof getSupabase>>;
   userId: string;
@@ -874,6 +908,7 @@ async function recordPublishActivity({
   versionNumber: number;
   graph: J10FlowGraph;
   stepCount: number;
+  activated: boolean;
 }) {
   const {
     error,
@@ -896,7 +931,8 @@ async function recordPublishActivity({
         node_count: graph.nodes.length,
         edge_count: graph.edges.length,
         step_count: stepCount,
-        runtime_switch_required: true,
+        runtime_switch_required: false,
+        activated,
       },
     });
 

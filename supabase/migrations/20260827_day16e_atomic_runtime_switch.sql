@@ -194,5 +194,3 @@ grant execute
   to service_role;
 
 commit;
-
-
