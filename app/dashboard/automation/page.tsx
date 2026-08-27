@@ -41,6 +41,15 @@ import {
 
 import { createClient } from "@/lib/supabase";
 
+import type {
+  J10FlowGraph,
+  J10FlowNode,
+} from "@/types/automation-graph";
+
+import type {
+  AutomationActionType,
+} from "@/types/automation";
+
 /*
 ============================================================
 TYPES
@@ -167,6 +176,20 @@ type StepResponse = {
   error?: string;
   message?: string;
   step?: AutomationStep;
+};
+
+type PublishWorkflowResponse = {
+  success: boolean;
+  error?: string;
+  message?: string;
+  stepCount?: number;
+  runtimeSwitchRequired?: boolean;
+  warnings?: Array<{
+    code: string;
+    message: string;
+    nodeId?: string;
+    edgeId?: string;
+  }>;
 };
 
 type RunWorkflowResponse = {
@@ -674,6 +697,13 @@ export default function AutomationPage() {
   const [
     runningWorkflowId,
     setRunningWorkflowId,
+  ] =
+    useState<string | null>(
+      null
+    );
+  const [
+    publishingWorkflowId,
+    setPublishingWorkflowId,
   ] =
     useState<string | null>(
       null
@@ -1612,6 +1642,102 @@ export default function AutomationPage() {
     }
   }
 
+  /*
+  ============================================================
+  PUBLISH WORKFLOW
+  ============================================================
+  */
+
+  async function publishWorkflow(
+    automation: Automation,
+    steps: AutomationStep[]
+  ) {
+    setMessage("");
+    setPageError("");
+    setStepError("");
+    setStepMessage("");
+
+    if (steps.length === 0) {
+      setStepError(
+        "Add at least one workflow step before publishing."
+      );
+      return;
+    }
+
+    if (steps.some((step) => step.step_type === "condition")) {
+      setStepError(
+        "Typed condition publishing is coming next. Remove free-text condition steps or publish after Day 16G condition UI."
+      );
+      return;
+    }
+
+    const missingEmployeeStep =
+      steps.find(
+        (step) =>
+          step.step_type === "ai_task" &&
+          !step.employee_id
+      );
+
+    if (missingEmployeeStep) {
+      setStepError(
+        `Step ${missingEmployeeStep.step_order} needs an AI employee before publishing.`
+      );
+      return;
+    }
+
+    setPublishingWorkflowId(automation.id);
+
+    try {
+      const graph =
+        buildJ10FlowGraphFromSavedWorkflow(
+          automation,
+          steps
+        );
+
+      const response =
+        await fetch(
+          `/api/automations/${automation.id}/publish`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              graph,
+              activate: true,
+            }),
+          }
+        );
+
+      const data =
+        (await response.json()) as PublishWorkflowResponse;
+
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data.error ||
+            "Could not publish workflow."
+        );
+      }
+
+      const successMessage =
+        data.message ||
+        "Workflow published and activated.";
+
+      setStepMessage(successMessage);
+      setMessage(successMessage);
+
+      await loadAutomations("refresh");
+      await loadWorkflowDetails(automation.id);
+    } catch (error) {
+      setStepError(
+        error instanceof Error
+          ? error.message
+          : "Could not publish workflow."
+      );
+    } finally {
+      setPublishingWorkflowId(null);
+    }
+  }
   /*
   ============================================================
   RUN WORKFLOW
@@ -3397,6 +3523,9 @@ export default function AutomationPage() {
             saving={
               stepSaving
             }
+            publishing={
+              publishingWorkflowId === selectedAutomation.id
+            }
             error={
               stepError
             }
@@ -3405,6 +3534,12 @@ export default function AutomationPage() {
             }
             onSave={() =>
               void saveWorkflowStep()
+            }
+            onPublish={() =>
+              void publishWorkflow(
+                selectedAutomation,
+                workflowSteps
+              )
             }
             onEdit={
               editStep
@@ -6284,10 +6419,12 @@ function WorkflowEditorModal({
   editingStepId,
 
   saving,
+  publishing,
   error,
   message,
 
   onSave,
+  onPublish,
   onEdit,
   onDelete,
   onCancelEdit,
@@ -6386,11 +6523,15 @@ function WorkflowEditorModal({
 
   saving: boolean;
 
+  publishing: boolean;
+
   error: string;
 
   message: string;
 
   onSave: () => void;
+
+  onPublish: () => void;
 
   onEdit: (
     step: AutomationStep
@@ -6480,6 +6621,33 @@ function WorkflowEditorModal({
               Refresh
             </button>
 
+            <button
+              type="button"
+              onClick={
+                onPublish
+              }
+              disabled={
+                loading ||
+                publishing ||
+                steps.length === 0
+              }
+              className="flex h-8 items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.07] px-3 text-[10px] font-semibold text-emerald-300 transition hover:bg-emerald-500/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {publishing ? (
+                <Loader2
+                  size={12}
+                  className="animate-spin"
+                />
+              ) : (
+                <ShieldCheck
+                  size={12}
+                />
+              )}
+
+              {publishing
+                ? "Publishing"
+                : "Publish"}
+            </button>
             <button
               type="button"
               onClick={
@@ -7781,6 +7949,129 @@ function MiniStep({
 HELPERS
 ============================================================
 */
+
+function buildJ10FlowGraphFromSavedWorkflow(
+  automation: Automation,
+  steps: AutomationStep[]
+): J10FlowGraph {
+  const sortedSteps =
+    [...steps].sort(
+      (left, right) =>
+        left.step_order - right.step_order
+    );
+
+  const triggerNodeId =
+    `trigger-${automation.id}`;
+
+  const nodes: J10FlowNode[] = [
+    {
+      id: triggerNodeId,
+      kind: "trigger",
+      label: formatCodeLabel(automation.trigger_type),
+      position: {
+        x: 0,
+        y: 0,
+      },
+      enabled: true,
+      triggerType: automation.trigger_type,
+      triggerConfig: {
+        scheduleExpression:
+          automation.schedule_expression,
+        timezone:
+          automation.timezone,
+      },
+    },
+    ...sortedSteps.map((step, index) =>
+      buildJ10FlowNodeFromSavedStep(
+        step,
+        index
+      )
+    ),
+  ];
+
+  const edges =
+    sortedSteps.map((step, index) => ({
+      id:
+        index === 0
+          ? `edge-${triggerNodeId}-step-${step.id}`
+          : `edge-step-${sortedSteps[index - 1].id}-step-${step.id}`,
+      sourceNodeId:
+        index === 0
+          ? triggerNodeId
+          : `step-${sortedSteps[index - 1].id}`,
+      targetNodeId:
+        `step-${step.id}`,
+      kind:
+        "next" as const,
+    }));
+
+  return {
+    version: "2026-08-day16",
+    automationId: automation.id,
+    name: automation.name,
+    description: automation.description,
+    nodes,
+    edges,
+  };
+}
+
+function buildJ10FlowNodeFromSavedStep(
+  step: AutomationStep,
+  index: number
+): J10FlowNode {
+  const base = {
+    id: `step-${step.id}`,
+    label:
+      step.name ||
+      formatStepTypeLabel(step.step_type),
+    position: {
+      x: 0,
+      y: (index + 1) * 140,
+    },
+    enabled: step.is_enabled,
+  };
+
+  if (step.step_type === "ai_task") {
+    return {
+      ...base,
+      kind: "ai_task",
+      employeeId: step.employee_id || "",
+      taskType: step.task_type || "general",
+      instructions: step.instructions || "",
+      requiresApproval: step.requires_approval,
+      config: step.config,
+    };
+  }
+
+  if (step.step_type === "approval") {
+    return {
+      ...base,
+      kind: "approval",
+      approvalType: "human",
+      instructions: step.instructions,
+    };
+  }
+
+  if (step.step_type === "activity") {
+    return {
+      ...base,
+      kind: "activity",
+      instructions: step.instructions || "Record workflow activity.",
+      config: step.config,
+    };
+  }
+
+  return {
+    ...base,
+    kind: "action",
+    actionType:
+      (step.action_type || "record_activity") as AutomationActionType,
+    employeeId: step.employee_id,
+    instructions: step.instructions,
+    requiresApproval: step.requires_approval,
+    config: step.config,
+  } as J10FlowNode;
+}
 
 function isRecordValue(
   value: unknown
