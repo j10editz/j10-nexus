@@ -25,6 +25,8 @@ type AutomationRun = {
   id: string;
   automation_id: string;
   user_id: string;
+  automation_version_id: string | null;
+  graph_snapshot: Record<string, unknown> | null;
   trigger_type: string;
   trigger_payload: Record<string, unknown>;
   status: string;
@@ -44,6 +46,8 @@ type AutomationRunStep = {
   automation_id: string;
   automation_step_id: string | null;
   user_id: string;
+  automation_version_id: string | null;
+  graph_node_id: string | null;
   step_order: number;
   step_type: string;
   action_type: string | null;
@@ -91,6 +95,11 @@ type HistoryStep = {
   stepOrder: number;
   stepType: string;
   actionType: string | null;
+
+  versionTrace: {
+    automationVersionId: string | null;
+    graphNodeId: string | null;
+  };
 
   employee: {
     id: string | null;
@@ -404,6 +413,8 @@ export async function GET(
           id,
           automation_id,
           user_id,
+          automation_version_id,
+          graph_snapshot,
           trigger_type,
           trigger_payload,
           status,
@@ -608,6 +619,8 @@ export async function GET(
           automation_id,
           automation_step_id,
           user_id,
+          automation_version_id,
+          graph_node_id,
           step_order,
           step_type,
           action_type,
@@ -819,6 +832,14 @@ export async function GET(
         actionType:
           step.action_type,
 
+        versionTrace: {
+          automationVersionId:
+            step.automation_version_id,
+
+          graphNodeId:
+            step.graph_node_id,
+        },
+
         employee: {
           id:
             step.employee_id,
@@ -954,6 +975,20 @@ export async function GET(
             automationName:
               automation?.name ??
               "Unknown Workflow",
+
+            versionTrace: {
+              automationVersionId:
+                run.automation_version_id,
+
+              hasGraphSnapshot:
+                Boolean(
+                  run.graph_snapshot
+                ),
+
+              graphVersion:
+                run.graph_snapshot?.version ??
+                null,
+            },
 
             triggerType:
               run.trigger_type,
