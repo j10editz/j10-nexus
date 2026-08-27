@@ -8069,8 +8069,57 @@ function buildJ10FlowNodeFromSavedStep(
     employeeId: step.employee_id,
     instructions: step.instructions,
     requiresApproval: step.requires_approval,
-    config: step.config,
+    config:
+      buildJ10FlowActionConfigFromSavedStep(step),
   } as J10FlowNode;
+}
+
+function buildJ10FlowActionConfigFromSavedStep(
+  step: AutomationStep
+): Record<string, unknown> {
+  const baseConfig =
+    isRecordValue(step.config)
+      ? step.config
+      : {};
+
+  const integrationAction =
+    isRecordValue(baseConfig.integrationAction)
+      ? baseConfig.integrationAction
+      : null;
+
+  const capability =
+    typeof integrationAction?.capabilityId === "string"
+      ? integrationAction.capabilityId.trim()
+      : "";
+
+  const provider =
+    capability.includes(".")
+      ? capability.split(".")[0]
+      : "";
+
+  if (
+    step.action_type !== "integration_action" ||
+    !provider ||
+    !capability
+  ) {
+    return baseConfig;
+  }
+
+  return {
+    ...baseConfig,
+    integration: {
+      provider,
+      capability,
+      connectionId:
+        typeof integrationAction?.connectionId === "string"
+          ? integrationAction.connectionId
+          : null,
+      input:
+        isRecordValue(baseConfig.input)
+          ? baseConfig.input
+          : {},
+    },
+  };
 }
 
 function isRecordValue(
