@@ -82,6 +82,8 @@ type AutomationStep = {
 type ExistingRunStep = {
   id: string;
   automation_step_id: string | null;
+  automation_version_id: string | null;
+  graph_node_id: string | null;
   step_order: number;
   step_type: string;
   action_type: string | null;
@@ -316,6 +318,29 @@ function createFailedStepOutput(args: {
         args.policy,
     },
   });
+}
+
+function getStepGraphNodeId(
+  step: AutomationStep | null
+) {
+  const j10Flow =
+    step?.config?.j10Flow;
+
+  if (
+    !j10Flow ||
+    typeof j10Flow !== "object" ||
+    Array.isArray(j10Flow)
+  ) {
+    return null;
+  }
+
+  const nodeId =
+    (j10Flow as Record<string, unknown>).nodeId;
+
+  return typeof nodeId === "string" &&
+    nodeId.trim()
+    ? nodeId.trim()
+    : null;
 }
 
 /*
@@ -649,6 +674,8 @@ export async function POST(
         `
         id,
         automation_step_id,
+        automation_version_id,
+        graph_node_id,
         step_order,
         step_type,
         action_type,
@@ -959,6 +986,12 @@ export async function POST(
                 automation_step_id:
                   step.id,
 
+              automation_version_id:
+                run.automation_version_id ?? null,
+
+              graph_node_id:
+                getStepGraphNodeId(step),
+
                 user_id:
                   user.id,
 
@@ -1145,6 +1178,12 @@ export async function POST(
 
               automation_step_id:
                 step.id,
+
+              automation_version_id:
+                run.automation_version_id ?? null,
+
+              graph_node_id:
+                getStepGraphNodeId(step),
 
               user_id:
                 user.id,
@@ -1348,6 +1387,12 @@ export async function POST(
               automation_step_id:
                 step.id,
 
+              automation_version_id:
+                run.automation_version_id ?? null,
+
+              graph_node_id:
+                getStepGraphNodeId(step),
+
               user_id:
                 user.id,
 
@@ -1527,6 +1572,12 @@ export async function POST(
 
               automation_step_id:
                 step.id,
+
+              automation_version_id:
+                run.automation_version_id ?? null,
+
+              graph_node_id:
+                getStepGraphNodeId(step),
 
               user_id:
                 user.id,
@@ -2172,6 +2223,12 @@ export async function POST(
                 automation_step_id:
                   step.id,
 
+              automation_version_id:
+                run.automation_version_id ?? null,
+
+              graph_node_id:
+                getStepGraphNodeId(step),
+
                 user_id:
                   user.id,
 
@@ -2416,6 +2473,12 @@ export async function POST(
 
                 automation_step_id:
                   step.id,
+
+              automation_version_id:
+                run.automation_version_id ?? null,
+
+              graph_node_id:
+                getStepGraphNodeId(step),
 
                 user_id:
                   user.id,
@@ -2678,6 +2741,12 @@ export async function POST(
               automation_step_id:
                 step.id,
 
+              automation_version_id:
+                run.automation_version_id ?? null,
+
+              graph_node_id:
+                getStepGraphNodeId(step),
+
               user_id:
                 user.id,
 
@@ -2848,6 +2917,12 @@ export async function POST(
 
               automation_step_id:
                 step.id,
+
+              automation_version_id:
+                run.automation_version_id ?? null,
+
+              graph_node_id:
+                getStepGraphNodeId(step),
 
               user_id:
                 user.id,
@@ -3375,6 +3450,12 @@ export async function POST(
             automation_step_id:
               currentStep.id,
 
+            automation_version_id:
+              run.automation_version_id ?? null,
+
+            graph_node_id:
+              getStepGraphNodeId(currentStep),
+
             user_id:
               user.id,
 
@@ -3740,6 +3821,12 @@ export async function POST(
 
               automation_step_id:
                 currentStep.id,
+
+            automation_version_id:
+              run.automation_version_id ?? null,
+
+            graph_node_id:
+              getStepGraphNodeId(currentStep),
 
               user_id:
                 user.id,
