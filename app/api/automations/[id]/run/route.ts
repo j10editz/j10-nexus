@@ -514,6 +514,79 @@ async function assertStartVersionIntegrity(args: {
   }
 }
 
+function isPlainObject(
+  value: unknown
+): value is Record<string, unknown> {
+  return Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value);
+}
+
+function getApprovalSafetyForStep(
+  step: AutomationStep
+) {
+  const config =
+    isPlainObject(step.config)
+      ? step.config
+      : {};
+
+  const integrationAction =
+    isPlainObject(config.integrationAction)
+      ? config.integrationAction
+      : isPlainObject(config.integration)
+        ? config.integration
+        : null;
+
+  const capability =
+    typeof integrationAction?.capabilityId === "string"
+      ? integrationAction.capabilityId.trim()
+      : typeof integrationAction?.capability === "string"
+        ? integrationAction.capability.trim()
+        : "";
+
+  const provider =
+    typeof integrationAction?.provider === "string"
+      ? integrationAction.provider.trim()
+      : capability.includes(".")
+        ? capability.split(".")[0]
+        : "";
+
+  const mode =
+    typeof integrationAction?.mode === "string"
+      ? integrationAction.mode.trim()
+      : step.action_type === "integration_action"
+        ? "simulate"
+        : "internal";
+
+  const connectionId =
+    typeof integrationAction?.connectionId === "string" &&
+    integrationAction.connectionId.trim()
+      ? integrationAction.connectionId.trim()
+      : null;
+
+  return {
+    actionType:
+      step.action_type,
+
+    mode,
+
+    provider:
+      provider || null,
+
+    capability:
+      capability || null,
+
+    connectionIdPresent:
+      Boolean(connectionId),
+
+    externalSideEffect:
+      mode === "live",
+
+    sandbox:
+      mode === "sandbox",
+  };
+}
+
 /*
 ============================================================
 POST
@@ -2536,6 +2609,9 @@ export async function POST(
 
                     reason:
                       "Workflow step requires human approval before execution.",
+
+                    approval_safety:
+                      getApprovalSafetyForStep(step),
                   },
                 },
               })
