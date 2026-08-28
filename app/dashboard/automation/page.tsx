@@ -216,6 +216,16 @@ type RunWorkflowResponse = {
   };
 };
 
+type ApprovalSafety = {
+  actionType: string | null;
+  mode: string;
+  provider: string | null;
+  capability: string | null;
+  connectionIdPresent: boolean;
+  externalSideEffect: boolean;
+  sandbox: boolean;
+};
+
 type PendingApproval = {
   id: string;
   run_id: string;
@@ -3720,6 +3730,13 @@ function AutomationRow({
     ) ??
     triggerOptions[0];
 
+  const approvalSafety =
+    approval
+      ? getPendingApprovalSafety(
+          approval
+        )
+      : null;
+
   return (
     <div className="flex flex-col gap-4 px-5 py-4 transition hover:bg-white/[0.015] lg:flex-row lg:items-center">
       <div className="flex min-w-0 flex-1 items-center gap-4">
@@ -3802,6 +3819,60 @@ function AutomationRow({
                 </div>
               </div>
             </div>
+
+            {approvalSafety && (
+              <div className="flex max-w-xl flex-wrap items-center gap-1.5">
+                <ApprovalSafetyPill
+                  label="Mode"
+                  value={
+                    formatCodeLabel(
+                      approvalSafety.mode
+                    )
+                  }
+                  tone={
+                    approvalSafety.externalSideEffect
+                      ? "danger"
+                      : approvalSafety.sandbox
+                        ? "safe"
+                        : "neutral"
+                  }
+                />
+
+                {approvalSafety.provider && (
+                  <ApprovalSafetyPill
+                    label="Provider"
+                    value={
+                      formatCodeLabel(
+                        approvalSafety.provider
+                      )
+                    }
+                  />
+                )}
+
+                {approvalSafety.capability && (
+                  <ApprovalSafetyPill
+                    label="Capability"
+                    value={
+                      approvalSafety.capability
+                    }
+                  />
+                )}
+
+                <ApprovalSafetyPill
+                  label="External"
+                  value={
+                    approvalSafety.externalSideEffect
+                      ? "Yes"
+                      : "No"
+                  }
+                  tone={
+                    approvalSafety.externalSideEffect
+                      ? "danger"
+                      : "safe"
+                  }
+                />
+              </div>
+            )}
 
             <button
               type="button"
@@ -7775,6 +7846,98 @@ function SavedStepCard({
         </div>
       </div>
     </div>
+  );
+}
+
+function getPendingApprovalSafety(
+  approval: PendingApproval
+): ApprovalSafety | null {
+  const pendingAction =
+    isRecordValue(
+      approval.input_payload.pending_action
+    )
+      ? approval.input_payload.pending_action
+      : null;
+
+  const safety =
+    pendingAction &&
+    isRecordValue(
+      pendingAction.approval_safety
+    )
+      ? pendingAction.approval_safety
+      : null;
+
+  if (!safety) {
+    return null;
+  }
+
+  return {
+    actionType:
+      typeof safety.actionType === "string"
+        ? safety.actionType
+        : approval.action_type,
+
+    mode:
+      typeof safety.mode === "string" &&
+      safety.mode.trim()
+        ? safety.mode.trim()
+        : "unknown",
+
+    provider:
+      typeof safety.provider === "string" &&
+      safety.provider.trim()
+        ? safety.provider.trim()
+        : null,
+
+    capability:
+      typeof safety.capability === "string" &&
+      safety.capability.trim()
+        ? safety.capability.trim()
+        : null,
+
+    connectionIdPresent:
+      Boolean(
+        safety.connectionIdPresent
+      ),
+
+    externalSideEffect:
+      Boolean(
+        safety.externalSideEffect
+      ),
+
+    sandbox:
+      Boolean(
+        safety.sandbox
+      ),
+  };
+}
+
+function ApprovalSafetyPill({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "neutral" | "safe" | "danger" | "warning";
+}) {
+  const styles = {
+    neutral:
+      "border-white/[0.08] bg-white/[0.035] text-white/45",
+    safe:
+      "border-emerald-500/20 bg-emerald-500/[0.07] text-emerald-300",
+    danger:
+      "border-red-500/20 bg-red-500/[0.07] text-red-300",
+    warning:
+      "border-amber-500/20 bg-amber-500/[0.07] text-amber-300",
+  };
+
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[7px] font-semibold uppercase tracking-[0.12em] ${styles[tone]}`}
+    >
+      {label}: {value}
+    </span>
   );
 }
 
