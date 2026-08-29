@@ -1,4 +1,4 @@
-import {
+﻿import {
   resolveAutomationRequestActor,
 } from "@/lib/automation/bridge-auth";
 import {
@@ -1193,7 +1193,7 @@ export async function POST(
             automationVersionId,
 
           graph_snapshot:
-            publishedVersion?.graph_snapshot ?? null,
+          publishedVersion?.graph_snapshot ?? {},
 
           trigger_type:
             triggerSource,

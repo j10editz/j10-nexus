@@ -1,10 +1,27 @@
-import { NextRequest, NextResponse } from "next/server";
+import {
+  NextResponse,
+} from "next/server";
 
-import type {
-  WhatsAppWebhookEvent,
-  WhatsAppWebhookMessage,
-  WhatsAppWebhookStatus,
-} from "@/types/integration-whatsapp";
+import {
+  POST as processIntegrationWebhook,
+} from "@/app/api/webhooks/integrations/[endpointKey]/route";
+
+import {
+  INTEGRATION_DATABASE_SELECT,
+  type IntegrationDatabaseRow,
+  mapIntegrationDatabaseRow,
+} from "@/lib/integrations/database";
+
+import {
+  createWebhookServiceClient,
+} from "@/lib/integrations/webhooks/service-client";
+
+import {
+  IntegrationWebhookError,
+} from "@/lib/integrations/webhooks/errors";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type RouteContext = {
   params: Promise<{
@@ -12,265 +29,368 @@ type RouteContext = {
   }>;
 };
 
-function isRecordValue(
-  value: unknown
-): value is Record<string, unknown> {
-  return Boolean(value) &&
-    typeof value === "object" &&
-    !Array.isArray(value);
-}
+type EndpointRow = {
+  endpoint_key: string;
+};
 
-function getString(
-  value: unknown
-): string | null {
-  return typeof value === "string" && value.trim()
-    ? value.trim()
-    : null;
-}
+type ExistingEndpointRow = {
+  id: string;
+};
 
-function normalizeWhatsAppWebhookPayload(
-  payload: unknown
-): WhatsAppWebhookEvent {
-  const messages: WhatsAppWebhookMessage[] = [];
-  const statuses: WhatsAppWebhookStatus[] = [];
+const DEFAULT_MAX_PAYLOAD_BYTES =
+  256 * 1024;
 
-  if (!isRecordValue(payload)) {
-    return {
-      object: null,
-      messages,
-      statuses,
-      raw: payload,
-    };
-  }
-
-  const entries =
-    Array.isArray(payload.entry)
-      ? payload.entry
-      : [];
-
-  for (const entry of entries) {
-    if (!isRecordValue(entry)) {
-      continue;
-    }
-
-    const changes =
-      Array.isArray(entry.changes)
-        ? entry.changes
-        : [];
-
-    for (const change of changes) {
-      if (!isRecordValue(change)) {
-        continue;
-      }
-
-      const value =
-        isRecordValue(change.value)
-          ? change.value
-          : {};
-
-      const metadata =
-        isRecordValue(value.metadata)
-          ? value.metadata
-          : {};
-
-      const phoneNumberId =
-        getString(metadata.phone_number_id);
-
-      const displayPhoneNumber =
-        getString(metadata.display_phone_number);
-
-      const contacts =
-        Array.isArray(value.contacts)
-          ? value.contacts
-          : [];
-
-      const firstContact =
-        isRecordValue(contacts[0])
-          ? contacts[0]
-          : null;
-
-      const profile =
-        firstContact &&
-        isRecordValue(firstContact.profile)
-          ? firstContact.profile
-          : null;
-
-      const contactWaId =
-        firstContact
-          ? getString(firstContact.wa_id)
-          : null;
-
-      const contactName =
-        profile
-          ? getString(profile.name)
-          : null;
-
-      const rawMessages =
-        Array.isArray(value.messages)
-          ? value.messages
-          : [];
-
-      for (const rawMessage of rawMessages) {
-        if (!isRecordValue(rawMessage)) {
-          continue;
-        }
-
-        const text =
-          isRecordValue(rawMessage.text)
-            ? getString(rawMessage.text.body)
-            : null;
-
-        messages.push({
-          id: getString(rawMessage.id),
-          from: getString(rawMessage.from) || contactWaId,
-          timestamp: getString(rawMessage.timestamp),
-          type: getString(rawMessage.type),
-          text,
-          contactName,
-          phoneNumberId,
-          displayPhoneNumber,
-          raw: rawMessage,
-        });
-      }
-
-      const rawStatuses =
-        Array.isArray(value.statuses)
-          ? value.statuses
-          : [];
-
-      for (const rawStatus of rawStatuses) {
-        if (!isRecordValue(rawStatus)) {
-          continue;
-        }
-
-        statuses.push({
-          id: getString(rawStatus.id),
-          recipientId: getString(rawStatus.recipient_id),
-          status: getString(rawStatus.status),
-          timestamp: getString(rawStatus.timestamp),
-          phoneNumberId,
-          displayPhoneNumber,
-          raw: rawStatus,
-        });
-      }
-    }
-  }
-
-  return {
-    object: getString(payload.object),
-    messages,
-    statuses,
-    raw: payload,
-  };
-}
-
-export async function GET(
-  request: NextRequest,
-  context: RouteContext
-) {
-  const { endpointKey } =
-    await context.params;
-
-  const expectedEndpointKey =
-    process.env.META_WHATSAPP_WEBHOOK_ENDPOINT_KEY ||
-    "meta";
-
-  const verifyToken =
-    process.env.META_WHATSAPP_VERIFY_TOKEN ||
-    "";
-
-  if (endpointKey !== expectedEndpointKey) {
+function responseFromError(error: unknown) {
+  if (error instanceof IntegrationWebhookError) {
     return NextResponse.json(
       {
         success: false,
-        error: "Unknown WhatsApp webhook endpoint.",
+        error: error.expose
+          ? error.message
+          : "J10 NEXUS could not route this WhatsApp webhook.",
+        code: error.code,
       },
       {
-        status: 404,
-      }
+        status: error.status,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
     );
   }
 
-  const mode =
-    request.nextUrl.searchParams.get("hub.mode");
-
-  const token =
-    request.nextUrl.searchParams.get("hub.verify_token");
-
-  const challenge =
-    request.nextUrl.searchParams.get("hub.challenge");
-
-  if (
-    mode === "subscribe" &&
-    token === verifyToken &&
-    challenge
-  ) {
-    return new Response(challenge, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/plain",
-      },
-    });
-  }
+  console.error(
+    "J10 WhatsApp webhook routing error:",
+    error,
+  );
 
   return NextResponse.json(
     {
       success: false,
-      error: "WhatsApp webhook verification failed.",
+      error: "J10 NEXUS could not route this WhatsApp webhook.",
+      code: "WHATSAPP_WEBHOOK_ROUTING_FAILED",
     },
     {
-      status: 403,
-    }
+      status: 503,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    },
   );
 }
 
-export async function POST(
-  request: NextRequest,
-  context: RouteContext
-) {
-  const { endpointKey } =
-    await context.params;
+function getExpectedAlias() {
+  return (
+    process.env
+      .META_WHATSAPP_WEBHOOK_ENDPOINT_KEY
+      ?.trim() || "meta"
+  );
+}
 
-  const expectedEndpointKey =
-    process.env.META_WHATSAPP_WEBHOOK_ENDPOINT_KEY ||
-    "meta";
+function assertExpectedAlias(endpointKey: string) {
+  if (endpointKey !== getExpectedAlias()) {
+    throw new IntegrationWebhookError(
+      "Unknown WhatsApp webhook endpoint.",
+      "WHATSAPP_WEBHOOK_ENDPOINT_NOT_FOUND",
+      404,
+      true,
+    );
+  }
+}
 
-  if (endpointKey !== expectedEndpointKey) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Unknown WhatsApp webhook endpoint.",
-      },
-      {
-        status: 404,
-      }
+async function findActivePipelineEndpointKey() {
+  const supabase =
+    createWebhookServiceClient();
+
+  const { data, error } =
+    await supabase
+      .from("integration_webhook_endpoints")
+      .select("endpoint_key")
+      .eq(
+        "provider",
+        "whatsapp-business",
+      )
+      .eq("status", "active")
+      .order("updated_at", {
+        ascending: false,
+      })
+      .limit(1);
+
+  if (error) {
+    throw new IntegrationWebhookError(
+      "J10 could not load the active WhatsApp webhook endpoint.",
+      "INTEGRATION_WEBHOOK_DATABASE_ERROR",
+      503,
+      false,
     );
   }
 
-  const payload =
-    await request.json();
+  const endpoint =
+    ((data ?? []) as EndpointRow[])[0];
 
-  const event =
-    normalizeWhatsAppWebhookPayload(payload);
+  return endpoint?.endpoint_key?.trim() || null;
+}
 
-  console.log(
-    "WhatsApp webhook received:",
-    JSON.stringify({
-      messageCount:
-        event.messages.length,
-      statusCount:
-        event.statuses.length,
-      messageTypes:
-        event.messages.map(
-          (message) => message.type
-        ),
-    })
-  );
+async function loadWhatsAppConnection() {
+  const supabase =
+    createWebhookServiceClient();
 
-  return NextResponse.json({
-    success: true,
-    received: true,
-    messages: event.messages,
-    statuses: event.statuses,
-  });
+  const { data, error } =
+    await supabase
+      .from("integrations")
+      .select(INTEGRATION_DATABASE_SELECT)
+      .in("provider", [
+        "whatsapp-business",
+        "whatsapp",
+      ])
+      .order("updated_at", {
+        ascending: false,
+      })
+      .limit(1);
+
+  if (error) {
+    throw new IntegrationWebhookError(
+      "J10 could not load the WhatsApp integration connection.",
+      "INTEGRATION_CONNECTION_DATABASE_ERROR",
+      503,
+      false,
+    );
+  }
+
+  const row =
+    ((data ?? []) as IntegrationDatabaseRow[])[0];
+
+  if (!row) {
+    throw new IntegrationWebhookError(
+      "WhatsApp Business is not registered in J10 integrations.",
+      "WHATSAPP_INTEGRATION_NOT_REGISTERED",
+      503,
+      true,
+    );
+  }
+
+  const connection =
+    mapIntegrationDatabaseRow(row);
+
+  if (!connection) {
+    throw new IntegrationWebhookError(
+      "J10 could not read the WhatsApp integration connection.",
+      "WHATSAPP_INTEGRATION_INVALID",
+      503,
+      false,
+    );
+  }
+
+  return connection;
+}
+
+async function resolvePipelineEndpointKey() {
+  const existingEndpointKey =
+    await findActivePipelineEndpointKey();
+
+  if (existingEndpointKey) {
+    return existingEndpointKey;
+  }
+
+  const connection =
+    await loadWhatsAppConnection();
+
+  const supabase =
+    createWebhookServiceClient();
+
+  const { data: existingRows, error: existingError } =
+    await supabase
+      .from("integration_webhook_endpoints")
+      .select("id")
+      .eq("integration_id", connection.id)
+      .eq("user_id", connection.workspaceId)
+      .limit(1);
+
+  if (existingError) {
+    throw new IntegrationWebhookError(
+      "J10 could not load the WhatsApp webhook endpoint.",
+      "INTEGRATION_WEBHOOK_DATABASE_ERROR",
+      503,
+      false,
+    );
+  }
+
+  const existingEndpoint =
+    ((existingRows ?? []) as ExistingEndpointRow[])[0];
+
+  if (existingEndpoint) {
+    const { data, error } =
+      await supabase
+        .from("integration_webhook_endpoints")
+        .update({
+          provider:
+            "whatsapp-business",
+          environment:
+            connection.environment,
+          status:
+            "active",
+          max_payload_bytes:
+            DEFAULT_MAX_PAYLOAD_BYTES,
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq("id", existingEndpoint.id)
+        .select("endpoint_key")
+        .single();
+
+    if (error) {
+      throw new IntegrationWebhookError(
+        "J10 could not activate the WhatsApp webhook endpoint.",
+        "INTEGRATION_WEBHOOK_DATABASE_ERROR",
+        503,
+        false,
+      );
+    }
+
+    const endpointKey =
+      (data as EndpointRow)
+        .endpoint_key
+        ?.trim();
+
+    if (!endpointKey) {
+      throw new IntegrationWebhookError(
+        "J10 could not resolve the WhatsApp webhook endpoint.",
+        "WHATSAPP_WEBHOOK_ENDPOINT_NOT_CONFIGURED",
+        503,
+        false,
+      );
+    }
+
+    return endpointKey;
+  }
+
+  const { data, error } =
+    await supabase
+      .from("integration_webhook_endpoints")
+      .insert({
+        integration_id:
+          connection.id,
+        user_id:
+          connection.workspaceId,
+        provider:
+          "whatsapp-business",
+        environment:
+          connection.environment,
+        status:
+          "active",
+        max_payload_bytes:
+          DEFAULT_MAX_PAYLOAD_BYTES,
+      })
+      .select("endpoint_key")
+      .single();
+
+  if (error) {
+    throw new IntegrationWebhookError(
+      "J10 could not create the WhatsApp webhook endpoint.",
+      "INTEGRATION_WEBHOOK_DATABASE_ERROR",
+      503,
+      false,
+    );
+  }
+
+  const endpointKey =
+    (data as EndpointRow)
+      .endpoint_key
+      ?.trim();
+
+  if (!endpointKey) {
+    throw new IntegrationWebhookError(
+      "J10 could not resolve the WhatsApp webhook endpoint.",
+      "WHATSAPP_WEBHOOK_ENDPOINT_NOT_CONFIGURED",
+      503,
+      false,
+    );
+  }
+
+  return endpointKey;
+}
+
+export async function GET(
+  request: Request,
+  context: RouteContext,
+) {
+  try {
+    const { endpointKey } =
+      await context.params;
+
+    assertExpectedAlias(endpointKey);
+
+    const url =
+      new URL(request.url);
+
+    const mode =
+      url.searchParams.get("hub.mode");
+
+    const token =
+      url.searchParams.get(
+        "hub.verify_token",
+      );
+
+    const challenge =
+      url.searchParams.get(
+        "hub.challenge",
+      );
+
+    const expectedToken =
+      process.env
+        .META_WHATSAPP_VERIFY_TOKEN
+        ?.trim() || "";
+
+    if (
+      mode !== "subscribe" ||
+      !token ||
+      token !== expectedToken ||
+      !challenge
+    ) {
+      throw new IntegrationWebhookError(
+        "WhatsApp webhook verification failed.",
+        "WHATSAPP_WEBHOOK_CHALLENGE_INVALID",
+        403,
+        true,
+      );
+    }
+
+    return new Response(challenge, {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Type":
+          "text/plain; charset=utf-8",
+      },
+    });
+  } catch (error) {
+    return responseFromError(error);
+  }
+}
+
+export async function POST(
+  request: Request,
+  context: RouteContext,
+) {
+  try {
+    const { endpointKey } =
+      await context.params;
+
+    assertExpectedAlias(endpointKey);
+
+    const pipelineEndpointKey =
+      await resolvePipelineEndpointKey();
+
+    return processIntegrationWebhook(
+      request,
+      {
+        params: Promise.resolve({
+          endpointKey:
+            pipelineEndpointKey,
+        }),
+      },
+    );
+  } catch (error) {
+    return responseFromError(error);
+  }
 }
