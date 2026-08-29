@@ -19,6 +19,16 @@ export type J10FlowNodeKind =
   | "approval"
   | "activity";
 
+export type J10FlowNodeVersion = 1;
+
+export type J10FlowPortId =
+  | "input"
+  | "next"
+  | "success"
+  | "failure"
+  | "true"
+  | "false";
+
 export type J10FlowPosition = {
   x: number;
   y: number;
@@ -27,6 +37,12 @@ export type J10FlowPosition = {
 export type J10FlowBaseNode = {
   id: J10FlowNodeId;
   kind: J10FlowNodeKind;
+  /**
+   * Early Day 16 drafts omitted this field. The validator treats an omitted
+   * value as version 1 so those drafts stay compatible, while the visual
+   * builder writes the version on every new node.
+   */
+  nodeVersion?: J10FlowNodeVersion;
   label: string;
   position: J10FlowPosition;
   enabled: boolean;
@@ -46,6 +62,7 @@ export type J10FlowTriggerNode = J10FlowBaseNode & {
     timezone?: string | null;
     provider?: string | null;
     eventType?: string | null;
+    connectionId?: string | null;
     filters?: J10FlowTriggerFilter[];
     filterMode?: AutomationTriggerFilterGroupMode;
   };
@@ -64,6 +81,10 @@ export type J10FlowRuntimeConfig = {
     stepTimeoutMs: number;
     workflowTimeoutMs: number;
   };
+  variableMappings?: Array<{
+    source: string;
+    target: string;
+  }>;
 };
 
 export type J10FlowAiTaskNode = J10FlowBaseNode & {
@@ -85,7 +106,15 @@ export type J10FlowActionNode = J10FlowBaseNode & {
     integration?: {
       provider: string;
       capability: string;
-      connectionId?: string | null;
+      connectionId: string | null;
+      mode?: "simulate" | "sandbox" | "live";
+      input: Record<string, unknown>;
+    };
+    /** Runtime-compatible copy consumed by the Day 15 action bridge. */
+    integrationAction?: {
+      connectionId: string | null;
+      capabilityId: string;
+      mode: "simulate" | "sandbox" | "live";
       input: Record<string, unknown>;
     };
   };
@@ -136,6 +165,14 @@ export type J10FlowEdge = {
   sourceNodeId: J10FlowNodeId;
   targetNodeId: J10FlowNodeId;
   kind: J10FlowEdgeKind;
+  sourcePortId?: J10FlowPortId;
+  targetPortId?: J10FlowPortId;
+};
+
+export type J10FlowPublicationMetadata = {
+  publishedVersionId?: string | null;
+  publishedVersionNumber?: number | null;
+  publishedAt?: string | null;
 };
 
 export type J10FlowGraph = {
@@ -145,6 +182,8 @@ export type J10FlowGraph = {
   description?: string | null;
   nodes: J10FlowNode[];
   edges: J10FlowEdge[];
+  variables?: Record<string, string | number | boolean | null>;
+  publication?: J10FlowPublicationMetadata;
 };
 
 export type J10FlowValidationIssue = {

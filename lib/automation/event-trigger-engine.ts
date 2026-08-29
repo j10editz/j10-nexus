@@ -12,6 +12,10 @@ import {
   hasAutomationBridgeCookie,
 } from "./bridge-auth";
 
+import {
+  evaluateIntegrationTriggerBinding,
+} from "./integration-trigger";
+
 export type AutomationEventTrigger =
   | "new_crm_contact"
   | "crm_status_changed"
@@ -891,6 +895,23 @@ function evaluateWorkflowFilters(
   payload:
     Record<string, unknown>,
 ): FilterEvaluation {
+  if (
+    workflow.trigger_type ===
+    "integration_event"
+  ) {
+    const bindingEvaluation =
+      evaluateIntegrationTriggerBinding(
+        workflow.trigger_config,
+        payload,
+      );
+
+    if (
+      !bindingEvaluation.passed
+    ) {
+      return bindingEvaluation;
+    }
+  }
+
   const parsed =
     parseTriggerFilters(
       workflow.trigger_config,

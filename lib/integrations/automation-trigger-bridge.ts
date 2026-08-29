@@ -21,6 +21,10 @@ import {
   dispatchAutomationEvent,
 } from "../automation/event-trigger-engine";
 
+import {
+  summarizeIntegrationAutomationDispatchFailure,
+} from "./automation-dispatch-summary";
+
 export type DispatchIntegrationAutomationEventArgs = {
   supabase: SupabaseClient;
   event: ExternalTriggerEvent;
@@ -73,29 +77,9 @@ async function markEventDispatchFailed(
   dispatch:
     AutomationEventDispatchResult,
 ) {
-  const failureMessages =
-    dispatch.results
-      .filter(
-        (result) =>
-          result.status ===
-          "failed",
-      )
-      .map(
-        (result) =>
-          result.message,
-      )
-      .filter(Boolean)
-      .slice(0, 3);
-
   const failureMessage =
-    (
-      failureMessages.join(
-        " | ",
-      ) ||
-      "J10 could not dispatch the external trigger to every matched workflow."
-    ).slice(
-      0,
-      2_000,
+    summarizeIntegrationAutomationDispatchFailure(
+      dispatch,
     );
 
   const {

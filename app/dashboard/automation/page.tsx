@@ -41,6 +41,11 @@ import {
 
 import { createClient } from "@/lib/supabase";
 
+import {
+  buildJ10FlowTriggerConfig,
+  getAutomationTriggerDisplayLabel,
+} from "@/lib/automation/integration-trigger";
+
 import type {
   J10FlowGraph,
   J10FlowNode,
@@ -48,6 +53,7 @@ import type {
 
 import type {
   AutomationActionType,
+  AutomationTriggerType,
 } from "@/types/automation";
 
 /*
@@ -63,12 +69,7 @@ type AutomationStatus =
   | "archived";
 
 type TriggerType =
-  | "manual"
-  | "new_crm_contact"
-  | "crm_status_changed"
-  | "new_ai_task"
-  | "ai_task_completed"
-  | "schedule";
+  AutomationTriggerType;
 
 type StepType =
   | "ai_task"
@@ -392,6 +393,7 @@ const triggerOptions: {
   value: TriggerType;
   label: string;
   description: string;
+  creatable?: boolean;
 }[] = [
   {
     value: "manual",
@@ -422,6 +424,13 @@ const triggerOptions: {
     value: "schedule",
     label: "Scheduled",
     description: "Run automatically on a schedule.",
+  },
+  {
+    value: "integration_event",
+    label: "Integration Event",
+    description:
+      "Start from a provider and event type configured by an integration.",
+    creatable: false,
   },
 ];
 
@@ -3720,15 +3729,11 @@ function AutomationRow({
   ] =
     useState(false);
 
-  const trigger =
-    triggerOptions.find(
-      (
-        option
-      ) =>
-        option.value ===
-        automation.trigger_type
-    ) ??
-    triggerOptions[0];
+  const triggerLabel =
+    getAutomationTriggerDisplayLabel(
+      automation.trigger_type,
+      automation.trigger_config,
+    );
 
   const approvalSafety =
     approval
@@ -3764,7 +3769,7 @@ function AutomationRow({
 
           <div className="mt-1 truncate text-[10px] text-white/30">
             {
-              trigger.label
+              triggerLabel
             }
             {" · "}
             {
@@ -6142,8 +6147,16 @@ function WorkflowBuilderModal({
       ) =>
         option.value ===
         triggerType
-    ) ??
-    triggerOptions[0];
+    ) ?? {
+      value:
+        triggerType,
+      label:
+        getAutomationTriggerDisplayLabel(
+          triggerType,
+        ),
+      description:
+        "This trigger type is not available in the quick-create form.",
+    };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
@@ -6246,7 +6259,13 @@ function WorkflowBuilderModal({
             </div>
 
             <div className="grid gap-2 md:grid-cols-2">
-              {triggerOptions.map(
+              {triggerOptions
+                .filter(
+                  (trigger) =>
+                    trigger.creatable !==
+                    false,
+                )
+                .map(
                 (
                   trigger
                 ) => {
@@ -6618,15 +6637,19 @@ function WorkflowEditorModal({
 
   onClose: () => void;
 }) {
-  const trigger =
+  const triggerLabel =
+    getAutomationTriggerDisplayLabel(
+      automation.trigger_type,
+      automation.trigger_config,
+    );
+
+  const triggerDescription =
     triggerOptions.find(
-      (
-        option
-      ) =>
+      (option) =>
         option.value ===
-        automation.trigger_type
-    ) ??
-    triggerOptions[0];
+        automation.trigger_type,
+    )?.description ??
+    "Configured automation trigger.";
 
   return (
     <div className="fixed inset-0 z-[110] bg-black/80 p-3 backdrop-blur-md md:p-5">
@@ -6655,7 +6678,7 @@ function WorkflowEditorModal({
 
             <div className="mt-1 text-[10px] text-white/30">
               {
-                trigger.label
+                triggerLabel
               }
               {" · "}
               {
@@ -6757,10 +6780,10 @@ function WorkflowEditorModal({
             <WorkflowChainNode
               order="TRIGGER"
               title={
-                trigger.label
+                triggerLabel
               }
               subtitle={
-                trigger.description
+                triggerDescription
               }
               icon={
                 Zap
@@ -8130,19 +8153,26 @@ function buildJ10FlowGraphFromSavedWorkflow(
     {
       id: triggerNodeId,
       kind: "trigger",
-      label: formatCodeLabel(automation.trigger_type),
+      label:
+        getAutomationTriggerDisplayLabel(
+          automation.trigger_type,
+          automation.trigger_config,
+        ),
       position: {
         x: 0,
         y: 0,
       },
       enabled: true,
       triggerType: automation.trigger_type,
-      triggerConfig: {
-        scheduleExpression:
-          automation.schedule_expression,
-        timezone:
-          automation.timezone,
-      },
+      triggerConfig:
+        buildJ10FlowTriggerConfig({
+          triggerConfig:
+            automation.trigger_config,
+          scheduleExpression:
+            automation.schedule_expression,
+          timezone:
+            automation.timezone,
+        }),
     },
     ...sortedSteps.map((step, index) =>
       buildJ10FlowNodeFromSavedStep(

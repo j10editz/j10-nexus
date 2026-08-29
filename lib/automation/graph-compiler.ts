@@ -12,7 +12,6 @@ import type {
   J10FlowEdge,
   J10FlowGraph,
   J10FlowNode,
-  J10FlowNodeId,
   J10FlowTriggerNode,
   J10FlowValidationIssue,
 } from "@/types/automation-graph";
@@ -345,7 +344,11 @@ function compileConditionNode(
     actionType: "evaluate_condition",
     employeeId: null,
     taskType: null,
-    instructions: compileConditionInstructions(node),
+    instructions: compileConditionInstructions(
+      node,
+      edges,
+      nodeOrder
+    ),
     config: withJ10FlowMetadata(node, edges, nodeOrder),
     conditionConfig,
     requiresApproval: false,
@@ -426,29 +429,60 @@ function withJ10FlowMetadata(
     j10Flow: {
       nodeId: node.id,
       nodeKind: node.kind,
-      outgoing: forwardEdges.map((edge) => ({
-        edgeId: edge.id,
-        kind: edge.kind,
-        targetNodeId: edge.targetNodeId,
-        targetStepOrder:
-          nodeOrder.indexOf(edge.targetNodeId),
-      })),
+      outgoing: [...forwardEdges]
+        .sort((left, right) => {
+          const leftOrder = nodeOrder.indexOf(left.targetNodeId);
+          const rightOrder = nodeOrder.indexOf(right.targetNodeId);
+
+          if (leftOrder !== rightOrder) {
+            return leftOrder - rightOrder;
+          }
+
+          if (left.kind !== right.kind) {
+            return left.kind.localeCompare(right.kind);
+          }
+
+          return left.id.localeCompare(right.id);
+        })
+        .map((edge) => ({
+          edgeId: edge.id,
+          kind: edge.kind,
+          targetNodeId: edge.targetNodeId,
+          targetStepOrder:
+            nodeOrder.indexOf(edge.targetNodeId),
+        })),
     },
   };
 }
 
 function compileConditionInstructions(
-  node: J10FlowConditionNode
+  node: J10FlowConditionNode,
+  edges: J10FlowEdge[],
+  nodeOrder: string[]
 ): string {
-  const rules = node.rules.map((rule) => {
-    return `${rule.left} ${rule.operator} ${String(rule.right)}`;
-  });
+  const rule = node.rules[0];
+  const trueEdge = edges.find(
+    (edge) => edge.sourceNodeId === node.id && edge.kind === "true"
+  );
+  const falseEdge = edges.find(
+    (edge) => edge.sourceNodeId === node.id && edge.kind === "false"
+  );
 
-  return [
-    `Evaluate ${node.mode.toUpperCase()} condition rules.`,
-    ...rules,
-    `Fallback: ${node.fallback}.`,
-  ].join("\n");
+  if (!rule || !trueEdge || !falseEdge) {
+    throw new Error(
+      `Condition node ${node.id} requires one rule and complete true/false routing.`
+    );
+  }
+
+  return JSON.stringify({
+    field: rule.left,
+    operator: rule.operator,
+    value: rule.right,
+    onTrue: "continue",
+    onFalse: node.fallback,
+    onTrueStep: nodeOrder.indexOf(trueEdge.targetNodeId),
+    onFalseStep: nodeOrder.indexOf(falseEdge.targetNodeId),
+  });
 }
 
 function compareNodesForStableOrder(

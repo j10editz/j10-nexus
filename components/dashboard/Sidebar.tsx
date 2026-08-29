@@ -74,7 +74,7 @@ const sections: SidebarSection[] = [
       {
         label: "Workflow",
         icon: Workflow,
-        href: "/dashboard/automation",
+        href: "/dashboard/automation/flow",
       },
       {
         label: "Website",
@@ -166,6 +166,10 @@ export default function Sidebar({
 
     if (href === "/dashboard") {
       return pathname === "/dashboard";
+    }
+
+    if (href === "/dashboard/automation") {
+      return pathname === href;
     }
 
     return pathname === href || pathname.startsWith(`${href}/`);

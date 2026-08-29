@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "npm run test:regression && npm run test:day16",
+    "test:regression": "node --test tests/whatsapp-automation-regression.test.mts",
+    "test:day16": "vitest run tests/day16",
+    "test:day16:sandbox": "vitest run tests/day16/sandbox-contract.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",
@@ -25,6 +29,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }

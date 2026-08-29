@@ -25,6 +25,10 @@ import {
 } from "../../../../../lib/integrations/automation-trigger-bridge";
 
 import {
+  summarizeIntegrationAutomationDispatchFailure,
+} from "../../../../../lib/integrations/automation-dispatch-summary";
+
+import {
   getIntegrationCredentials,
 } from "../../../../../lib/integrations/credentials";
 
@@ -325,6 +329,7 @@ async function recordProcessingFailure(args: {
   error: unknown;
   fallbackMessage: string;
   fallbackCode: string;
+  persistenceMessage?: string;
 }) {
   const normalizedError =
     args.error instanceof
@@ -360,7 +365,8 @@ async function recordProcessingFailure(args: {
         args.supabase,
         args.event,
         normalizedError.code,
-        normalizedError.message,
+        args.persistenceMessage ??
+          normalizedError.message,
         {
           retryable:
             retry.retryable,
@@ -402,6 +408,7 @@ async function recordProcessingFailure(args: {
       nextRetryAt:
         retry.nextRetryAt,
       message:
+        args.persistenceMessage ??
         normalizedError.message,
       metadata: {
         providerEventType:
@@ -866,6 +873,10 @@ export async function POST(
         >
       >;
 
+    let dispatchFailureMessage:
+      | string
+      | undefined;
+
     try {
       automationDispatch =
         await dispatchIntegrationAutomationEvent({
@@ -881,6 +892,11 @@ export async function POST(
       if (
         !automationDispatch.success
       ) {
+        dispatchFailureMessage =
+          summarizeIntegrationAutomationDispatchFailure(
+            automationDispatch,
+          );
+
         throw new IntegrationWebhookError(
           "J10 accepted the webhook but could not dispatch every matched automation.",
           "INTEGRATION_AUTOMATION_DISPATCH_FAILED",
@@ -903,6 +919,8 @@ export async function POST(
           "J10 could not dispatch the adapted webhook event.",
         fallbackCode:
           "INTEGRATION_AUTOMATION_DISPATCH_FAILED",
+        persistenceMessage:
+          dispatchFailureMessage,
       });
     }
 

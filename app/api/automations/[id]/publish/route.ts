@@ -21,6 +21,15 @@ import {
 } from "@/lib/automation/graph-compiler";
 
 import {
+  isJ10FlowGraph,
+  validateJ10FlowGraph,
+} from "@/lib/automation/graph-contract";
+
+import {
+  validateJ10FlowIntegrationReadiness,
+} from "@/lib/automation/graph-readiness";
+
+import {
   validateAutomationStepConfig,
 } from "@/lib/automation/failure-policy";
 
@@ -228,6 +237,26 @@ export async function POST(
       );
     }
 
+    const graphValidation =
+      validateJ10FlowGraph(graph);
+
+    if (!graphValidation.valid) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            graphValidation.errors[0]?.message ??
+            "Workflow graph validation failed.",
+          code: "J10_FLOW_GRAPH_INVALID",
+          errors: graphValidation.errors,
+          warnings: graphValidation.warnings,
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
     const compiled = compileJ10FlowGraph(graph);
 
     if (compiled.steps.length === 0) {
@@ -261,6 +290,35 @@ export async function POST(
         );
       }
     }
+
+    const readiness =
+      await validateJ10FlowIntegrationReadiness({
+        supabase,
+        userId: user.id,
+        graph,
+      });
+
+    if (!readiness.ready) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            readiness.errors[0]?.message ??
+            "Workflow integrations are not ready for publication.",
+          code: "J10_FLOW_READINESS_BLOCKED",
+          errors: readiness.errors,
+          warnings: readiness.warnings,
+        },
+        {
+          status: 409,
+        }
+      );
+    }
+
+    const publicationWarnings = [
+      ...compiled.warnings,
+      ...readiness.warnings,
+    ];
 
     const employeeNames =
       await loadEmployeeNames(
@@ -299,7 +357,7 @@ export async function POST(
         compiled_timezone:
           compiled.automation.timezone,
         validation_errors: [],
-        validation_warnings: compiled.warnings,
+        validation_warnings: publicationWarnings,
       })
       .select(
         `
@@ -437,7 +495,12 @@ export async function POST(
     if (runtimeSwitchError) {
       console.error(
         "Publish runtime switch error:",
-        runtimeSwitchError
+        {
+          code: runtimeSwitchError.code,
+          message: runtimeSwitchError.message,
+          details: runtimeSwitchError.details,
+          hint: runtimeSwitchError.hint,
+        }
       );
 
       await archiveVersion(
@@ -527,7 +590,7 @@ export async function POST(
       stepCount: compiled.steps.length,
       runtimeSwitch: runtimeSwitchResult,
       runtimeSwitchRequired: false,
-      warnings: compiled.warnings,
+      warnings: publicationWarnings,
     });
   } catch (error) {
     console.error(
@@ -583,21 +646,6 @@ function resolveGraphForPublish(
   }
 
   return null;
-}
-
-function isJ10FlowGraph(
-  value: unknown
-): value is J10FlowGraph {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    value.version === "2026-08-day16" &&
-    typeof value.name === "string" &&
-    Array.isArray(value.nodes) &&
-    Array.isArray(value.edges)
-  );
 }
 
 async function getNextVersionNumber(
@@ -819,46 +867,6 @@ function isRoutingEdge(
     typeof value.targetStepOrder === "number" &&
     typeof value.kind === "string"
   );
-}
-
-async function retirePreviousVersion({
-  supabase,
-  userId,
-  previousVersionId,
-  newVersionId,
-  retiredAt,
-}: {
-  supabase: Awaited<ReturnType<typeof getSupabase>>;
-  userId: string;
-  previousVersionId: string | null;
-  newVersionId: string;
-  retiredAt: string;
-}) {
-  if (
-    !previousVersionId ||
-    previousVersionId === newVersionId
-  ) {
-    return;
-  }
-
-  const {
-    error,
-  } = await supabase
-    .from("automation_versions")
-    .update({
-      status: "retired",
-      retired_at: retiredAt,
-    })
-    .eq("id", previousVersionId)
-    .eq("user_id", userId)
-    .eq("status", "published");
-
-  if (error) {
-    console.error(
-      "Previous published version retire error:",
-      error
-    );
-  }
 }
 
 async function archiveVersion(

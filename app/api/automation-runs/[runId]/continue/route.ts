@@ -23,6 +23,11 @@ import {
 } from "@/lib/automation/condition-engine";
 
 import {
+  getPersistedBranchStepExclusions,
+  getUnselectedBranchStepOrders,
+} from "@/lib/automation/graph-runtime-routing";
+
+import {
   buildRetryMetadata,
   getAutomationStepFailurePolicy,
   resolveAutomationFailure,
@@ -1017,6 +1022,14 @@ export async function POST(
     | number
     | null = null;
 
+  const excludedGraphBranchStepOrders =
+    new Set(
+      getPersistedBranchStepExclusions(
+        steps,
+        existingRunSteps
+      )
+    );
+
   let currentStep:
     AutomationStep | null =
     null;
@@ -1157,6 +1170,87 @@ export async function POST(
       ) {
         activeBranchTargetStepOrder =
           null;
+      }
+
+      if (
+        excludedGraphBranchStepOrders.has(
+          step.step_order
+        )
+      ) {
+        const existingExcluded =
+          latestByAutomationStep.get(
+            step.id
+          );
+
+        if (
+          existingExcluded?.status !==
+          "skipped"
+        ) {
+          const {
+            error:
+              graphBranchSkipError,
+          } =
+            await supabase
+              .from(
+                "automation_run_steps"
+              )
+              .insert({
+                run_id:
+                  run.id,
+                automation_id:
+                  automation.id,
+                automation_step_id:
+                  step.id,
+                automation_version_id:
+                  run.automation_version_id ?? null,
+                graph_node_id:
+                  getStepGraphNodeId(step),
+                user_id:
+                  user.id,
+                step_order:
+                  step.step_order,
+                step_type:
+                  step.step_type,
+                action_type:
+                  step.action_type,
+                employee_id:
+                  step.employee_id,
+                employee_name:
+                  step.employee_name,
+                ai_task_id:
+                  null,
+                status:
+                  "skipped",
+                requires_approval:
+                  false,
+                approval_status:
+                  "not_required",
+                input_payload: {
+                  trigger:
+                    run.trigger_payload ?? {},
+                  continuation:
+                    true,
+                  branch: {
+                    skipped:
+                      true,
+                    branch_type:
+                      "j10_flow_exclusive_branch",
+                    reason:
+                      "Skipped because another J10 Flow condition branch was selected.",
+                  },
+                },
+              });
+
+          if (
+            graphBranchSkipError
+          ) {
+            throw new Error(
+              `Could not record J10 Flow branch skip for Step ${step.step_order}.`
+            );
+          }
+        }
+
+        continue;
       }
 
       const existing =
@@ -3124,6 +3218,24 @@ export async function POST(
           evaluation.branchTargetStepOrder !==
           null
         ) {
+          const unselectedTargetStepOrder =
+            evaluation.matched
+              ? evaluation.onFalseStep
+              : evaluation.onTrueStep;
+
+          for (
+            const excludedStepOrder of
+              getUnselectedBranchStepOrders(
+                steps,
+                evaluation.branchTargetStepOrder,
+                unselectedTargetStepOrder
+              )
+          ) {
+            excludedGraphBranchStepOrders.add(
+              excludedStepOrder
+            );
+          }
+
           activeBranchTargetStepOrder =
             validateForwardBranchTarget(
               steps,

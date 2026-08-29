@@ -49,6 +49,8 @@ export type ConditionOperator =
   | "not_equals"
   | "contains"
   | "not_contains"
+  | "starts_with"
+  | "ends_with"
   | "gt"
   | "gte"
   | "lt"
@@ -143,6 +145,8 @@ const OPERATOR_ALIASES: Record<
 
   contains: "contains",
   not_contains: "not_contains",
+  starts_with: "starts_with",
+  ends_with: "ends_with",
 
   ">": "gt",
   gt: "gt",
@@ -420,7 +424,7 @@ function parseShorthandCondition(
 
   const wordOperatorMatch =
     normalizedExpression.match(
-      /^([A-Za-z0-9_.-]+)\s+(contains|not_contains|equals|not_equals|greater_than_or_equal|greater_than_or_equals|greater_than|less_than_or_equal|less_than_or_equals|less_than|gte|gt|lte|lt|eq|neq)\s+(.+)$/i
+      /^([A-Za-z0-9_.-]+)\s+(contains|not_contains|starts_with|ends_with|equals|not_equals|greater_than_or_equal|greater_than_or_equals|greater_than|less_than_or_equal|less_than_or_equals|less_than|gte|gt|lte|lt|eq|neq)\s+(.+)$/i
     );
 
   if (
@@ -536,6 +540,14 @@ function evaluateOperator(
         actual,
         expected
       );
+
+    case "starts_with":
+      return String(actual ?? "")
+        .startsWith(String(expected ?? ""));
+
+    case "ends_with":
+      return String(actual ?? "")
+        .endsWith(String(expected ?? ""));
 
     case "gt":
       return numericCompare(

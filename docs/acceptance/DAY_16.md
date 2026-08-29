@@ -347,3 +347,8 @@ Expected final acceptance message:
 Expected checkpoint title:
 
 `Complete Day 16 production workflow builder`
+
+## Current implementation record
+
+The scoped implementation and verification record is maintained in
+`docs/acceptance/DAY_16_STATUS.md`.
