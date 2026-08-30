@@ -1,14 +1,33 @@
-import { NextResponse } from "next/server";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-export async function GET() {
+function getLimit(request: NextRequest) {
+  const requested = Number(
+    request.nextUrl.searchParams.get("limit") ?? 25
+  );
+
+  if (!Number.isFinite(requested)) {
+    return 25;
+  }
+
+  return Math.min(
+    Math.max(Math.floor(requested), 1),
+    100
+  );
+}
+
+export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+      process.env
+        .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
       {
         cookies: {
           getAll() {
@@ -27,8 +46,7 @@ export async function GET() {
                 }
               );
             } catch {
-              // Ignore cookie write errors
-              // in read-only server contexts.
+              // Cookie writes can be unavailable in read-only contexts.
             }
           },
         },
@@ -43,6 +61,7 @@ export async function GET() {
     if (userError || !user) {
       return NextResponse.json(
         {
+          success: false,
           error: "Unauthorized.",
         },
         {
@@ -50,6 +69,8 @@ export async function GET() {
         }
       );
     }
+
+    const limit = getLimit(request);
 
     const {
       data: activity,
@@ -68,10 +89,11 @@ export async function GET() {
         created_at
         `
       )
+      .eq("user_id", user.id)
       .order("created_at", {
         ascending: false,
       })
-      .limit(10);
+      .limit(limit);
 
     if (activityError) {
       console.error(
@@ -81,8 +103,9 @@ export async function GET() {
 
       return NextResponse.json(
         {
+          success: false,
           error:
-            "Could not load recent activity.",
+            "Could not load workspace activity.",
         },
         {
           status: 500,
@@ -92,6 +115,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
+      limit,
       activity: activity ?? [],
     });
   } catch (error) {
@@ -102,8 +126,9 @@ export async function GET() {
 
     return NextResponse.json(
       {
+        success: false,
         error:
-          "J10 NEXUS could not load recent activity.",
+          "J10 NEXUS could not load workspace activity.",
       },
       {
         status: 500,

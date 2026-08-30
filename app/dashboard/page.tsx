@@ -1,4 +1,3 @@
-import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import Overview from "@/components/dashboard/Overview";
 import { requireUser } from "@/lib/auth";
 
@@ -11,9 +10,5 @@ export default async function DashboardPage() {
     user.email?.split("@")[0] ||
     "there";
 
-  return (
-    <DashboardLayout>
-      <Overview userName={displayName} />
-    </DashboardLayout>
-  );
+  return <Overview userName={displayName} />;
 }

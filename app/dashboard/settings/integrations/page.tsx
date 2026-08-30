@@ -50,7 +50,6 @@ import {
 } from "lucide-react";
 
 import IntegrationOperationsPanel from "../../../../components/integrations/IntegrationOperationsPanel";
-import DashboardLayout from "../../../../components/dashboard/DashboardLayout";
 
 type IntegrationStatus =
   | "not_configured"
@@ -1090,8 +1089,7 @@ export default function IntegrationsPage() {
   }
 
   return (
-    <DashboardLayout>
-      <div className="mx-auto max-w-[1500px] pb-12">
+    <div className="mx-auto max-w-[1500px] pb-12">
         <header className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#0d0e12] p-6 lg:p-8">
           <div className="absolute -right-28 -top-28 h-72 w-72 rounded-full bg-violet-600/10 blur-3xl" />
 
@@ -1498,8 +1496,7 @@ export default function IntegrationsPage() {
             }
           />
         )}
-      </div>
-    </DashboardLayout>
+    </div>
   );
 }
 

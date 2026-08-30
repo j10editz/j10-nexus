@@ -430,7 +430,38 @@ No raw JSON editing or permanent DevTools script is required.
 
 # Planned next phases
 
-## Day 17 — WhatsApp Business production connector
+## Day 17 — Product activation and WhatsApp production
+
+Day 17 begins with a mandatory CEO usability gate. J10 NEXUS must expose its
+existing capabilities through a coherent, honest, working product surface
+before another invisible infrastructure phase is accepted.
+
+### 17A — Dashboard product activation
+
+- Shared dashboard shell across non-canvas routes
+- Correct sidebar and topbar positioning
+- Mobile navigation
+- Central typed navigation catalog
+- Working links for every operational module
+- Explicit `Building` state for unfinished modules
+- Global module and operation search
+- Working Ask J10 AI, Notifications, Profile, Settings, and Create controls
+- Real workspace Activity page
+- Real runtime-derived Notifications page
+- Operational Settings hub
+- Product-contract tests
+
+CEO acceptance requires:
+
+- No silent dead navigation item
+- No topbar hidden beneath the sidebar
+- Existing CRM, WhatsApp, Analytics, Integrations, Settings, AI Employees,
+  Workflow, and Automation surfaces are reachable from navigation
+- Activity loads signed-in workspace data
+- Notifications show workflow approvals, failures, active runs, and completions
+- Unfinished modules are visibly labeled instead of presented as completed
+
+### 17B — WhatsApp Business production connector
 
 - Meta application configuration
 - WhatsApp Cloud API credentials

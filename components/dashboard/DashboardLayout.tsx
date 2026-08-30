@@ -1,3 +1,8 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 
@@ -6,23 +11,46 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <div className="flex h-screen bg-[#09090B] text-white">
+  const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] =
+    useState(false);
 
-      <Sidebar />
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
-      <div className="flex flex-col flex-1 overflow-hidden">
+  const immersiveFlow =
+    pathname === "/dashboard/automation/flow" ||
+    pathname.startsWith(
+      "/dashboard/automation/flow/"
+    );
 
-        <Topbar />
-
-        <main className="flex-1 overflow-auto p-8">
-
-          {children}
-
-        </main>
-
+  if (immersiveFlow) {
+    return (
+      <div className="min-h-dvh bg-[#07070A] text-white">
+        {children}
       </div>
+    );
+  }
 
+  return (
+    <div className="min-h-dvh bg-[#09090B] text-white">
+      <Sidebar
+        mobileOpen={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+      />
+
+      <div className="min-h-dvh min-w-0 lg:pl-[260px]">
+        <Topbar
+          onOpenNavigation={() =>
+            setMobileOpen(true)
+          }
+        />
+
+        <main className="min-h-[calc(100dvh-72px)] min-w-0 overflow-x-hidden bg-[#09090B]">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

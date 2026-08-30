@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import {
@@ -16,7 +17,6 @@ import {
   Pencil,
   Play,
   Plus,
-  Sparkles,
   Trash2,
   TrendingUp,
   Workflow,
@@ -62,31 +62,43 @@ const quickActions = [
     title: "AI Employee",
     description: "Create an intelligent employee",
     icon: Bot,
+    href: "/dashboard/ai-employees",
+    status: "ready" as const,
   },
   {
     title: "Workflow",
     description: "Automate a business process",
     icon: Workflow,
+    href: "/dashboard/automation/flow",
+    status: "ready" as const,
   },
   {
     title: "Website",
-    description: "Build a website with AI",
+    description: "Scheduled for the product sprint",
     icon: Globe,
+    href: null,
+    status: "building" as const,
   },
   {
     title: "WhatsApp Bot",
     description: "Connect your business",
     icon: MessageSquare,
+    href: "/dashboard/whatsapp",
+    status: "ready" as const,
   },
   {
     title: "Generate Images",
-    description: "Create professional visuals",
+    description: "Scheduled for AI Studio",
     icon: Image,
+    href: null,
+    status: "building" as const,
   },
   {
     title: "Upload Documents",
-    description: "Give J10 AI knowledge",
+    description: "Scheduled for Knowledge Hub",
     icon: FileText,
+    href: null,
+    status: "building" as const,
   },
 ];
 
@@ -125,6 +137,9 @@ export default function Overview({
 
   const [activityLoading, setActivityLoading] =
     useState(true);
+
+  const [createOpen, setCreateOpen] =
+    useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -298,31 +313,82 @@ export default function Overview({
             </p>
           </div>
 
-          <button
-            className="
-              group flex items-center gap-2 rounded-xl
-              border border-white/10
-              bg-white/[0.04]
-              px-4 py-2.5
-              text-sm font-medium
-              transition-all
-              hover:border-blue-500/30
-              hover:bg-blue-500/10
-            "
-          >
-            <Plus size={17} />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() =>
+                setCreateOpen((current) => !current)
+              }
+              aria-expanded={createOpen}
+              className="
+                group flex items-center gap-2 rounded-xl
+                border border-white/10 bg-white/[0.04]
+                px-4 py-2.5 text-sm font-medium
+                transition-all hover:border-blue-500/30
+                hover:bg-blue-500/10
+              "
+            >
+              <Plus size={17} />
+              Create
+              <ChevronRight
+                size={15}
+                className={`transition-transform ${
+                  createOpen ? "rotate-90" : ""
+                }`}
+              />
+            </button>
 
-            Create
+            {createOpen && (
+              <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-64 rounded-2xl border border-white/[0.09] bg-[#101115] p-2 shadow-2xl shadow-black/50">
+                {[
+                  {
+                    label: "Create AI employee",
+                    href: "/dashboard/ai-employees",
+                    icon: Bot,
+                  },
+                  {
+                    label: "Build workflow",
+                    href: "/dashboard/automation/flow",
+                    icon: Workflow,
+                  },
+                  {
+                    label: "Add CRM contact",
+                    href: "/dashboard/crm",
+                    icon: Plus,
+                  },
+                  {
+                    label: "Configure WhatsApp",
+                    href: "/dashboard/whatsapp",
+                    icon: MessageSquare,
+                  },
+                ].map((action) => {
+                  const Icon = action.icon;
 
-            <ChevronRight
-              size={15}
-              className="transition-transform group-hover:translate-x-0.5"
-            />
-          </button>
+                  return (
+                    <Link
+                      key={action.href}
+                      href={action.href}
+                      onClick={() => setCreateOpen(false)}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/60 transition hover:bg-white/[0.055] hover:text-white"
+                    >
+                      <Icon
+                        size={16}
+                        className="text-blue-400"
+                      />
+                      {action.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* J10 AI COMMAND CENTER */}
-        <div className="mb-6">
+        <div
+          id="j10-ai"
+          className="mb-6 scroll-mt-24"
+        >
           <AIWidget />
         </div>
 
@@ -441,9 +507,17 @@ export default function Overview({
               </p>
             </div>
 
-            <div className="flex items-center gap-2 rounded-full border border-emerald-500/10 bg-emerald-500/[0.05] px-2.5 py-1 text-[10px] text-emerald-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              Live
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 rounded-full border border-emerald-500/10 bg-emerald-500/[0.05] px-2.5 py-1 text-[10px] text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                Live
+              </div>
+              <Link
+                href="/dashboard/activity"
+                className="text-xs font-medium text-blue-400 transition hover:text-blue-300"
+              >
+                View all
+              </Link>
             </div>
           </div>
 
@@ -481,8 +555,9 @@ export default function Overview({
                   getActivityIcon(item.action);
 
                 return (
-                  <div
+                  <Link
                     key={item.id}
+                    href="/dashboard/activity"
                     className="
                       group
                       flex items-center gap-3
@@ -520,7 +595,7 @@ export default function Overview({
                       size={15}
                       className="text-zinc-700 transition-all group-hover:translate-x-0.5 group-hover:text-blue-400"
                     />
-                  </div>
+                  </Link>
                 );
               })}
             </div>
@@ -544,28 +619,16 @@ export default function Overview({
             {quickActions.map((action) => {
               const Icon = action.icon;
 
-              return (
-                <button
-                  key={action.title}
-                  className="
-                    group
-                    flex items-center gap-4
-                    rounded-2xl
-                    border border-white/[0.07]
-                    bg-[#111216]
-                    p-4
-                    text-left
-                    transition-all
-                    duration-300
-                    hover:-translate-y-0.5
-                    hover:border-blue-500/20
-                    hover:bg-[#14161b]
-                  "
-                >
+              const content = (
+                <>
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/[0.07] bg-gradient-to-br from-white/[0.07] to-white/[0.02] transition-all group-hover:border-blue-500/20 group-hover:bg-blue-500/10">
                     <Icon
                       size={18}
-                      className="text-zinc-400 transition-colors group-hover:text-blue-400"
+                      className={
+                        action.status === "ready"
+                          ? "text-zinc-400 transition-colors group-hover:text-blue-400"
+                          : "text-zinc-600"
+                      }
                     />
                   </div>
 
@@ -579,10 +642,53 @@ export default function Overview({
                     </p>
                   </div>
 
-                  <ArrowUpRight
-                    size={16}
-                    className="text-zinc-700 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-blue-400"
-                  />
+                  {action.status === "ready" ? (
+                    <ArrowUpRight
+                      size={16}
+                      className="text-zinc-700 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-blue-400"
+                    />
+                  ) : (
+                    <span className="rounded-full border border-amber-400/15 bg-amber-400/[0.06] px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-amber-300/60">
+                      Building
+                    </span>
+                  )}
+                </>
+              );
+
+              const className = `
+                group flex items-center gap-4 rounded-2xl
+                border border-white/[0.07] bg-[#111216]
+                p-4 text-left transition-all duration-300
+                ${
+                  action.status === "ready"
+                    ? "hover:-translate-y-0.5 hover:border-blue-500/20 hover:bg-[#14161b]"
+                    : "cursor-not-allowed opacity-65"
+                }
+              `;
+
+              if (
+                action.status === "ready" &&
+                action.href
+              ) {
+                return (
+                  <Link
+                    key={action.title}
+                    href={action.href}
+                    className={className}
+                  >
+                    {content}
+                  </Link>
+                );
+              }
+
+              return (
+                <button
+                  key={action.title}
+                  type="button"
+                  disabled
+                  className={className}
+                >
+                  {content}
                 </button>
               );
             })}
