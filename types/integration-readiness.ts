@@ -19,6 +19,7 @@ export type IntegrationReadinessCheckStatus =
 
 export type IntegrationHealthCheckMode =
   | "configuration"
+  | "provider"
   | "none";
 
 export interface IntegrationReadinessCheck {
@@ -55,7 +56,7 @@ export interface IntegrationHealthCheckResult {
   readonly durationMs: number;
   readonly outcome: IntegrationHealthCheckOutcome;
   readonly mode: IntegrationHealthCheckMode;
-  readonly liveRequestPerformed: false;
+  readonly liveRequestPerformed: boolean;
   readonly message: string;
   readonly readiness: IntegrationReadinessReport;
 }

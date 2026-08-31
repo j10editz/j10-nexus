@@ -692,6 +692,29 @@ export default function IntegrationsPage() {
             ),
         );
 
+      const publicConfigurationChanged =
+        integration.registered &&
+        connectionFields.some(
+          (field) => {
+            const submitted =
+              submission.values[
+                field.key
+              ]?.trim() ?? "";
+
+            const saved =
+              integration.connection
+                ?.publicConfiguration[
+                  field.key
+                ];
+
+            return submitted !==
+              (saved === undefined ||
+              saved === null
+                ? ""
+                : String(saved));
+          },
+        );
+
       if (
         !integration.registered
       ) {
@@ -737,7 +760,10 @@ export default function IntegrationsPage() {
                   publicConfiguration,
 
                   enabledCapabilities:
-                    [],
+                    integration.capabilities.map(
+                      (capability) =>
+                        capability.id,
+                    ),
                 }),
             },
           );
@@ -769,6 +795,48 @@ export default function IntegrationsPage() {
         throw new Error(
           "Integration connection ID is missing.",
         );
+      }
+
+      if (
+        integration.registered &&
+        publicConfigurationChanged
+      ) {
+        const configurationResponse =
+          await fetch(
+            `/api/integrations/${encodeURIComponent(
+              connectionId,
+            )}`,
+            {
+              method: "PUT",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body:
+                JSON.stringify({
+                  publicConfiguration,
+                  enabledCapabilities:
+                    integration.capabilities.map(
+                      (capability) =>
+                        capability.id,
+                    ),
+                }),
+            },
+          );
+
+        const configurationData =
+          await configurationResponse
+            .json();
+
+        if (
+          !configurationResponse.ok ||
+          !configurationData.success
+        ) {
+          throw new Error(
+            configurationData.error ||
+              `Could not update ${integration.name} identifiers.`,
+          );
+        }
       }
 
       const credentialValues =
@@ -806,13 +874,15 @@ export default function IntegrationsPage() {
         isRotatingCredentials
       ) {
         const missingCredentialField =
-          credentialFields.find(
-            (field) =>
-              field.required &&
-              !credentialValues[
-                field.key
-              ],
-          );
+          isCredentialSetupRequired
+            ? credentialFields.find(
+                (field) =>
+                  field.required &&
+                  !credentialValues[
+                    field.key
+                  ],
+              )
+            : undefined;
 
         if (
           missingCredentialField
@@ -2138,7 +2208,7 @@ function SetupModal({
               title="Connection details"
               description={
                 integration.registered
-                  ? "Public connection identifiers are locked after registration."
+                  ? "Public identifiers can be corrected safely. Changing one requires a new health check."
                   : "These identifiers are connection configuration, not secret credentials."
               }
             >
@@ -2181,8 +2251,25 @@ function SetupModal({
                           }),
                         )
                       }
-                      disabled={
-                        integration.registered
+                      inputMode={
+                        integration.providerId ===
+                          "whatsapp-business" &&
+                        (field.key ===
+                          "phone_number_id" ||
+                          field.key ===
+                            "business_account_id")
+                          ? "numeric"
+                          : undefined
+                      }
+                      pattern={
+                        integration.providerId ===
+                          "whatsapp-business" &&
+                        (field.key ===
+                          "phone_number_id" ||
+                          field.key ===
+                            "business_account_id")
+                          ? "[0-9]*"
+                          : undefined
                       }
                       placeholder={
                         field.placeholder ??
@@ -2316,8 +2403,9 @@ function SetupModal({
             publicFields.length >
               0 && (
               <p className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-xs leading-5 text-zinc-600">
-                To change locked public identifiers, remove this integration and
-                add it again. Credential rotation does not require removal.
+                Identifier corrections preserve the connection and encrypted
+                credentials. J10 temporarily marks the connection for recheck
+                until the provider health check passes again.
               </p>
             )}
         </div>

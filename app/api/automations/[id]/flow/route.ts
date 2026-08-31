@@ -265,7 +265,6 @@ export async function GET(
     }
 
     const safeConnections = connections
-      .filter((connection) => connection.providerId !== "whatsapp-business")
       .map((connection) => ({
         ...serializeIntegrationConnection(connection),
         readiness: evaluateIntegrationReadiness(connection),

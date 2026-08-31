@@ -427,7 +427,6 @@ function integrationEntries(
   provider: IntegrationProviderDefinition,
 ): J10FlowNodeCatalogEntry[] {
   if (
-    provider.id === "whatsapp-business" ||
     provider.availability === "planned"
   ) {
     return [];

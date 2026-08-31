@@ -53,6 +53,10 @@ import {
 } from "../../../../../lib/integrations/observability";
 
 import {
+  verifyIntegrationOperatorApproval,
+} from "../../../../../lib/integrations/operator-approval";
+
+import {
   evaluateIntegrationRetry,
 } from "../../../../../lib/integrations/retry-policy";
 
@@ -358,6 +362,37 @@ export async function POST(
         actionRequest,
       );
 
+    const operatorApproved =
+      verifyIntegrationOperatorApproval(
+        body.operatorApprovalToken,
+        {
+          userId:
+            user.id,
+          connectionId:
+            connection.id,
+          fingerprint,
+        },
+      );
+
+    const approvedDevelopmentWhatsAppTest =
+      operatorApproved &&
+      connection.providerId ===
+        "whatsapp-business" &&
+      connection.environment ===
+        "development" &&
+      capability.id ===
+        "whatsapp.template.send" &&
+      input.templateName ===
+        "hello_world";
+
+    const executionAllowed =
+      policy.allowed ||
+      approvedDevelopmentWhatsAppTest;
+
+    const approvalSatisfied =
+      !policy.requiresHumanApproval ||
+      operatorApproved;
+
     const claim =
       await claimIntegrationActionExecution(
         supabase,
@@ -488,17 +523,18 @@ export async function POST(
           mode,
           policyCode:
             policy.code,
+          operatorApproved,
         },
       },
     );
 
     if (
-      !policy.allowed ||
-      policy.requiresHumanApproval
+      !executionAllowed ||
+      !approvalSatisfied
     ) {
       const approvalRequired =
-        policy.allowed &&
-        policy.requiresHumanApproval;
+        executionAllowed &&
+        !approvalSatisfied;
 
       const blockedCode =
         approvalRequired
@@ -507,7 +543,7 @@ export async function POST(
 
       const blockedReason =
         approvalRequired
-          ? "This integration action requires approval inside a J10 workflow before it may execute. Direct API calls cannot bypass the human-approval gate."
+          ? "This integration action requires explicit approval from an authenticated J10 operator before it may execute."
           : policy.reason;
 
       const blockedExecution =
@@ -526,6 +562,7 @@ export async function POST(
                 blockedReason,
               risk:
                 policy.risk,
+              operatorApproved,
               externalRequestSent:
                 false,
             },
@@ -839,6 +876,14 @@ export async function POST(
         duplicate: false,
         correlationId,
         policy,
+        operatorApproval: {
+          accepted:
+            operatorApproved,
+          purpose:
+            operatorApproved
+              ? "whatsapp_test_delivery"
+              : null,
+        },
         plan,
         execution:
           serializeIntegrationActionExecution(

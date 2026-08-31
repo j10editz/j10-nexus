@@ -13,7 +13,10 @@ import {
   getAuthenticatedIntegrationUser,
   integrationApiErrorResponse,
   parseRequestObject,
+  parseEnabledCapabilities,
+  parsePublicConfiguration,
   serializeIntegrationConnection,
+  validateProviderPublicConfiguration,
   writeIntegrationActivity,
 } from "../../../../lib/integrations/api";
 
@@ -21,6 +24,7 @@ import {
   deleteIntegrationConnection,
   getIntegrationConnectionById,
   listIntegrationStatusHistory,
+  updateIntegrationConnectionConfiguration,
   updateIntegrationConnectionStatus,
 } from "../../../../lib/integrations/database";
 
@@ -286,6 +290,159 @@ export async function PATCH(
     return integrationApiErrorResponse(
       error,
       "J10 NEXUS could not update integration status.",
+    );
+  }
+}
+
+export async function PUT(
+  request: Request,
+  context: RouteContext,
+) {
+  try {
+    const { id } =
+      await context.params;
+
+    const supabase =
+      await createIntegrationApiClient();
+
+    const user =
+      await getAuthenticatedIntegrationUser(
+        supabase,
+      );
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized.",
+        },
+        {
+          status: 401,
+        },
+      );
+    }
+
+    const body =
+      parseRequestObject(
+        await request.json(),
+      );
+
+    const previousConnection =
+      await getIntegrationConnectionById(
+        supabase,
+        user.id,
+        id,
+      );
+
+    if (!previousConnection) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Integration connection was not found.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    const publicConfiguration =
+      parsePublicConfiguration(
+        body.publicConfiguration ??
+        body.configuration,
+      );
+
+    validateProviderPublicConfiguration(
+      previousConnection.providerId,
+      publicConfiguration,
+    );
+
+    const enabledCapabilities =
+      body.enabledCapabilities ===
+        undefined
+        ? previousConnection
+            .enabledCapabilities
+        : parseEnabledCapabilities(
+            body.enabledCapabilities,
+          );
+
+    let connection =
+      await updateIntegrationConnectionConfiguration(
+        supabase,
+        user.id,
+        id,
+        {
+          publicConfiguration,
+          enabledCapabilities,
+        },
+      );
+
+    if (
+      connection.status === "connected" ||
+      connection.status === "degraded" ||
+      connection.status === "error"
+    ) {
+      connection =
+        await updateIntegrationConnectionStatus(
+          supabase,
+          user.id,
+          id,
+          {
+            status: "disconnected",
+            reason:
+              "Public connection identifiers changed; a new health check is required.",
+            metadata: {
+              source:
+                "integration_configuration_update",
+            },
+          },
+        );
+    }
+
+    const provider =
+      getIntegrationProvider(
+        connection.providerId,
+      );
+
+    await writeIntegrationActivity(
+      supabase,
+      {
+        userId: user.id,
+        action:
+          "integration_configuration_updated",
+        entityId:
+          connection.id,
+        title:
+          `${provider.name} identifiers updated`,
+        description:
+          `${provider.name} public identifiers were corrected. A new health check is required.`,
+        metadata: {
+          provider_id:
+            provider.id,
+          changed_fields:
+            Object.keys(
+              publicConfiguration,
+            ),
+          source:
+            "integration_api_day17c",
+        },
+      },
+    );
+
+    return NextResponse.json({
+      success: true,
+      message:
+        `${provider.name} identifiers updated. Run the health check again.`,
+      integration:
+        serializeIntegrationConnection(
+          connection,
+        ),
+    });
+  } catch (error) {
+    return integrationApiErrorResponse(
+      error,
+      "J10 NEXUS could not update integration identifiers.",
     );
   }
 }

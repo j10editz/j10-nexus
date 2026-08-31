@@ -21,6 +21,7 @@ import {
   LockKeyhole,
   MessageSquare,
   RefreshCw,
+  Send,
   ShieldCheck,
   Sparkles,
   Users,
@@ -29,9 +30,14 @@ import {
 } from "lucide-react";
 
 type IntegrationStatus =
-  | "Connected"
-  | "Disconnected"
-  | "Error";
+  | "not_configured"
+  | "pending"
+  | "connected"
+  | "degraded"
+  | "disconnected"
+  | "error"
+  | "revoked"
+  | "disabled";
 
 type Integration = {
   provider: string;
@@ -44,6 +50,10 @@ type Integration = {
   externalAccountId: string | null;
   connectedAt: string | null;
   registered: boolean;
+  metadata: Record<
+    string,
+    string | number | boolean | null
+  >;
 };
 
 type IntegrationsResponse = {
@@ -56,6 +66,20 @@ type Feature = {
   name: string;
   description: string;
   enabled: boolean;
+};
+
+type TestApproval = {
+  approvalToken: string;
+  expiresAt: string;
+  idempotencyKey: string;
+  capabilityId: string;
+  input: Record<string, unknown>;
+  preview: {
+    recipient: string;
+    templateName: string;
+    languageCode: string;
+    externalSideEffect: boolean;
+  };
 };
 
 const groupGuardianFeatures: Feature[] = [
@@ -176,6 +200,28 @@ export default function WhatsAppPage() {
     setSuccessMessage,
   ] = useState("");
 
+  const [
+    testRecipient,
+    setTestRecipient,
+  ] = useState("");
+
+  const [
+    testApproval,
+    setTestApproval,
+  ] = useState<TestApproval | null>(
+    null,
+  );
+
+  const [
+    testSending,
+    setTestSending,
+  ] = useState(false);
+
+  const [
+    testReceipt,
+    setTestReceipt,
+  ] = useState("");
+
   const loadConnection =
     useCallback(async () => {
       setLoading(true);
@@ -207,7 +253,7 @@ export default function WhatsAppPage() {
           data.integrations?.find(
             (item) =>
               item.provider ===
-              "whatsapp"
+              "whatsapp-business"
           ) ?? null;
 
         setIntegration(whatsapp);
@@ -256,7 +302,7 @@ export default function WhatsAppPage() {
           },
 
           body: JSON.stringify({
-            provider: "whatsapp",
+            provider: "whatsapp-business",
           }),
         }
       );
@@ -298,7 +344,7 @@ export default function WhatsAppPage() {
 
   const connected =
     integration?.status ===
-    "Connected";
+    "connected";
 
   const connectionStatus =
     loading
@@ -308,6 +354,172 @@ export default function WhatsAppPage() {
         : registered
           ? "Awaiting Connection"
           : "Not Added";
+
+  const businessAccountId =
+    integration?.metadata
+      ?.business_account_id;
+
+  const businessAccountIdReady =
+    typeof businessAccountId ===
+      "string" &&
+    /^\d{5,32}$/.test(
+      businessAccountId,
+    );
+
+  async function prepareTestDelivery() {
+    if (
+      !integration?.id ||
+      !connected ||
+      testSending
+    ) {
+      return;
+    }
+
+    const normalizedRecipient =
+      testRecipient.replace(
+        /\D/g,
+        "",
+      );
+
+    if (
+      normalizedRecipient.length < 7 ||
+      normalizedRecipient.length > 15
+    ) {
+      setErrorMessage(
+        "Enter the approved WhatsApp test recipient with country code and digits only.",
+      );
+      return;
+    }
+
+    setTestSending(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+    setTestReceipt("");
+
+    try {
+      const response = await fetch(
+        `/api/integrations/${encodeURIComponent(
+          integration.id,
+        )}/actions/approval`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            to: normalizedRecipient,
+          }),
+        },
+      );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success ||
+        !data.approvalToken
+      ) {
+        throw new Error(
+          data.error ||
+            "Could not prepare the controlled WhatsApp test.",
+        );
+      }
+
+      setTestRecipient(
+        normalizedRecipient,
+      );
+      setTestApproval(
+        data as TestApproval,
+      );
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not prepare the controlled WhatsApp test.",
+      );
+    } finally {
+      setTestSending(false);
+    }
+  }
+
+  async function confirmTestDelivery() {
+    if (
+      !integration?.id ||
+      !testApproval ||
+      testSending
+    ) {
+      return;
+    }
+
+    setTestSending(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/integrations/${encodeURIComponent(
+          integration.id,
+        )}/actions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            "Idempotency-Key":
+              testApproval.idempotencyKey,
+          },
+          body: JSON.stringify({
+            capabilityId:
+              testApproval.capabilityId,
+            mode: "live",
+            idempotencyKey:
+              testApproval.idempotencyKey,
+            input:
+              testApproval.input,
+            operatorApprovalToken:
+              testApproval.approvalToken,
+          }),
+        },
+      );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.error ||
+            "WhatsApp did not accept the controlled test delivery.",
+        );
+      }
+
+      const executionId =
+        typeof data.execution?.id ===
+          "string"
+          ? data.execution.id
+          : "recorded";
+
+      setTestReceipt(
+        executionId,
+      );
+      setTestApproval(null);
+      setSuccessMessage(
+        "WhatsApp accepted the hello_world test delivery.",
+      );
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "WhatsApp did not accept the controlled test delivery.",
+      );
+    } finally {
+      setTestSending(false);
+    }
+  }
 
   const capabilityCount =
     useMemo(
@@ -498,6 +710,156 @@ export default function WhatsAppPage() {
             )}
           </div>
         </div>
+
+        {/* CONTROLLED LIVE DELIVERY */}
+        {connected && (
+          <section className="mt-6 rounded-2xl border border-emerald-500/15 bg-[#111216] p-6">
+            <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-400">
+                  DAY 17C LIVE DELIVERY GATE
+                </p>
+
+                <h2 className="mt-2 text-lg font-semibold">
+                  Send one controlled WhatsApp test
+                </h2>
+
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
+                  J10 prepares Meta&apos;s approved hello_world template, shows
+                  the destination, and requires your explicit confirmation
+                  before one external message is sent.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/[0.05] px-4 py-3 text-xs text-emerald-300">
+                Operator approval required
+              </div>
+            </div>
+
+            {!businessAccountIdReady ? (
+              <div className="mt-5 flex flex-col justify-between gap-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-4 sm:flex-row sm:items-center">
+                <div>
+                  <p className="text-sm font-medium text-amber-300">
+                    Correct the WhatsApp Business Account ID first
+                  </p>
+
+                  <p className="mt-1 text-xs leading-5 text-zinc-500">
+                    The saved value is not a numeric WABA ID. Your Meta contact
+                    email remains unchanged; only this J10 identifier needs correction.
+                  </p>
+                </div>
+
+                <a
+                  href="/dashboard/settings/integrations"
+                  className="shrink-0 rounded-xl bg-white px-4 py-2.5 text-center text-sm font-semibold text-black transition hover:bg-zinc-200"
+                >
+                  Correct identifier
+                </a>
+              </div>
+            ) : (
+              <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+                <label className="block">
+                  <span className="text-xs font-medium text-zinc-400">
+                    Meta-approved test recipient
+                  </span>
+
+                  <input
+                    value={testRecipient}
+                    onChange={(event) => {
+                      setTestRecipient(
+                        event.target.value,
+                      );
+                      setTestApproval(null);
+                      setTestReceipt("");
+                    }}
+                    inputMode="tel"
+                    placeholder="Country code + number, digits only"
+                    className="mt-2 w-full rounded-xl border border-white/[0.08] bg-[#090a0d] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-700 focus:border-emerald-500/40"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    void prepareTestDelivery();
+                  }}
+                  disabled={testSending}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-3 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/15 disabled:opacity-40"
+                >
+                  {testSending ? (
+                    <RefreshCw
+                      size={15}
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <ShieldCheck size={15} />
+                  )}
+
+                  Prepare test
+                </button>
+              </div>
+            )}
+
+            {testApproval && (
+              <div className="mt-4 rounded-xl border border-violet-500/20 bg-violet-500/[0.06] p-4">
+                <p className="text-sm font-semibold text-violet-300">
+                  Confirm one external WhatsApp message
+                </p>
+
+                <div className="mt-3 grid gap-2 text-xs text-zinc-400 sm:grid-cols-3">
+                  <p>
+                    Recipient: {testApproval.preview.recipient}
+                  </p>
+                  <p>
+                    Template: {testApproval.preview.templateName}
+                  </p>
+                  <p>
+                    Language: {testApproval.preview.languageCode}
+                  </p>
+                </div>
+
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setTestApproval(null)
+                    }
+                    disabled={testSending}
+                    className="rounded-xl border border-white/[0.08] px-4 py-2.5 text-sm text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:opacity-40"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void confirmTestDelivery();
+                    }}
+                    disabled={testSending}
+                    className="flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200 disabled:opacity-40"
+                  >
+                    {testSending ? (
+                      <RefreshCw
+                        size={15}
+                        className="animate-spin"
+                      />
+                    ) : (
+                      <Send size={15} />
+                    )}
+
+                    Approve and send once
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {testReceipt && (
+              <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3 text-xs text-emerald-300">
+                Delivery accepted and recorded. Execution receipt: {testReceipt}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* STATS */}
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -966,4 +1328,3 @@ function WorkflowRow({
     </div>
   );
 }
-

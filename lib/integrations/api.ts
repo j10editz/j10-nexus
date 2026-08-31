@@ -24,6 +24,10 @@ import type {
 } from "../../types/integration";
 
 import {
+  IntegrationRuntimeError,
+} from "../../types/integration-runtime";
+
+import {
   IntegrationDatabaseError,
 } from "./database";
 
@@ -373,6 +377,74 @@ export function validateProviderPublicConfiguration(
       "UNSUPPORTED_PUBLIC_CONFIGURATION_FIELD",
     );
   }
+
+  const missingRequiredField =
+    provider.auth.setupFields
+      .filter(
+        (field) =>
+          field.storage === "connection" &&
+          field.required,
+      )
+      .find((field) => {
+        const value =
+          configuration[field.key];
+
+        return (
+          value === undefined ||
+          value === null ||
+          (typeof value === "string" &&
+            !value.trim())
+        );
+      });
+
+  if (missingRequiredField) {
+    throw new IntegrationApiValidationError(
+      `${missingRequiredField.label} is required.`,
+      "REQUIRED_PUBLIC_CONFIGURATION_MISSING",
+    );
+  }
+
+  if (providerId === "whatsapp-business") {
+    const phoneNumberId =
+      configuration.phone_number_id;
+
+    const businessAccountId =
+      configuration.business_account_id;
+
+    if (
+      typeof phoneNumberId !== "string" ||
+      !/^\d{5,32}$/.test(
+        phoneNumberId.trim(),
+      )
+    ) {
+      throw new IntegrationApiValidationError(
+        "WhatsApp Phone Number ID must be the numeric ID from Meta API Setup.",
+        "INVALID_WHATSAPP_PHONE_NUMBER_ID",
+      );
+    }
+
+    if (
+      typeof businessAccountId !== "string" ||
+      !/^\d{5,32}$/.test(
+        businessAccountId.trim(),
+      )
+    ) {
+      throw new IntegrationApiValidationError(
+        "WhatsApp Business Account ID must be the numeric WABA ID from Meta API Setup, not an email address or App ID.",
+        "INVALID_WHATSAPP_BUSINESS_ACCOUNT_ID",
+      );
+    }
+
+    if (
+      phoneNumberId.trim() ===
+      businessAccountId.trim()
+    ) {
+      throw new IntegrationApiValidationError(
+        "Phone Number ID and WhatsApp Business Account ID must be different Meta identifiers.",
+        "DUPLICATE_WHATSAPP_IDENTIFIERS",
+      );
+    }
+  }
 }
 
 export function serializeIntegrationConnection(
@@ -648,6 +720,61 @@ export function integrationApiErrorResponse(
 
       {
         status,
+      },
+    );
+  }
+
+  if (
+    error instanceof
+    IntegrationRuntimeError
+  ) {
+    const status =
+      Number.isInteger(
+        error.status,
+      ) &&
+      error.status >= 400 &&
+      error.status <= 599
+        ? error.status
+        : 500;
+
+    if (status >= 500) {
+      console.error(
+        fallbackMessage,
+
+        error,
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success:
+          false,
+
+        error:
+          error.message,
+
+        code:
+          error.code,
+
+        retryable:
+          error.retryable,
+
+        retryAfterSeconds:
+          error.retryAfterSeconds,
+      },
+
+      {
+        status,
+
+        headers:
+          error.retryAfterSeconds !== null
+            ? {
+                "Retry-After":
+                  String(
+                    error.retryAfterSeconds,
+                  ),
+              }
+            : undefined,
       },
     );
   }

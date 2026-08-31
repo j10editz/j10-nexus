@@ -211,7 +211,7 @@ export const INTEGRATION_REGISTRY: Readonly<
     shortDescription:
       "Automate customer conversations using WhatsApp Business.",
     category: "communication",
-    availability: "development",
+    availability: "beta",
     iconKey: "message-circle",
     accentColor: "#25D366",
     auth: {

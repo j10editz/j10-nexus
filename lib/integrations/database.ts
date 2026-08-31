@@ -80,6 +80,13 @@ export interface UpdateIntegrationStatusInput {
   errorMessage?: string | null;
 }
 
+export interface UpdateIntegrationConfigurationInput {
+  publicConfiguration: Readonly<
+    Record<string, PublicConfigurationValue>
+  >;
+  enabledCapabilities?: readonly string[];
+}
+
 export interface IntegrationStatusHistoryEntry {
   id: string;
   integrationId: string;
@@ -744,6 +751,66 @@ export async function updateIntegrationConnectionStatus(
   ) {
     throw createDatabaseError(
       "Could not update integration status.",
+      error,
+    );
+  }
+
+  return requireMappedConnection(
+    data as IntegrationDatabaseRow,
+  );
+}
+
+export async function updateIntegrationConnectionConfiguration(
+  supabase: SupabaseClient,
+  userId: string,
+  connectionId: string,
+  input: UpdateIntegrationConfigurationInput,
+): Promise<IntegrationConnection> {
+  const currentConnection =
+    await getIntegrationConnectionById(
+      supabase,
+      userId,
+      connectionId,
+    );
+
+  if (!currentConnection) {
+    throw new IntegrationDatabaseError(
+      "Integration connection was not found.",
+      "INTEGRATION_NOT_FOUND",
+    );
+  }
+
+  const enabledCapabilities =
+    input.enabledCapabilities ??
+    currentConnection.enabledCapabilities;
+
+  validateEnabledCapabilities(
+    currentConnection.providerId,
+    enabledCapabilities,
+  );
+
+  const { data, error } =
+    await supabase
+      .from("integrations")
+      .update({
+        public_configuration: {
+          ...input.publicConfiguration,
+        },
+        enabled_capabilities: [
+          ...enabledCapabilities,
+        ],
+        last_health_check_at: null,
+      })
+      .eq("id", connectionId)
+      .eq("user_id", userId)
+      .select(
+        INTEGRATION_DATABASE_SELECT,
+      )
+      .single();
+
+  if (error || !data) {
+    throw createDatabaseError(
+      "Could not update integration configuration.",
       error,
     );
   }

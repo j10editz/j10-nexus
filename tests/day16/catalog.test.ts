@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { J10_FLOW_NODE_CATALOG } from "@/lib/automation/node-catalog";
 
 describe("Day 16 node catalog", () => {
-  it("is generated from registered integrations while excluding deferred WhatsApp", () => {
+  it("is generated from registered integrations including the Day 17 WhatsApp runtime", () => {
     const integrationEntries = J10_FLOW_NODE_CATALOG.filter(
       (entry) => entry.category === "integration",
     );
@@ -11,7 +11,7 @@ describe("Day 16 node catalog", () => {
     expect(integrationEntries.length).toBeGreaterThan(0);
     expect(integrationEntries.some((entry) => entry.providerId === "gmail")).toBe(true);
     expect(integrationEntries.some((entry) => entry.providerId === "google-calendar")).toBe(true);
-    expect(integrationEntries.some((entry) => entry.providerId === "whatsapp-business")).toBe(false);
+    expect(integrationEntries.some((entry) => entry.providerId === "whatsapp-business")).toBe(true);
   });
 
   it("shows unsupported delay and data mapping honestly as unavailable", () => {

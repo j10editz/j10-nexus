@@ -26,6 +26,7 @@ import {
 } from "@/types/integration-runtime";
 
 import {
+  getIntegrationCredentials,
   IntegrationCredentialError,
   storeIntegrationCredentials,
 } from "./credentials";
@@ -45,6 +46,10 @@ import {
   requireIntegrationRuntimeAdapter,
 } from "./runtime-registry";
 
+import {
+  getIntegrationProvider,
+} from "./registry";
+
 const ALLOWED_OAUTH_CREDENTIAL_KEYS =
   new Set([
     "access_token",
@@ -57,13 +62,19 @@ const ALLOWED_OAUTH_CREDENTIAL_KEYS =
 class RestrictedOAuthCredentialReader
 implements IntegrationRuntimeCredentialReader {
   private values:
-    Readonly<Record<string, string>>;
+  Readonly<Record<string, string>>;
+
+  private readonly allowedKeys:
+  ReadonlySet<string>;
 
   constructor(
     values:
       Readonly<Record<string, string>>,
+    allowedKeys:
+      ReadonlySet<string> = ALLOWED_OAUTH_CREDENTIAL_KEYS,
   ) {
     this.values = values;
+    this.allowedKeys = allowedKeys;
   }
 
   replace(
@@ -81,7 +92,7 @@ implements IntegrationRuntimeCredentialReader {
 
     for (const key of keys) {
       if (
-        !ALLOWED_OAUTH_CREDENTIAL_KEYS.has(
+        !this.allowedKeys.has(
           key,
         )
       ) {
@@ -153,7 +164,7 @@ function assertRequiredScopes(
 
   if (missing.length > 0) {
     throw new IntegrationRuntimeError(
-      "The Google authorization is missing a required OAuth scope.",
+      "The integration authorization is missing a required scope.",
       {
         code:
           "INTEGRATION_RUNTIME_SCOPE_MISSING",
@@ -304,6 +315,70 @@ export async function executeLiveIntegrationAction(
           status: 501,
         },
       );
+    }
+
+    if (adapter.manifest.authType !== "oauth2") {
+      const storedCredentials =
+        await getIntegrationCredentials(
+          input.supabase,
+          input.userId,
+          input.connection.id,
+        );
+
+      if (!storedCredentials) {
+        throw new IntegrationRuntimeError(
+          "Secure integration credentials are required.",
+          {
+            code: "INTEGRATION_CREDENTIALS_MISSING",
+            category: "authentication",
+            status: 401,
+          },
+        );
+      }
+
+      const provider = getIntegrationProvider(
+        input.connection.providerId,
+      );
+      const allowedCredentialKeys = new Set(
+        provider.auth.setupFields
+          .filter((field) => field.storage === "credential_vault")
+          .map((field) => field.key),
+      );
+      const credentialReader = new RestrictedOAuthCredentialReader(
+        storedCredentials.values,
+        allowedCredentialKeys,
+      );
+
+      assertRequiredScopes(
+        capability.requiredScopes,
+        input.connection.grantedScopes,
+      );
+
+      const result = await adapter.executeAction({
+        requestId: input.executionId,
+        correlationId: input.correlationId,
+        userId: input.userId,
+        connection: input.connection,
+        environment: input.connection.environment,
+        signal: input.signal,
+        credentials: credentialReader,
+        capabilityId: input.request.capabilityId,
+        mode: "live",
+        idempotencyKey: input.request.idempotencyKey,
+        input: input.request.input,
+      });
+
+      return {
+        success: result.success,
+        responseStatus: result.responseStatus,
+        metadata: {
+          ...result.metadata,
+          runtimeAdapterId: adapter.manifest.adapterId,
+          runtimeAdapterVersion: adapter.manifest.adapterVersion,
+          providerRequestId: result.providerRequestId,
+          rateLimit: result.rateLimit,
+        },
+      };
     }
 
     const tokenSet =

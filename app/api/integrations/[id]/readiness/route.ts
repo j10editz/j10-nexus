@@ -16,6 +16,7 @@ import {
 
 import {
   getIntegrationConnectionById,
+  updateIntegrationConnectionStatus,
 } from "../../../../../lib/integrations/database";
 
 import {
@@ -29,6 +30,10 @@ import {
 import {
   getIntegrationProvider,
 } from "../../../../../lib/integrations/registry";
+
+import {
+  executeIntegrationRuntimeHealthCheck,
+} from "../../../../../lib/integrations/runtime-health-execution";
 
 type RouteContext = {
   params: Promise<{
@@ -133,7 +138,7 @@ export async function GET(
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: RouteContext,
 ) {
   const startedAt = Date.now();
@@ -252,10 +257,19 @@ export async function POST(
       }
     }
 
-    const checkedAt =
-      new Date().toISOString();
+    const checkedAt = new Date().toISOString();
 
-    const updatedConnection =
+    const runtimeResult = readiness.canRunHealthCheck
+      ? await executeIntegrationRuntimeHealthCheck({
+          supabase,
+          userId: user.id,
+          connection,
+          requestId: crypto.randomUUID(),
+          signal: request.signal,
+        })
+      : null;
+
+    let updatedConnection =
       await recordIntegrationHealthCheck(
         supabase,
         user.id,
@@ -263,20 +277,41 @@ export async function POST(
         checkedAt,
       );
 
+    if (
+      runtimeResult?.healthy &&
+      updatedConnection.status !== "connected"
+    ) {
+      updatedConnection =
+        await updateIntegrationConnectionStatus(
+          supabase,
+          user.id,
+          connection.id,
+          {
+            status: "connected",
+            reason: "Live provider health check passed.",
+            metadata: {
+              health_check_mode: "provider",
+              external_account_id:
+                runtimeResult.externalAccountId,
+              external_account_label:
+                runtimeResult.externalAccountLabel,
+            },
+          },
+        );
+    }
+
     const updatedReadiness =
       evaluateIntegrationReadiness(
         updatedConnection,
       );
 
-    const outcome =
-      updatedReadiness
-        .canRunHealthCheck
-        ? "passed"
-        : "blocked";
+    const outcome = runtimeResult?.healthy
+      ? "passed"
+      : "blocked";
 
     const message =
       outcome === "passed"
-        ? `${provider.name} passed the local configuration health check. No external provider request was made.`
+        ? `${provider.name} passed the live provider health check.`
         : updatedReadiness
               .blockers[0]
               ?.message ??
@@ -306,11 +341,10 @@ export async function POST(
 
           outcome,
 
-          mode:
-            "configuration",
+          mode: runtimeResult ? "provider" : "configuration",
 
           live_request_performed:
-            false,
+            Boolean(runtimeResult),
 
           blocker_codes:
             updatedReadiness
@@ -341,11 +375,10 @@ export async function POST(
 
       outcome,
 
-      mode:
-        "configuration",
+      mode: runtimeResult ? "provider" : "configuration",
 
       liveRequestPerformed:
-        false,
+        Boolean(runtimeResult),
 
       message,
 

@@ -17,6 +17,7 @@ import {
 
 import {
   deleteIntegrationCredentials,
+  getIntegrationCredentials,
   storeIntegrationCredentials,
 } from "../../../../../lib/integrations/credentials";
 
@@ -237,6 +238,19 @@ export async function POST(
       );
     }
 
+    const storedCredentials =
+      await getIntegrationCredentials(
+        supabase,
+        user.id,
+        connection.id,
+      );
+
+    const mergedValues = {
+      ...(storedCredentials
+        ?.values ?? {}),
+      ...values,
+    };
+
     await storeIntegrationCredentials(
       supabase,
       user.id,
@@ -244,7 +258,8 @@ export async function POST(
         connectionId:
           connection.id,
 
-        values,
+        values:
+          mergedValues,
       },
     );
 
