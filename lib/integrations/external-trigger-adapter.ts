@@ -229,7 +229,14 @@ function adaptWhatsAppWebhook(
   event: IntegrationWebhookEvent,
 ): AdapterResult {
   const entry = firstRecord(event.payload.entry);
-  const change = firstRecord(entry?.changes);
+  const wrappedChange = firstRecord(entry?.changes);
+  const sampleChange =
+    typeof event.payload.field === "string" &&
+    isRecord(event.payload.value)
+      ? event.payload
+      : null;
+  const change =
+    wrappedChange ?? sampleChange;
   const value = isRecord(change?.value) ? change.value : {};
   const message = firstRecord(value.messages);
   const status = firstRecord(value.statuses);

@@ -318,7 +318,14 @@ function getWhatsAppEventIdentity(
     ? entryRecord.changes[0]
     : null;
 
-  const changeRecord = isRecord(change) ? change : null;
+  const wrappedChange = isRecord(change) ? change : null;
+  const sampleChange =
+    typeof payload.field === "string" &&
+    isRecord(payload.value)
+      ? payload
+      : null;
+  const changeRecord =
+    wrappedChange ?? sampleChange;
   const value = isRecord(changeRecord?.value)
     ? changeRecord.value
     : null;

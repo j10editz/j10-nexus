@@ -98,7 +98,10 @@ function assertExpectedAlias(endpointKey: string) {
   }
 }
 
-async function findActivePipelineEndpointKey() {
+async function findActivePipelineEndpointKey(
+  integrationId: string,
+  userId: string,
+) {
   const supabase =
     createWebhookServiceClient();
 
@@ -109,6 +112,14 @@ async function findActivePipelineEndpointKey() {
       .eq(
         "provider",
         "whatsapp-business",
+      )
+      .eq(
+        "integration_id",
+        integrationId,
+      )
+      .eq(
+        "user_id",
+        userId,
       )
       .eq("status", "active")
       .order("updated_at", {
@@ -185,15 +196,18 @@ async function loadWhatsAppConnection() {
 }
 
 async function resolvePipelineEndpointKey() {
+  const connection =
+    await loadWhatsAppConnection();
+
   const existingEndpointKey =
-    await findActivePipelineEndpointKey();
+    await findActivePipelineEndpointKey(
+      connection.id,
+      connection.workspaceId,
+    );
 
   if (existingEndpointKey) {
     return existingEndpointKey;
   }
-
-  const connection =
-    await loadWhatsAppConnection();
 
   const supabase =
     createWebhookServiceClient();

@@ -82,6 +82,36 @@ type TestApproval = {
   };
 };
 
+type InboundStatus = {
+  success: boolean;
+  error?: string;
+  webhook?: {
+    configured: boolean;
+    active: boolean;
+    lastReceivedAt: string | null;
+  };
+  latestInbound?: {
+    eventId: string;
+    capabilityId: string;
+    providerEventType: string;
+    signatureStatus: string;
+    processingStatus: string;
+    receivedAt: string;
+    processedAt: string | null;
+    sender: string | null;
+    messageType: string;
+    failureCode: string | null;
+    failureMessage: string | null;
+    workflowDispatch: {
+      status: string;
+      matched: number;
+      executed: number;
+      failed: number;
+      completedAt: string;
+    } | null;
+  } | null;
+};
+
 const groupGuardianFeatures: Feature[] = [
   {
     name: "Anti-Spam",
@@ -222,6 +252,30 @@ export default function WhatsAppPage() {
     setTestReceipt,
   ] = useState("");
 
+  const [
+    inboundStatus,
+    setInboundStatus,
+  ] = useState<InboundStatus | null>(
+    null,
+  );
+
+  const [
+    inboundStartedAt,
+    setInboundStartedAt,
+  ] = useState<string | null>(null);
+
+  const [
+    inboundChecking,
+    setInboundChecking,
+  ] = useState(false);
+
+  const registered =
+    integration?.registered ?? false;
+
+  const connected =
+    integration?.status ===
+    "connected";
+
   const loadConnection =
     useCallback(async () => {
       setLoading(true);
@@ -274,6 +328,136 @@ export default function WhatsAppPage() {
   useEffect(() => {
     void loadConnection();
   }, [loadConnection]);
+
+  useEffect(() => {
+    const storedStartedAt =
+      window.localStorage.getItem(
+        "j10.whatsapp.inbound-listening-started-at",
+      );
+
+    if (
+      storedStartedAt &&
+      Number.isFinite(
+        Date.parse(storedStartedAt),
+      )
+    ) {
+      setInboundStartedAt(
+        storedStartedAt,
+      );
+    }
+  }, []);
+
+  const loadInboundStatus =
+    useCallback(
+      async (
+        integrationId: string,
+        quiet = false,
+      ) => {
+        if (!quiet) {
+          setInboundChecking(true);
+        }
+
+        const controller =
+          new AbortController();
+        const timeout =
+          window.setTimeout(
+            () => controller.abort(),
+            10_000,
+          );
+
+        try {
+          const response = await fetch(
+            `/api/integrations/${encodeURIComponent(
+              integrationId,
+            )}/whatsapp/inbound-status`,
+            {
+              method: "GET",
+              cache: "no-store",
+              signal: controller.signal,
+            },
+          );
+
+          const data =
+            (await response.json()) as InboundStatus;
+
+          if (
+            !response.ok ||
+            !data.success
+          ) {
+            throw new Error(
+              data.error ||
+                "Could not check inbound WhatsApp status.",
+            );
+          }
+
+          setInboundStatus(data);
+        } catch (error) {
+          if (!quiet) {
+            setErrorMessage(
+              error instanceof DOMException &&
+                error.name === "AbortError"
+                ? "The inbound status check timed out. The server may still be restarting."
+                : error instanceof Error
+                ? error.message
+                : "Could not check inbound WhatsApp status.",
+            );
+          }
+        } finally {
+          window.clearTimeout(timeout);
+
+          if (!quiet) {
+            setInboundChecking(false);
+          }
+        }
+      },
+      [],
+    );
+
+  useEffect(() => {
+    if (!integration?.id || !connected) {
+      return;
+    }
+
+    void loadInboundStatus(
+      integration.id,
+      true,
+    );
+  }, [
+    connected,
+    integration?.id,
+    loadInboundStatus,
+  ]);
+
+  useEffect(() => {
+    if (
+      !integration?.id ||
+      !connected ||
+      !inboundStartedAt ||
+      inboundStatus?.latestInbound
+    ) {
+      return;
+    }
+
+    const timer = window.setInterval(
+      () => {
+        void loadInboundStatus(
+          integration.id as string,
+          true,
+        );
+      },
+      3_000,
+    );
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [
+    connected,
+    inboundStartedAt,
+    inboundStatus?.latestInbound,
+    integration?.id,
+    loadInboundStatus,
+  ]);
 
   /*
   ============================================================
@@ -338,13 +522,6 @@ export default function WhatsAppPage() {
       setAddingIntegration(false);
     }
   }
-
-  const registered =
-    integration?.registered ?? false;
-
-  const connected =
-    integration?.status ===
-    "connected";
 
   const connectionStatus =
     loading
@@ -520,6 +697,39 @@ export default function WhatsAppPage() {
       setTestSending(false);
     }
   }
+
+  async function startInboundAcceptance() {
+    if (!integration?.id) {
+      return;
+    }
+
+    const startedAt =
+      new Date().toISOString();
+
+    setInboundStartedAt(startedAt);
+    window.localStorage.setItem(
+      "j10.whatsapp.inbound-listening-started-at",
+      startedAt,
+    );
+    setErrorMessage("");
+
+    await loadInboundStatus(
+      integration.id,
+    );
+  }
+
+  const acceptedInbound =
+    inboundStatus?.latestInbound ?? null;
+
+  useEffect(() => {
+    if (!acceptedInbound) {
+      return;
+    }
+
+    window.localStorage.removeItem(
+      "j10.whatsapp.inbound-listening-started-at",
+    );
+  }, [acceptedInbound]);
 
   const capabilityCount =
     useMemo(
@@ -861,6 +1071,163 @@ export default function WhatsAppPage() {
           </section>
         )}
 
+        {/* INBOUND WEBHOOK ACCEPTANCE */}
+        {connected && (
+          <section className="mt-6 rounded-2xl border border-cyan-500/15 bg-[#111216] p-6">
+            <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-400">
+                  INBOUND MESSAGE VERIFICATION
+                </p>
+
+                <h2 className="mt-2 text-lg font-semibold">
+                  Verify the WhatsApp webhook pipeline
+                </h2>
+
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
+                  J10 watches for one new Meta-signed message sample or live
+                  delivery, stores it, converts it to
+                  whatsapp.message.received, and dispatches it into the workflow
+                  engine. Message text is not displayed here and no automatic
+                  reply is sent.
+                </p>
+              </div>
+
+              <div
+                className={`rounded-xl border px-4 py-3 text-xs ${
+                  inboundStatus?.webhook?.active
+                    ? "border-cyan-500/20 bg-cyan-500/[0.05] text-cyan-300"
+                    : "border-amber-500/20 bg-amber-500/[0.05] text-amber-300"
+                }`}
+              >
+                Webhook endpoint: {inboundStatus?.webhook?.active
+                  ? "Active"
+                  : "Waiting for first delivery"}
+              </div>
+            </div>
+
+            {!inboundStartedAt ? (
+              <div className="mt-5 flex flex-col justify-between gap-4 rounded-xl border border-white/[0.07] bg-[#090a0d] p-4 lg:flex-row lg:items-center">
+                <div>
+                  <p className="text-sm font-medium text-zinc-200">
+                    One controlled test—about one minute
+                  </p>
+
+                  <p className="mt-1 text-xs leading-5 text-zinc-500">
+                    Start listening, then send Meta&apos;s Incoming Message sample
+                    while the app remains unpublished.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    void startInboundAcceptance();
+                  }}
+                  disabled={inboundChecking}
+                  className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-zinc-200 disabled:opacity-40"
+                >
+                  {inboundChecking ? (
+                    <RefreshCw
+                      size={15}
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <Activity size={15} />
+                  )}
+
+                  Start listening
+                </button>
+              </div>
+            ) : acceptedInbound ? (
+              <div className="mt-5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-300">
+                  <CheckCircle2 size={16} />
+                  Inbound webhook processed end-to-end
+                </div>
+
+                <div className="mt-4 grid gap-3 text-xs sm:grid-cols-2 xl:grid-cols-4">
+                  <InboundProof
+                    label="Meta signature"
+                    value={acceptedInbound.signatureStatus === "valid"
+                      ? "Verified"
+                      : acceptedInbound.signatureStatus}
+                  />
+                  <InboundProof
+                    label="J10 event"
+                    value="whatsapp.message.received"
+                  />
+                  <InboundProof
+                    label="Sender / type"
+                    value={`${acceptedInbound.sender || "masked"} · ${acceptedInbound.messageType}`}
+                  />
+                  <InboundProof
+                    label="Workflow engine"
+                    value={acceptedInbound.workflowDispatch
+                      ? "Dispatched"
+                      : acceptedInbound.processingStatus}
+                  />
+                </div>
+
+                {acceptedInbound.workflowDispatch && (
+                  <p className="mt-4 text-xs leading-5 text-zinc-400">
+                    Workflow dispatch completed: {acceptedInbound.workflowDispatch.matched}
+                    {" "}published workflow(s) matched, {acceptedInbound.workflowDispatch.executed}
+                    {" "}executed, and {acceptedInbound.workflowDispatch.failed} failed.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="mt-5 rounded-xl border border-cyan-500/20 bg-cyan-500/[0.05] p-4">
+                <div className="flex items-center gap-3 text-sm font-semibold text-cyan-300">
+                  <RefreshCw size={15} className="animate-spin" />
+                  Listening for a new incoming message
+                </div>
+
+                <ol className="mt-4 list-decimal space-y-2 pl-5 text-xs leading-5 text-zinc-400">
+                  <li>
+                    Keep the J10 server and the Cloudflare tunnel windows open.
+                  </li>
+                  <li>
+                    In Meta, confirm the Webhook field named messages is Subscribed.
+                  </li>
+                  <li>
+                    In Meta&apos;s messages field, choose Incoming Message and click
+                    Send to server v26.0. A real phone reply requires the app to
+                    be published.
+                  </li>
+                </ol>
+
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <a
+                    href="https://developers.facebook.com/apps/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-xl border border-white/[0.08] px-4 py-2.5 text-center text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04]"
+                  >
+                    Open Meta App Dashboard
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (integration?.id) {
+                        void loadInboundStatus(
+                          integration.id,
+                        );
+                      }
+                    }}
+                    disabled={inboundChecking}
+                    className="rounded-xl border border-cyan-500/20 px-4 py-2.5 text-xs font-medium text-cyan-300 transition hover:bg-cyan-500/[0.07] disabled:opacity-40"
+                  >
+                    Check now
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* STATS */}
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
@@ -1129,6 +1496,26 @@ function StatCard({
       </p>
 
       <p className="mt-1 text-2xl font-semibold">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function InboundProof({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg border border-emerald-500/15 bg-black/20 px-3 py-3">
+      <p className="text-zinc-600">
+        {label}
+      </p>
+
+      <p className="mt-1 font-medium text-emerald-300">
         {value}
       </p>
     </div>
