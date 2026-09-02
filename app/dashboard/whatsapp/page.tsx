@@ -29,6 +29,8 @@ import {
   Zap,
 } from "lucide-react";
 
+import { WhatsAppInbox } from "@/components/whatsapp/WhatsAppInbox";
+
 type IntegrationStatus =
   | "not_configured"
   | "pending"
@@ -1263,6 +1265,11 @@ export default function WhatsAppPage() {
           />
         </div>
 
+        <WhatsAppInbox
+          integrationId={integration?.id ?? null}
+          connected={connected}
+        />
+
         {/* CONTROL CENTER */}
         <div className="mt-8">
           <SectionTitle
@@ -1281,16 +1288,16 @@ export default function WhatsAppPage() {
             <ModuleCard
               icon={ShieldCheck}
               title="Group Guardian"
-              description="Anti-spam, anti-link, AI moderation, warnings and automatic member actions."
-              locked={!connected}
+              description="Planned pending official WhatsApp group-management API support."
+              locked
               featured
             />
 
             <ModuleCard
               icon={Command}
               title="Admin Commands"
-              description="Moderation and management commands for authorized administrators."
-              locked={!connected}
+              description="Planned pending official WhatsApp group-management API support."
+              locked
             />
 
             <ModuleCard
@@ -1320,7 +1327,7 @@ export default function WhatsAppPage() {
         <div className="mt-10">
           <SectionTitle
             title="Group Guardian"
-            description="The moderation system for managed WhatsApp communities."
+            description="Planned capability. These controls stay disabled until official provider support is available."
           />
 
           {!connected && (
@@ -1333,7 +1340,7 @@ export default function WhatsAppPage() {
                 <GuardianFeature
                   key={feature.name}
                   feature={feature}
-                  locked={!connected}
+                  locked
                 />
               )
             )}
@@ -1373,22 +1380,8 @@ export default function WhatsAppPage() {
                   </p>
 
                   <span className="flex items-center gap-1.5 text-xs text-zinc-600">
-                    {!connected ? (
-                      <>
-                        <LockKeyhole
-                          size={12}
-                        />
-                        Locked
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2
-                          size={12}
-                          className="text-emerald-400"
-                        />
-                        Ready
-                      </>
-                    )}
+                    <LockKeyhole size={12} />
+                    Planned
                   </span>
                 </div>
               )
@@ -1400,7 +1393,7 @@ export default function WhatsAppPage() {
         <div className="mt-10 pb-10">
           <SectionTitle
             title="Example Moderation Workflow"
-            description="How Group Guardian will execute a real moderation event."
+            description="Planned workflow for a future officially supported group-management integration."
           />
 
           <div className="mt-4 rounded-2xl border border-violet-500/15 bg-gradient-to-br from-violet-500/[0.05] to-blue-500/[0.03] p-6">
