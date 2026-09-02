@@ -77,7 +77,7 @@ export const GOOGLE_OAUTH_PROVIDER_IDS =
     readonly IntegrationProviderId[]);
 
 /*
- * Day 15E Google OAuth configuration.
+ * Google OAuth configuration.
  *
  * Both Google connectors share one Google Cloud web OAuth client,
  * but each provider requests only its catalog-declared scopes.

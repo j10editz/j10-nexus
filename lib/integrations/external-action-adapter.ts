@@ -460,7 +460,7 @@ function validateProviderInput(
       }
 
       throw new IntegrationActionError(
-        `No Day 14I adapter exists for capability: ${capabilityId}`,
+        `No external action adapter exists for capability: ${capabilityId}`,
         "INTEGRATION_ACTION_ADAPTER_NOT_IMPLEMENTED",
         501,
       );

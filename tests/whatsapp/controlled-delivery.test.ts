@@ -18,7 +18,7 @@ function source(path: string) {
   );
 }
 
-describe("Day 17C controlled WhatsApp delivery", () => {
+describe("Controlled WhatsApp delivery", () => {
   it("rejects email addresses and duplicate Meta identifiers", () => {
     const api = source(
       "lib/integrations/api.ts",
@@ -129,7 +129,7 @@ describe("Day 17C controlled WhatsApp delivery", () => {
     );
 
     expect(page).toContain(
-      "DAY 17C LIVE DELIVERY GATE",
+      "CONTROLLED WHATSAPP DELIVERY",
     );
     expect(page).toContain(
       "prepareTestDelivery",
@@ -172,8 +172,8 @@ describe("Day 17C controlled WhatsApp delivery", () => {
       "app/dashboard/whatsapp/page.tsx",
     );
 
-    expect(page).toContain(
-      'integration?.status ===\n    "connected"',
+    expect(page).toMatch(
+      /integration\?\.status\s*===\s*"connected"/,
     );
     expect(page).toContain(
       "integration?.metadata",
@@ -181,8 +181,8 @@ describe("Day 17C controlled WhatsApp delivery", () => {
     expect(page).toContain(
       "accountLabel",
     );
-    expect(page).not.toContain(
-      'integration?.status ===\n    "Connected"',
+    expect(page).not.toMatch(
+      /integration\?\.status\s*===\s*"Connected"/,
     );
   });
 });

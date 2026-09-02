@@ -4,7 +4,7 @@ import { compileJ10FlowGraph } from "@/lib/automation/graph-compiler";
 import { evaluateAutomationCondition } from "@/lib/automation/condition-engine";
 import type { J10FlowGraph } from "@/types/automation-graph";
 
-describe("Day 16 deterministic compiler", () => {
+describe("Deterministic workflow compiler", () => {
   it("compiles a condition into runtime-compatible targeted branch JSON", () => {
     const graph: J10FlowGraph = {
       version: "2026-08-day16",

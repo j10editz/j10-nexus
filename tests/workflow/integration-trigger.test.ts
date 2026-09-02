@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { evaluateIntegrationTriggerBinding } from "@/lib/automation/integration-trigger";
 
-describe("Day 16 integration trigger identity", () => {
+describe("Integration trigger identity", () => {
   const trigger = {
     provider: "gmail",
     eventType: "gmail.message.received",

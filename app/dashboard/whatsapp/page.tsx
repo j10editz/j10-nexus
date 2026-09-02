@@ -927,7 +927,7 @@ export default function WhatsAppPage() {
             <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-400">
-                  DAY 17C LIVE DELIVERY GATE
+                  CONTROLLED WHATSAPP DELIVERY
                 </p>
 
                 <h2 className="mt-2 text-lg font-semibold">

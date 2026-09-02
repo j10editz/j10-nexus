@@ -82,7 +82,7 @@ export default function J10FlowLibrary() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: workflowName,
-          description: "Built with the Day 16 J10 Flow visual workflow builder.",
+          description: "Built with the J10 Flow visual workflow builder.",
           status: "draft",
           triggerType: "manual",
           triggerConfig: {},
@@ -118,7 +118,7 @@ export default function J10FlowLibrary() {
               <ArrowLeft size={14} /> Automation operations
             </Link>
             <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-violet-400">
-              Day 16 · J10 Flow
+              J10 Flow
             </p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
               Visual Workflow Builder

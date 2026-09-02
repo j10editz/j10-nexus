@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildWhatsAppCloudPayload } from "@/lib/integrations/providers/whatsapp/payload";
 
-describe("Day 17B WhatsApp Cloud API payloads", () => {
+describe("WhatsApp Cloud API payloads", () => {
   it("builds a normalized text message without exposing credentials", () => {
     expect(
       buildWhatsAppCloudPayload("whatsapp.message.send", {

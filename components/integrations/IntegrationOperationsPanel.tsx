@@ -354,7 +354,7 @@ export default function IntegrationOperationsPanel({
                 size={14}
               />
 
-              Day 14L observability
+              Integration observability
             </div>
 
             <h2 className="mt-3 text-2xl font-semibold text-white">

@@ -309,7 +309,7 @@ function validateNode(
     addWarning(
       state,
       "legacy_node_version",
-      "Node uses the compatible Day 16 version-1 default.",
+      "Node uses the compatible version-1 default.",
       { nodeId },
     );
   }
@@ -365,7 +365,7 @@ function validateNode(
         addError(
           state,
           "invalid_approval_type",
-          "Day 16 approval nodes require human approval.",
+          "Approval nodes require human approval.",
           { nodeId },
         );
       }
@@ -396,7 +396,7 @@ function validateTriggerNode(
     addError(
       state,
       "unsupported_trigger_type",
-      "Trigger type is not supported by the Day 12-15 runtime.",
+      "Trigger type is not supported by the current runtime.",
       { nodeId },
     );
     return;
@@ -522,7 +522,7 @@ function validateActionNode(
     addError(
       state,
       "unsupported_action_type",
-      "Action type is not supported by the Day 12-15 runtime.",
+      "Action type is not supported by the current runtime.",
       { nodeId },
     );
     return;
@@ -1001,7 +1001,7 @@ function validateAcyclicGraph(
       addError(
         state,
         "unsupported_cycle",
-        "Workflow graph contains a cycle. Day 16 runtime requires an acyclic graph.",
+        "Workflow graph contains a cycle. The runtime requires an acyclic graph.",
         { nodeId },
       );
       return;

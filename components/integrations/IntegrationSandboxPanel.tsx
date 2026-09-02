@@ -670,7 +670,7 @@ export default function IntegrationSandboxPanel() {
                 <div>
                   <p className="font-semibold text-white">
                     {run.success
-                      ? "Day 14N sandbox checks passed"
+                      ? "Integration sandbox checks passed"
                       : "Sandbox requires attention"}
                   </p>
 

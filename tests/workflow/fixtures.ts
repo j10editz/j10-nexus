@@ -4,8 +4,8 @@ export function makeValidActivityGraph(): J10FlowGraph {
   return {
     version: "2026-08-day16",
     automationId: "00000000-0000-4000-8000-000000000016",
-    name: "Day 16 deterministic activity",
-    description: "Repo-native Day 16 graph fixture.",
+    name: "Deterministic workflow activity",
+    description: "Repository-native workflow graph fixture.",
     nodes: [
       {
         id: "trigger",
@@ -24,7 +24,7 @@ export function makeValidActivityGraph(): J10FlowGraph {
         label: "Record result",
         position: { x: 400, y: 100 },
         enabled: true,
-        instructions: "Record the deterministic Day 16 result.",
+        instructions: "Record the deterministic workflow result.",
         config: {
           failurePolicy: {
             mode: "stop",

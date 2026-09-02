@@ -153,7 +153,7 @@ export default async function SettingsPage() {
                     Product phase
                   </dt>
                   <dd className="rounded-full bg-blue-500/10 px-2 py-1 font-semibold text-blue-300">
-                    Day 17 activation
+                    Product activation
                   </dd>
                 </div>
               </dl>

@@ -1685,7 +1685,7 @@ export default function AutomationPage() {
 
     if (steps.some((step) => step.step_type === "condition")) {
       setStepError(
-        "Typed condition publishing is coming next. Remove free-text condition steps or publish after Day 16G condition UI."
+        "Typed condition publishing is coming next. Remove free-text condition steps or publish after adding typed condition steps."
       );
       return;
     }

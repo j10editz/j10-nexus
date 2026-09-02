@@ -1521,7 +1521,7 @@ export async function POST(
 
       /*
       ==========================================================
-      DAY 16 EXCLUSIVE GRAPH BRANCH
+      EXCLUSIVE WORKFLOW GRAPH BRANCH
 
       A selected branch may rejoin another path later. Skip only
       nodes reachable exclusively from the unselected branch and

@@ -18,7 +18,7 @@ function source(path: string) {
   );
 }
 
-describe("Day 17D inbound WhatsApp acceptance", () => {
+describe("Inbound WhatsApp webhook processing", () => {
   it("keeps Meta challenge verification on the stable WhatsApp alias", () => {
     const route = source(
       "app/api/webhooks/whatsapp/[endpointKey]/route.ts",

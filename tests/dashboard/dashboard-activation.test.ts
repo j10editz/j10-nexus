@@ -34,7 +34,7 @@ function routeFile(href: string) {
   return `app/${route.slice(1)}/page.tsx`;
 }
 
-describe("Day 17 dashboard activation", () => {
+describe("Dashboard activation", () => {
   it("classifies every navigation item as ready or building", () => {
     expect(dashboardNavigationItems).toHaveLength(20);
     expect(

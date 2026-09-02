@@ -252,7 +252,7 @@ function createWebhookEvent(
         "sandbox_acceptance",
 
       name:
-        "Day 14N deterministic trigger",
+        "Deterministic sandbox trigger",
 
       actor: {
         type:
@@ -393,7 +393,7 @@ const SCENARIOS:
         assertSandbox(
           developmentProviders.length >=
             6,
-          "The six Day 14 development providers are not all registered.",
+          "The required development providers are not all registered.",
         );
 
         return {
@@ -573,7 +573,7 @@ const SCENARIOS:
 
               body: {
                 message:
-                  "Day 14N isolated acceptance",
+                  "Isolated sandbox acceptance",
               },
             },
           );

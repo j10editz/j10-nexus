@@ -16,7 +16,7 @@ function step(stepOrder: number, targets: number[]) {
   };
 }
 
-describe("Day 16 exclusive graph branch routing", () => {
+describe("Exclusive workflow graph branch routing", () => {
   const steps = [
     step(1, [2, 4]),
     step(2, [3]),

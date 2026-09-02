@@ -38,7 +38,7 @@ export type J10FlowBaseNode = {
   id: J10FlowNodeId;
   kind: J10FlowNodeKind;
   /**
-   * Early Day 16 drafts omitted this field. The validator treats an omitted
+   * Early graph drafts omitted this field. The validator treats an omitted
    * value as version 1 so those drafts stay compatible, while the visual
    * builder writes the version on every new node.
    */
@@ -110,7 +110,7 @@ export type J10FlowActionNode = J10FlowBaseNode & {
       mode?: "simulate" | "sandbox" | "live";
       input: Record<string, unknown>;
     };
-    /** Runtime-compatible copy consumed by the Day 15 action bridge. */
+    /** Runtime-compatible copy consumed by the external action bridge. */
     integrationAction?: {
       connectionId: string | null;
       capabilityId: string;

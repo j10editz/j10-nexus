@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { J10_FLOW_NODE_CATALOG } from "@/lib/automation/node-catalog";
 
-describe("Day 16 node catalog", () => {
-  it("is generated from registered integrations including the Day 17 WhatsApp runtime", () => {
+describe("Workflow node catalog", () => {
+  it("is generated from registered integrations including the WhatsApp runtime", () => {
     const integrationEntries = J10_FLOW_NODE_CATALOG.filter(
       (entry) => entry.category === "integration",
     );

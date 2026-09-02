@@ -9,7 +9,7 @@ import {
 const automation: RuntimeAutomationForGraph = {
   id: "00000000-0000-4000-8000-000000000016",
   name: "Reopened integration workflow",
-  description: "Day 16 runtime reconstruction fixture.",
+  description: "Runtime reconstruction fixture.",
   trigger_type: "integration_event",
   trigger_config: {
     provider: "gmail",
@@ -41,7 +41,7 @@ function integrationStep(
   };
 }
 
-describe("Day 16 runtime graph reconstruction", () => {
+describe("Runtime graph reconstruction", () => {
   it("preserves explicit integration identity when reopening a workflow", () => {
     const graph = buildJ10FlowGraphFromRuntime(automation, [
       integrationStep({

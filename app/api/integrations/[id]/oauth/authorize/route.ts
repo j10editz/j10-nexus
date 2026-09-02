@@ -194,7 +194,7 @@ export async function GET(
 
     /*
      * Provider credentials are resolved before any database
-     * status change. A missing Day 15E configuration therefore
+     * status change. A missing provider configuration therefore
      * cannot leave a connection stranded in pending state.
      */
     const runtime =

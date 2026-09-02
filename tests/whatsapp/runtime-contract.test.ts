@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-describe("Day 17B WhatsApp runtime contract", () => {
+describe("WhatsApp runtime contract", () => {
   it("registers WhatsApp as installed with text, template, media, and health", () => {
     const adapter = readFileSync(
       resolve(process.cwd(), "lib/integrations/providers/whatsapp/adapter.ts"),
@@ -63,7 +63,9 @@ describe("Day 17B WhatsApp runtime contract", () => {
       "utf8",
     );
 
-    expect(controlCenter).toContain('item.provider ===\n              "whatsapp-business"');
+    expect(controlCenter).toMatch(
+      /item\.provider\s*===\s*"whatsapp-business"/,
+    );
     expect(controlCenter).toContain('provider: "whatsapp-business"');
     expect(controlCenter).not.toContain('provider: "whatsapp",');
   });

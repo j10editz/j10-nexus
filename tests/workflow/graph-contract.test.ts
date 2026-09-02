@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { validateJ10FlowGraph } from "@/lib/automation/graph-contract";
 import { makeValidActivityGraph } from "./fixtures";
 
-describe("Day 16 typed graph contract", () => {
+describe("Typed workflow graph contract", () => {
   it("accepts a reachable, acyclic workflow with one trigger", () => {
     const result = validateJ10FlowGraph(makeValidActivityGraph());
 

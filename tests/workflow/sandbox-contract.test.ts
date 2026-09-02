@@ -4,7 +4,7 @@ import { compileJ10FlowGraph } from "@/lib/automation/graph-compiler";
 import { J10_FLOW_NODE_CATALOG } from "@/lib/automation/node-catalog";
 import type { J10FlowGraph } from "@/types/automation-graph";
 
-describe("Day 16 zero-cost integration sandbox contract", () => {
+describe("Zero-cost integration sandbox contract", () => {
   it("creates integration actions in simulate mode with approval-safe configuration", () => {
     const entry = J10_FLOW_NODE_CATALOG.find(
       (candidate) =>

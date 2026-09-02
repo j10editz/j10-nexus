@@ -190,7 +190,7 @@ export interface IntegrationProviderDefinition {
  * directly on this connection object.
  *
  * credentialReference points to the encrypted credential envelope managed
- * by the Day 14C credential vault.
+ * by the encrypted credential vault.
  */
 export interface IntegrationConnection {
   readonly id: string;

@@ -20,7 +20,7 @@ const checksumSchemaMigrationPath = resolve(
 );
 const checksumSchemaSql = readFileSync(checksumSchemaMigrationPath, "utf8");
 
-describe("Day 16 lifecycle migration contract", () => {
+describe("Workflow lifecycle migration contract", () => {
   it("is transactional and provides optimistic draft revision protection", () => {
     expect(sql.trimStart().startsWith("begin;")).toBe(true);
     expect(sql.trimEnd().endsWith("commit;")).toBe(true);
@@ -47,7 +47,7 @@ describe("Day 16 lifecycle migration contract", () => {
   });
 });
 
-describe("Day 16 checksum schema migration contract", () => {
+describe("Workflow checksum schema migration contract", () => {
   it("is transactional and resolves pgcrypto through Supabase extensions", () => {
     expect(checksumSchemaSql.trimStart().startsWith("begin;")).toBe(true);
     expect(checksumSchemaSql.trimEnd().endsWith("commit;")).toBe(true);
@@ -75,7 +75,7 @@ describe("Day 16 checksum schema migration contract", () => {
   });
 });
 
-describe("Day 16 runtime-step history migration contract", () => {
+describe("Runtime-step history migration contract", () => {
   it("is transactional and allows historical runtime step references to clear", () => {
     expect(runtimeHistorySql.trimStart().startsWith("begin;")).toBe(true);
     expect(runtimeHistorySql.trimEnd().endsWith("commit;")).toBe(true);
