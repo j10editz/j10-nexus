@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Inbox, LoaderCircle, MessageSquare, RefreshCw, Send } from "lucide-react";
+import { Bot, CheckCircle2, Inbox, LoaderCircle, MessageSquare, RefreshCw, Send, Sparkles } from "lucide-react";
 
 type Conversation = {
   sender: string;
@@ -43,6 +43,8 @@ export function WhatsAppInbox({
   const [approval, setApproval] = useState<Approval | null>(null);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
+  const [aiMode, setAiMode] = useState("");
 
   const load = useCallback(async () => {
     if (!integrationId || !connected) return;
@@ -120,6 +122,37 @@ export function WhatsAppInbox({
     }
   }
 
+  async function generateSuggestion() {
+    if (!integrationId || !selected || suggesting) return;
+    setSuggesting(true);
+    setError("");
+    setSent("");
+    setApproval(null);
+    try {
+      const response = await fetch(
+        `/api/integrations/${encodeURIComponent(integrationId)}/whatsapp/replies/suggest`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ customerName: selected.name, customerMessage: selected.lastMessage }),
+        },
+      );
+      const data = (await response.json()) as {
+        success?: boolean;
+        suggestion?: string;
+        error?: string;
+        ai?: { simulated?: boolean; model?: string };
+      };
+      if (!response.ok || !data.success || !data.suggestion) throw new Error(data.error || "J10 AI could not generate a suggestion.");
+      setReply(data.suggestion);
+      setAiMode(data.ai?.simulated ? "Development simulation" : data.ai?.model || "J10 AI Live");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "J10 AI could not generate a suggestion.");
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   return (
     <section className="mt-8 rounded-2xl border border-white/[0.07] bg-[#111216] p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4">
@@ -185,9 +218,21 @@ export function WhatsAppInbox({
             </div>
             <span className="text-xs text-zinc-600">••••{selected.sender.slice(-4)}</span>
           </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void generateSuggestion()}
+              disabled={suggesting}
+              className="flex items-center gap-2 rounded-xl border border-violet-500/20 bg-violet-500/[0.07] px-4 py-2.5 text-xs font-medium text-violet-300 transition hover:bg-violet-500/[0.12] disabled:opacity-40"
+            >
+              {suggesting ? <LoaderCircle size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              {suggesting ? "J10 AI is drafting…" : "Generate AI suggestion"}
+            </button>
+            {aiMode && <span className="flex items-center gap-1.5 text-[11px] text-zinc-600"><Bot size={12} />{aiMode}</span>}
+          </div>
           <textarea
             value={reply}
-            onChange={(event) => { setReply(event.target.value); setApproval(null); setSent(""); }}
+            onChange={(event) => { setReply(event.target.value); setApproval(null); setSent(""); setAiMode(""); }}
             maxLength={4096}
             rows={4}
             placeholder="Write your WhatsApp reply…"
