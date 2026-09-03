@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 
 import { WhatsAppInbox } from "@/components/whatsapp/WhatsAppInbox";
+import { WhatsAppAgentStudio } from "@/components/whatsapp/WhatsAppAgentStudio";
 
 type IntegrationStatus =
   | "not_configured"
@@ -1266,6 +1267,11 @@ export default function WhatsAppPage() {
         </div>
 
         <WhatsAppInbox
+          integrationId={integration?.id ?? null}
+          connected={connected}
+        />
+
+        <WhatsAppAgentStudio
           integrationId={integration?.id ?? null}
           connected={connected}
         />

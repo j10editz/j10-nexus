@@ -8,6 +8,7 @@ import {
   parseRequestObject,
 } from "@/lib/integrations/api";
 import { getIntegrationConnectionById } from "@/lib/integrations/database";
+import { buildWhatsAppAgentInstructions, getWhatsAppAgentConfig } from "@/lib/integrations/whatsapp-agent";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -39,22 +40,19 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
+    const agent = getWhatsAppAgentConfig(connection);
     const result = await runJ10AI({
       task: "customer_support",
       preference: "Automatic",
       maxOutputTokens: 500,
-      instructions: `You are the WhatsApp customer service agent for a business using J10 NEXUS.
-Write one concise, natural reply suitable for WhatsApp.
-Do not invent prices, policies, availability, order status, appointments, or company facts.
-If essential business information is missing, ask one useful clarifying question.
-Never claim an action was completed. Do not include analysis, labels, quotation marks, or markdown.
-Reply in the customer's language when it is clear from their message.`,
+      instructions: buildWhatsAppAgentInstructions(agent),
       input: `Customer name: ${customerName}\nCustomer message: ${customerMessage}\n\nDraft the best safe reply.`,
     });
 
     return NextResponse.json({
       success: true,
       suggestion: result.text,
+      agentName: agent.agentName,
       ai: {
         mode: result.executionMode,
         simulated: result.simulated,
