@@ -384,6 +384,18 @@ export async function POST(
 
       readiness:
         updatedReadiness,
+
+      latencyMs:
+        runtimeResult?.latencyMs,
+
+      externalAccountId:
+        runtimeResult?.externalAccountId,
+
+      externalAccountLabel:
+        runtimeResult?.externalAccountLabel,
+
+      metadata:
+        runtimeResult?.metadata,
     };
 
     return NextResponse.json({

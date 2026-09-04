@@ -59,4 +59,8 @@ export interface IntegrationHealthCheckResult {
   readonly liveRequestPerformed: boolean;
   readonly message: string;
   readonly readiness: IntegrationReadinessReport;
+  readonly latencyMs?: number;
+  readonly externalAccountId?: string | null;
+  readonly externalAccountLabel?: string | null;
+  readonly metadata?: Readonly<Record<string, unknown>>;
 }

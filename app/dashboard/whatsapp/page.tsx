@@ -116,6 +116,20 @@ type InboundStatus = {
   } | null;
 };
 
+type MetaHealthReport = {
+  checkedAt: string;
+  durationMs: number;
+  latencyMs?: number;
+  outcome: "passed" | "blocked" | "unsupported";
+  mode: string;
+  liveRequestPerformed: boolean;
+  message: string;
+  externalAccountId?: string | null;
+  externalAccountLabel?: string | null;
+  qualityRating?: string | null;
+  blockers?: Array<{ code: string; message: string }>;
+};
+
 const groupGuardianFeatures: Feature[] = [
   {
     name: "Anti-Spam",
@@ -273,6 +287,39 @@ export default function WhatsAppPage() {
     setInboundChecking,
   ] = useState(false);
 
+  const [
+    healthLoading,
+    setHealthLoading,
+  ] = useState(false);
+
+  const [
+    healthReport,
+    setHealthReport,
+  ] = useState<MetaHealthReport | null>(
+    null,
+  );
+
+  const [
+    cooldownSeconds,
+    setCooldownSeconds,
+  ] = useState(0);
+
+  useEffect(() => {
+    if (cooldownSeconds <= 0) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setCooldownSeconds((prev) =>
+        Math.max(0, prev - 1),
+      );
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [cooldownSeconds]);
+
   const registered =
     integration?.registered ?? false;
 
@@ -332,6 +379,111 @@ export default function WhatsAppPage() {
   useEffect(() => {
     void loadConnection();
   }, [loadConnection]);
+
+  const verifyMetaHealth = useCallback(async () => {
+    if (
+      !integration?.id ||
+      healthLoading ||
+      cooldownSeconds > 0
+    ) {
+      return;
+    }
+
+    setHealthLoading(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/integrations/${encodeURIComponent(
+          integration.id,
+        )}/readiness`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      const data = await response.json();
+
+      if (
+        response.status === 429 &&
+        data.retryAfterSeconds
+      ) {
+        setCooldownSeconds(
+          data.retryAfterSeconds,
+        );
+        setErrorMessage(
+          data.error ||
+            `Rate limit active. Please wait ${data.retryAfterSeconds}s before checking Meta again.`,
+        );
+        return;
+      }
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        throw new Error(
+          data.error ||
+            "Meta health check did not succeed.",
+        );
+      }
+
+      const res = data.result;
+      const report: MetaHealthReport = {
+        checkedAt: res.checkedAt,
+        durationMs: res.durationMs,
+        latencyMs:
+          res.latencyMs ??
+          res.durationMs,
+        outcome: res.outcome,
+        mode: res.mode,
+        liveRequestPerformed:
+          res.liveRequestPerformed,
+        message: res.message,
+        externalAccountId:
+          res.externalAccountId ?? null,
+        externalAccountLabel:
+          res.externalAccountLabel ?? null,
+        qualityRating:
+          (res.metadata
+            ?.qualityRating as string) ??
+          null,
+        blockers:
+          res.readiness?.blockers ?? [],
+      };
+
+      setHealthReport(report);
+
+      if (report.outcome === "passed") {
+        setSuccessMessage(
+          `Meta Graph API verified: Health check passed (${report.latencyMs}ms).`,
+        );
+        void loadConnection();
+      } else {
+        setErrorMessage(
+          report.message ||
+            "Meta health check did not pass.",
+        );
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not run Meta health check.",
+      );
+    } finally {
+      setHealthLoading(false);
+    }
+  }, [
+    cooldownSeconds,
+    healthLoading,
+    integration?.id,
+    loadConnection,
+  ]);
 
   useEffect(() => {
     const storedStartedAt =
@@ -902,27 +1054,176 @@ export default function WhatsAppPage() {
                   </p>
                 </div>
 
-                <a
-                  href="/dashboard/settings/integrations"
-                  className="flex items-center gap-2 text-xs font-medium text-violet-400 transition hover:text-violet-300"
-                >
-                  Manage Integration
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void verifyMetaHealth();
+                    }}
+                    disabled={
+                      healthLoading ||
+                      cooldownSeconds > 0
+                    }
+                    className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-[#090a0d] px-3.5 py-2 text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04] disabled:opacity-40"
+                  >
+                    <Activity
+                      size={13}
+                      className={
+                        healthLoading
+                          ? "animate-spin"
+                          : ""
+                      }
+                    />
+                    {healthLoading
+                      ? "Checking..."
+                      : cooldownSeconds > 0
+                        ? `Wait ${cooldownSeconds}s`
+                        : "Check Readiness"}
+                  </button>
 
-                  <ChevronRight
-                    size={13}
-                  />
-                </a>
+                  <a
+                    href="/dashboard/settings/integrations"
+                    className="flex items-center gap-2 text-xs font-medium text-violet-400 transition hover:text-violet-300"
+                  >
+                    Manage Integration
+
+                    <ChevronRight
+                      size={13}
+                    />
+                  </a>
+                </div>
               </div>
             ) : (
-              <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] px-4 py-3 text-sm text-emerald-400">
-                <CheckCircle2
-                  size={16}
-                />
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void verifyMetaHealth();
+                  }}
+                  disabled={
+                    healthLoading ||
+                    cooldownSeconds > 0
+                  }
+                  className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-2.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/15 disabled:opacity-40"
+                  title="Ping Meta Graph API endpoint directly and measure live response latency"
+                >
+                  <Activity
+                    size={14}
+                    className={
+                      healthLoading
+                        ? "animate-spin text-emerald-300"
+                        : "text-emerald-400"
+                    }
+                  />
+                  {healthLoading
+                    ? "Verifying Meta API..."
+                    : cooldownSeconds > 0
+                      ? `Cooldown (${cooldownSeconds}s)`
+                      : "Verify Meta Health"}
+                </button>
 
-                Connection active
+                <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] px-4 py-2.5 text-sm text-emerald-400">
+                  <CheckCircle2
+                    size={16}
+                  />
+
+                  Connection active
+                </div>
               </div>
             )}
           </div>
+
+          {/* LIVE TELEMETRY / HEALTH DIAGNOSTICS */}
+          {healthReport && (
+            <div className="mt-6 border-t border-white/[0.06] pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`h-2 w-2 rounded-full ${
+                      healthReport.outcome === "passed"
+                        ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse"
+                        : "bg-amber-400"
+                    }`}
+                  />
+                  <span className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
+                    Meta Graph API Telemetry
+                  </span>
+                  <span className="rounded-md border border-white/[0.08] bg-black/40 px-2 py-0.5 text-[10px] text-zinc-400">
+                    v22.0
+                  </span>
+                </div>
+
+                <span className="text-[11px] text-zinc-500">
+                  Checked: {new Date(healthReport.checkedAt).toLocaleTimeString()}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl border border-white/[0.06] bg-black/20 p-3.5">
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Status</span>
+                  <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-white">
+                    {healthReport.outcome === "passed" ? (
+                      <>
+                        <CheckCircle2 size={14} className="text-emerald-400" />
+                        <span className="text-emerald-400">Healthy & Online</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle size={14} className="text-amber-400" />
+                        <span className="text-amber-400">Blocked</span>
+                      </>
+                    )}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/[0.06] bg-black/20 p-3.5">
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Live Latency</span>
+                  <p className="mt-1 text-sm font-semibold text-emerald-400">
+                    {healthReport.latencyMs ?? healthReport.durationMs} ms
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/[0.06] bg-black/20 p-3.5">
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Verified Identity</span>
+                  <p className="mt-1 truncate text-sm font-semibold text-zinc-200">
+                    {healthReport.externalAccountLabel || integration?.accountLabel || "Verified Phone"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-white/[0.06] bg-black/20 p-3.5">
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-500">Quality Rating</span>
+                  <p className="mt-1 text-sm font-semibold">
+                    {healthReport.qualityRating ? (
+                      <span
+                        className={`inline-block rounded-md px-2 py-0.5 text-xs font-semibold ${
+                          healthReport.qualityRating.toUpperCase() === "GREEN"
+                            ? "border border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                            : healthReport.qualityRating.toUpperCase() === "YELLOW"
+                              ? "border border-amber-500/20 bg-amber-500/10 text-amber-400"
+                              : "border border-red-500/20 bg-red-500/10 text-red-400"
+                        }`}
+                      >
+                        {healthReport.qualityRating}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-zinc-400">Standard Tier</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {healthReport.blockers && healthReport.blockers.length > 0 && (
+                <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-3 text-xs text-amber-300">
+                  <p className="font-semibold">Action required before API calls can succeed:</p>
+                  <ul className="mt-1.5 list-disc space-y-1 pl-4 text-zinc-300">
+                    {healthReport.blockers.map((b) => (
+                      <li key={b.code}>{b.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {registered && (

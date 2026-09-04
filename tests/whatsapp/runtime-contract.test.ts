@@ -69,4 +69,18 @@ describe("WhatsApp runtime contract", () => {
     expect(controlCenter).toContain('provider: "whatsapp-business"');
     expect(controlCenter).not.toContain('provider: "whatsapp",');
   });
+
+  it("provides live Meta Graph API verification with latency and quality telemetry", () => {
+    const controlCenter = readFileSync(
+      resolve(process.cwd(), "app/dashboard/whatsapp/page.tsx"),
+      "utf8",
+    );
+
+    expect(controlCenter).toContain("verifyMetaHealth");
+    expect(controlCenter).toContain("Verify Meta Health");
+    expect(controlCenter).toContain("Meta Graph API Telemetry");
+    expect(controlCenter).toContain("Live Latency");
+    expect(controlCenter).toContain("Quality Rating");
+    expect(controlCenter).toContain("cooldownSeconds");
+  });
 });
