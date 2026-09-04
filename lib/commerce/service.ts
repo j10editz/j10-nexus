@@ -6,6 +6,7 @@ import type {
   OrderStatus,
   ProductStatus,
 } from "@/types/commerce";
+import { stripEmojis } from "@/lib/website/service";
 
 export function calculateOrderTotal(
   items: Array<{ quantity: number; unitPrice: number }>
@@ -59,18 +60,50 @@ export function generateWhatsAppOrderLink(
   product: { name: string; sku: string; price: number; currency?: string },
   quantity = 1
 ): string {
-  const cleanPhone = businessPhone.replace(/[\s()+.-]/g, "");
+  const cleanPhone = (businessPhone || "").replace(/\D/g, "");
   const currency = product.currency || "USD";
   const total = (product.price * quantity).toFixed(2);
-  const message = `Hello, I would like to order:
-- Product: ${product.name}
-- SKU: ${product.sku}
-- Quantity: ${quantity}
-- Total: $${total} ${currency}
+  const message = stripEmojis(
+    `Hello, I would like to order:\n- Product: ${product.name}\n- SKU: ${product.sku}\n- Quantity: ${quantity}\n- Total: $${total} ${currency}\n\nPlease confirm availability and payment details.`
+  );
 
-Please confirm availability and payment details.`;
+  return cleanPhone
+    ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+    : `https://wa.me/?text=${encodeURIComponent(message)}`;
+}
 
-  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+export function buildWhatsAppClickToPayLink({
+  businessPhone,
+  productName,
+  price,
+  currency = "USD",
+  checkoutUrl,
+  orderNumber,
+}: {
+  businessPhone?: string;
+  productName: string;
+  price: number;
+  currency?: string;
+  checkoutUrl: string;
+  orderNumber?: string;
+}): string {
+  const cleanPhone = (businessPhone || "").replace(/\D/g, "");
+  const orderRef = orderNumber ? ` (${orderNumber})` : "";
+  const msg = stripEmojis(
+    `Hello! Here is your secure Stripe payment link for ${productName}${orderRef} ($${price.toFixed(2)} ${currency}):\n${checkoutUrl}\n\nPlease let us know once completed so we can provision your order immediately.`
+  );
+  return cleanPhone
+    ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`
+    : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+}
+
+export function getInventoryStatus(inventory: number): {
+  status: "in_stock" | "low_stock" | "out_of_stock";
+  label: string;
+} {
+  if (inventory <= 0) return { status: "out_of_stock", label: "Out of Stock" };
+  if (inventory <= 5) return { status: "low_stock", label: `Low Stock (${inventory})` };
+  return { status: "in_stock", label: `In Stock (${inventory})` };
 }
 
 export const SEED_COMMERCE_PRODUCTS: Omit<CommerceProduct, "userId">[] = [
@@ -109,7 +142,7 @@ export const SEED_COMMERCE_PRODUCTS: Omit<CommerceProduct, "userId">[] = [
     description: "High-definition creative AI models for executive branding, social avatars, and instant localization.",
     price: 899.00,
     currency: "USD",
-    inventory: 50,
+    inventory: 4,
     category: "Creative AI",
     status: "active",
     imageUrl: null,

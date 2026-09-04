@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   CHANNEL_LABELS,
+  computeABTestMetrics,
   computeMarketingSummary,
   generateMarketingCopy,
   SEGMENT_LABELS,
@@ -127,5 +128,52 @@ describe("Marketing and Campaign Broadcast Engine", () => {
     expect(page).toContain("AI Copy Studio");
     expect(page).toContain("CRM Audience Segments");
     expect(page).toContain("Audience Reached");
+  });
+
+  it("calculates A/B testing metrics and identifies winner with conversion lift", () => {
+    const campaignA: MarketingCampaign = {
+      id: "var-a",
+      user_id: "user-1",
+      name: "Direct Pitch A",
+      channel: "whatsapp",
+      audience_segment: "leads",
+      status: "completed",
+      target_count: 50,
+      sent_count: 50,
+      delivered_count: 48,
+      read_count: 36,
+      replied_count: 12,
+      message_template: "Template A",
+      scheduled_at: null,
+      completed_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const campaignB: MarketingCampaign = {
+      id: "var-b",
+      user_id: "user-1",
+      name: "Urgency Pitch B",
+      channel: "whatsapp",
+      audience_segment: "leads",
+      status: "completed",
+      target_count: 50,
+      sent_count: 50,
+      delivered_count: 48,
+      read_count: 40,
+      replied_count: 20,
+      message_template: "Template B",
+      scheduled_at: null,
+      completed_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const abResult = computeABTestMetrics(campaignA, campaignB);
+
+    expect(abResult.variantA.replyRate).toBe(25); // 12 / 48 = 25%
+    expect(abResult.variantB.replyRate).toBe(41.7); // 20 / 48 = 41.666 -> 41.7%
+    expect(abResult.winner).toBe("B");
+    expect(abResult.upliftPercent).toBeGreaterThan(0);
   });
 });

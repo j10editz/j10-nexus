@@ -59,3 +59,28 @@ export interface GenerateCopyResult {
   latencyMs: number;
   tokensUsed: number;
 }
+
+export interface ABTestMetrics {
+  variantA: {
+    id: string;
+    name: string;
+    sent: number;
+    delivered: number;
+    read: number;
+    replied: number;
+    readRate: number;
+    replyRate: number;
+  };
+  variantB: {
+    id: string;
+    name: string;
+    sent: number;
+    delivered: number;
+    read: number;
+    replied: number;
+    readRate: number;
+    replyRate: number;
+  };
+  winner: "A" | "B" | "Tied";
+  upliftPercent: number;
+}

@@ -4,6 +4,8 @@ import {
   computeCommerceSummary,
   generateOrderNumber,
   generateWhatsAppOrderLink,
+  buildWhatsAppClickToPayLink,
+  getInventoryStatus,
   SEED_COMMERCE_ORDERS,
   SEED_COMMERCE_PRODUCTS,
 } from "@/lib/commerce/service";
@@ -118,5 +120,28 @@ describe("Commerce Service & Calculation Engine", () => {
     expect(decodeURIComponent(link)).toContain("Enterprise AI");
     expect(decodeURIComponent(link)).toContain("J10-ENT");
     expect(decodeURIComponent(link)).toContain("$5998.00 USD");
+  });
+
+  it("creates valid WhatsApp click-to-pay link with stripe checkout URL", () => {
+    const payLink = buildWhatsAppClickToPayLink({
+      businessPhone: "+1 (555) 987-6543",
+      productName: "Growth Tier Subscription",
+      orderNumber: "ORD-2026-0099",
+      price: 499.0,
+      currency: "USD",
+      checkoutUrl: "https://checkout.stripe.com/pay/cs_test_123",
+    });
+
+    expect(payLink).toContain("https://wa.me/15559876543?text=");
+    const decoded = decodeURIComponent(payLink);
+    expect(decoded).toContain("ORD-2026-0099");
+    expect(decoded).toContain("Growth Tier Subscription");
+    expect(decoded).toContain("$499.00 USD");
+    expect(decoded).toContain("https://checkout.stripe.com/pay/cs_test_123");
+
+    // Inventory status tests
+    expect(getInventoryStatus(15).status).toBe("in_stock");
+    expect(getInventoryStatus(4).status).toBe("low_stock");
+    expect(getInventoryStatus(0).status).toBe("out_of_stock");
   });
 });
