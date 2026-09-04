@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   Bot,
   ChevronRight,
+  CreditCard,
   FlaskConical,
   Plug,
   Settings,
@@ -12,6 +13,15 @@ import {
 import { requireUser } from "@/lib/auth";
 
 const operationalTools = [
+  {
+    title: "Subscription & Billing",
+    description:
+      "Manage J10 NEXUS subscription tier, automated message limits, usage quotas, and Stripe billing.",
+    href: "/dashboard/settings/billing",
+    icon: CreditCard,
+    accent:
+      "bg-amber-500/10 text-amber-300",
+  },
   {
     title: "Integration connections",
     description:

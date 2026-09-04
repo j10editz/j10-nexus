@@ -105,9 +105,10 @@ export const dashboardNavigationSections:
           id: "marketing",
           label: "Marketing Campaign",
           description:
-            "Campaign creation is scheduled for the product-module sprint.",
+            "Design campaigns, AI copy studio, and CRM broadcasts.",
           icon: "marketing",
-          status: "building",
+          status: "ready",
+          href: "/dashboard/marketing",
         },
         {
           id: "whatsapp",
@@ -144,17 +145,19 @@ export const dashboardNavigationSections:
           id: "finance",
           label: "Finance",
           description:
-            "Invoices, expenses, and revenue operations are being built.",
+            "Track closed deals, generate invoices, and monitor cashflow.",
           icon: "finance",
-          status: "building",
+          status: "ready",
+          href: "/dashboard/finance",
         },
         {
           id: "hr",
           label: "HR",
           description:
-            "Human-resource operations are scheduled for a later sprint.",
+            "Orchestrate human specialists paired with AI employees.",
           icon: "briefcase",
-          status: "building",
+          status: "ready",
+          href: "/dashboard/hr",
         },
         {
           id: "analytics",
@@ -184,9 +187,10 @@ export const dashboardNavigationSections:
           id: "knowledge",
           label: "Knowledge Hub",
           description:
-            "Document knowledge and retrieval are scheduled for a later sprint.",
+            "Ground AI agents with company docs and verified facts.",
           icon: "brain",
-          status: "building",
+          status: "ready",
+          href: "/dashboard/knowledge",
         },
         {
           id: "ai-studio",
