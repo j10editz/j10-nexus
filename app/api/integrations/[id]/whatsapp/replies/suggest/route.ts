@@ -10,6 +10,7 @@ import {
 } from "@/lib/integrations/api";
 import { getIntegrationConnectionById } from "@/lib/integrations/database";
 import { buildWhatsAppAgentInstructions, getWhatsAppAgentConfig } from "@/lib/integrations/whatsapp-agent";
+import { getWorkspaceKnowledgeGrounding } from "@/lib/knowledge/service";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -44,11 +45,21 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const agent = getWhatsAppAgentConfig(connection);
+    const { groundingPrompt } = await getWorkspaceKnowledgeGrounding(supabase, user.id);
+    const effectiveAgent = groundingPrompt
+      ? {
+          ...agent,
+          businessKnowledge: [agent.businessKnowledge, groundingPrompt]
+            .filter(Boolean)
+            .join("\n\n"),
+        }
+      : agent;
+
     const result = await runJ10AI({
       task: "customer_support",
       preference: "Automatic",
       maxOutputTokens: 500,
-      instructions: buildWhatsAppAgentInstructions(agent),
+      instructions: buildWhatsAppAgentInstructions(effectiveAgent),
       input: `Customer name: ${customerName}\nCustomer message: ${customerMessage}\n\nDraft the best safe reply.`,
     });
 
