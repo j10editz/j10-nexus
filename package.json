@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "npm run test:regression && npm run test:workflow && npm run test:dashboard && npm run test:whatsapp && npm run test:ai && npm run test:billing && npm run test:knowledge && npm run test:marketing && npm run test:finance && npm run test:workforce",
+    "test": "npm run test:regression && npm run test:workflow && npm run test:dashboard && npm run test:whatsapp && npm run test:ai && npm run test:billing && npm run test:knowledge && npm run test:marketing && npm run test:finance && npm run test:workforce && npm run test:website",
     "test:regression": "node --test tests/whatsapp-automation-regression.test.mts",
     "test:workflow": "vitest run tests/workflow",
     "test:workflow:sandbox": "vitest run tests/workflow/sandbox-contract.test.ts",
@@ -18,7 +18,8 @@
     "test:knowledge": "vitest run tests/knowledge",
     "test:marketing": "vitest run tests/marketing",
     "test:finance": "vitest run tests/finance",
-    "test:workforce": "vitest run tests/workforce"
+    "test:workforce": "vitest run tests/workforce",
+    "test:website": "vitest run tests/website"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

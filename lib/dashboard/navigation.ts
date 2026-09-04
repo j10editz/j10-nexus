@@ -97,9 +97,10 @@ export const dashboardNavigationSections:
           id: "website",
           label: "Website",
           description:
-            "AI website creation is scheduled for the product-module sprint.",
+            "Launch high-converting landing pages with WhatsApp capture.",
           icon: "globe",
-          status: "building",
+          status: "ready",
+          href: "/dashboard/website",
         },
         {
           id: "marketing",
