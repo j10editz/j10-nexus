@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
+import { assertWorkspaceEntitlement, BillingRequiredError } from "@/lib/billing/entitlements";
 import {
   createIntegrationApiClient,
   getAuthenticatedIntegrationUser,
@@ -29,7 +30,6 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
 
-    const body = parseRequestObject(await request.json());
     const connection = await getIntegrationConnectionById(supabase, user.id, id);
     if (!connection || connection.providerId !== "whatsapp-business" || connection.status !== "connected") {
       return NextResponse.json(
@@ -38,6 +38,9 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
+    await assertWorkspaceEntitlement(supabase, user.id, { feature: "whatsapp.message.send" });
+
+    const body = parseRequestObject(await request.json());
     const to = typeof body.to === "string" ? body.to.replace(/\D/g, "") : "";
     const message = typeof body.message === "string" ? body.message.trim() : "";
     if (to.length < 7 || to.length > 15 || !message || message.length > 4096) {
@@ -66,6 +69,12 @@ export async function POST(request: Request, context: RouteContext) {
       preview: { recipient: `••••${to.slice(-4)}`, message, externalSideEffect: true },
     });
   } catch (error) {
+    if (error instanceof BillingRequiredError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code, reason: error.reason },
+        { status: error.status },
+      );
+    }
     if (error instanceof IntegrationActionError) {
       return NextResponse.json(
         { success: false, error: error.message, code: error.code, details: error.details },

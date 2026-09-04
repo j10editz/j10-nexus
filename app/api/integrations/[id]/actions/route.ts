@@ -20,6 +20,12 @@ import {
 } from "../../../../../lib/integrations/api";
 
 import {
+  assertWorkspaceEntitlement,
+  BillingRequiredError,
+  recordWorkspaceMessageUsage,
+} from "../../../../../lib/billing/entitlements";
+
+import {
   getIntegrationConnectionById,
 } from "../../../../../lib/integrations/database";
 
@@ -73,6 +79,27 @@ type RouteContext = {
 function actionErrorResponse(
   error: unknown,
 ) {
+  if (
+    error instanceof
+    BillingRequiredError
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error.message,
+        code:
+          error.code,
+        reason:
+          error.reason,
+      },
+      {
+        status:
+          error.status,
+      },
+    );
+  }
+
   if (
     error instanceof
     IntegrationActionError
@@ -636,6 +663,10 @@ export async function POST(
     }
 
     try {
+      if (mode === "live") {
+        await assertWorkspaceEntitlement(supabase, user.id, { feature: capability.id });
+      }
+
       const adapterResult =
         mode === "live"
           ? await executeLiveIntegrationAction({
@@ -799,6 +830,10 @@ export async function POST(
             },
           },
         );
+
+      if (mode === "live") {
+        await recordWorkspaceMessageUsage(supabase, user.id, 1);
+      }
 
       await writeIntegrationOperationLog(
         supabase,

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { runJ10AI } from "@/lib/ai/runtime";
+import { assertWorkspaceEntitlement, BillingRequiredError } from "@/lib/billing/entitlements";
 import {
   createIntegrationApiClient,
   getAuthenticatedIntegrationUser,
@@ -29,6 +30,8 @@ export async function POST(request: Request, context: RouteContext) {
         { status: 409 },
       );
     }
+
+    await assertWorkspaceEntitlement(supabase, user.id, { feature: "whatsapp_reply_suggestions" });
 
     const body = parseRequestObject(await request.json());
     const customerMessage = typeof body.customerMessage === "string" ? body.customerMessage.trim() : "";
@@ -61,6 +64,12 @@ export async function POST(request: Request, context: RouteContext) {
       },
     });
   } catch (error) {
+    if (error instanceof BillingRequiredError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code, reason: error.reason },
+        { status: error.status },
+      );
+    }
     return integrationApiErrorResponse(error, "J10 AI could not generate a WhatsApp reply suggestion.");
   }
 }
