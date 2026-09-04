@@ -31,6 +31,7 @@ import {
 
 import { WhatsAppInbox } from "@/components/whatsapp/WhatsAppInbox";
 import { WhatsAppAgentStudio } from "@/components/whatsapp/WhatsAppAgentStudio";
+import { WhatsAppEmbeddedSignup } from "@/components/whatsapp/WhatsAppEmbeddedSignup";
 
 type IntegrationStatus =
   | "not_configured"
@@ -923,6 +924,13 @@ export default function WhatsAppPage() {
             )}
           </div>
         </div>
+
+        {registered && (
+          <WhatsAppEmbeddedSignup
+            integrationId={integration?.id ?? null}
+            onConnected={() => { void loadConnection(); }}
+          />
+        )}
 
         {/* CONTROLLED LIVE DELIVERY */}
         {connected && (
