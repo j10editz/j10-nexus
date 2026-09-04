@@ -103,7 +103,7 @@ describe("WhatsApp Group Bot & Guardian Engine", () => {
 
       expect(memberResult.isCommand).toBe(true);
       expect(memberResult.executedByAdmin).toBe(false);
-      expect(memberResult.replyText).toContain("Permission Denied");
+      expect(memberResult.replyText).toContain("PERMISSION DENIED");
     });
 
     it("creates interactive polls via !poll", () => {
@@ -116,9 +116,9 @@ describe("WhatsApp Group Bot & Guardian Engine", () => {
       expect(pollResult.isCommand).toBe(true);
       expect(pollResult.action).toBe("poll");
       expect(pollResult.replyText).toContain("COMMUNITY POLL: MEETING DAY");
-      expect(pollResult.replyText).toContain("1️⃣ Monday");
-      expect(pollResult.replyText).toContain("2️⃣ Wednesday");
-      expect(pollResult.replyText).toContain("3️⃣ Friday");
+      expect(pollResult.replyText).toContain("[1] Monday");
+      expect(pollResult.replyText).toContain("[2] Wednesday");
+      expect(pollResult.replyText).toContain("[3] Friday");
     });
 
     it("tracks member warnings and triggers auto-kick when reaching threshold", () => {

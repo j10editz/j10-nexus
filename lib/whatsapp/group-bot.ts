@@ -85,7 +85,7 @@ export type GroupModerationDecision = {
   moderationEvent?: GroupModerationEvent;
 };
 
-export const DEFAULT_GROUP_RULES_TEXT = `📋 *OFFICIAL GROUP RULES & CODE OF CONDUCT*
+export const DEFAULT_GROUP_RULES_TEXT = `*[OFFICIAL GROUP RULES & CODE OF CONDUCT]*
 1. *Respect all members*: Harassment, abuse, or hate speech is strictly prohibited.
 2. *No unauthorized links*: Spamming external invite links or unauthorized websites will result in an instant warning.
 3. *No commercial spam or scams*: Crypto airdrops, unsolicited promotional offers, or MLM schemes lead to immediate expulsion.
@@ -256,7 +256,7 @@ export function executeGroupCommand(options: {
     case "help":
     case "commands": {
       const adminSection = isAdmin
-        ? `\n\n🛡️ *Admin Commands:*\n` +
+        ? `\n\n*[ADMIN COMMANDS]*\n` +
           `• *!warn @user <reason>*: Issue official warning\n` +
           `• *!kick @user [reason]*: Eject member from group\n` +
           `• *!ban @user [reason]*: Blacklist and eject member\n` +
@@ -266,7 +266,7 @@ export function executeGroupCommand(options: {
         : "";
 
       const helpText =
-        `🤖 *J10 GROUP GUARDIAN BOT COMMANDS*\n\n` +
+        `*[J10 GROUP GUARDIAN BOT COMMANDS]*\n\n` +
         `• *!rules*: Display official group guidelines and policies\n` +
         `• *!status*: Show active group protection health and stats\n` +
         `• *!ai <question>*: Ask a question to the J10 Knowledge Base\n` +
@@ -286,9 +286,9 @@ export function executeGroupCommand(options: {
     case "stats": {
       const activeRulesCount = Object.values(config.rules).filter(Boolean).length;
       const statusText =
-        `🛡️ *J10 GROUP GUARDIAN STATUS*\n\n` +
+        `*[J10 GROUP GUARDIAN STATUS]*\n\n` +
         `• *Managed Group*: ${config.groupName}\n` +
-        `• *Guardian Engine*: ${config.enabled ? "✅ ACTIVE & OPERATIONAL" : "⏸️ PAUSED"}\n` +
+        `• *Guardian Engine*: ${config.enabled ? "ACTIVE & OPERATIONAL" : "PAUSED"}\n` +
         `• *Active Protection Rules*: ${activeRulesCount}/10\n` +
         `• *Warning Threshold*: ${config.warningThreshold} strikes before auto-kick\n` +
         `• *Forbidden Domains Blocklist*: ${config.forbiddenDomains.length} domains\n` +
@@ -311,7 +311,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!announce",
           action: "reply",
-          replyText: "⚠️ *Permission Denied*: Only approved group administrators can use the `!announce` command.",
+          replyText: "*[PERMISSION DENIED]*: Only approved group administrators can use the `!announce` command.",
           executedByAdmin: false,
         };
       }
@@ -321,13 +321,13 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!announce",
           action: "reply",
-          replyText: "⚠️ *Usage*: `!announce <your announcement text here>`",
+          replyText: "*[USAGE]*: `!announce <your announcement text here>`",
           executedByAdmin: true,
         };
       }
 
       const announcement =
-        `📢 *OFFICIAL GROUP ANNOUNCEMENT*\n` +
+        `*[OFFICIAL GROUP ANNOUNCEMENT]*\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `${args.trim()}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -357,7 +357,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!warn",
           action: "reply",
-          replyText: "⚠️ *Permission Denied*: Only approved group administrators can issue warnings.",
+          replyText: "*[PERMISSION DENIED]*: Only approved group administrators can issue warnings.",
           executedByAdmin: false,
         };
       }
@@ -371,7 +371,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!warn",
           action: "reply",
-          replyText: "⚠️ *Usage*: `!warn @user [reason]` (e.g. `!warn @14155552671 posting spam`)",
+          replyText: "*[USAGE]*: `!warn @user [reason]` (e.g. `!warn @14155552671 posting spam`)",
           executedByAdmin: true,
         };
       }
@@ -397,7 +397,7 @@ export function executeGroupCommand(options: {
           command: "!warn",
           action: "kick",
           targetUser,
-          replyText: `🚨 *MEMBER REMOVED*: @${targetUser} has reached the maximum warning limit (${newCount}/${config.warningThreshold}). Auto-ejection executed. Reason: ${reason}`,
+          replyText: `*[MEMBER REMOVED]*: @${targetUser} has reached the maximum warning limit (${newCount}/${config.warningThreshold}). Auto-ejection executed. Reason: ${reason}`,
           executedByAdmin: true,
           moderationEvent: {
             id: eventId,
@@ -417,7 +417,7 @@ export function executeGroupCommand(options: {
         command: "!warn",
         action: "warn",
         targetUser,
-        replyText: `⚠️ *OFFICIAL WARNING*: @${targetUser} has received a warning (${newCount}/${config.warningThreshold}). Reason: ${reason}. Please adhere to group guidelines.`,
+        replyText: `*[OFFICIAL WARNING]*: @${targetUser} has received a warning (${newCount}/${config.warningThreshold}). Reason: ${reason}. Please adhere to group guidelines.`,
         executedByAdmin: true,
         moderationEvent: {
           id: eventId,
@@ -438,7 +438,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!kick",
           action: "reply",
-          replyText: "⚠️ *Permission Denied*: Only approved group administrators can kick members.",
+          replyText: "*[PERMISSION DENIED]*: Only approved group administrators can kick members.",
           executedByAdmin: false,
         };
       }
@@ -452,7 +452,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!kick",
           action: "reply",
-          replyText: "⚠️ *Usage*: `!kick @user [reason]`",
+          replyText: "*[USAGE]*: `!kick @user [reason]`",
           executedByAdmin: true,
         };
       }
@@ -462,7 +462,7 @@ export function executeGroupCommand(options: {
         command: "!kick",
         action: "kick",
         targetUser,
-        replyText: `🚪 *MEMBER EJECTED*: @${targetUser} was removed from the group by admin ${senderName || ""}. Reason: ${reason}`,
+        replyText: `*[MEMBER EJECTED]*: @${targetUser} was removed from the group by admin ${senderName || ""}. Reason: ${reason}`,
         executedByAdmin: true,
         moderationEvent: {
           id: eventId,
@@ -482,7 +482,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!ban",
           action: "reply",
-          replyText: "⚠️ *Permission Denied*: Only approved group administrators can ban members.",
+          replyText: "*[PERMISSION DENIED]*: Only approved group administrators can ban members.",
           executedByAdmin: false,
         };
       }
@@ -496,7 +496,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!ban",
           action: "reply",
-          replyText: "⚠️ *Usage*: `!ban @user [reason]`",
+          replyText: "*[USAGE]*: `!ban @user [reason]`",
           executedByAdmin: true,
         };
       }
@@ -510,7 +510,7 @@ export function executeGroupCommand(options: {
         command: "!ban",
         action: "ban",
         targetUser,
-        replyText: `🚫 *MEMBER BANNED*: @${targetUser} was permanently blacklisted and removed from the group. Reason: ${reason}`,
+        replyText: `*[MEMBER BANNED]*: @${targetUser} was permanently blacklisted and removed from the group. Reason: ${reason}`,
         executedByAdmin: true,
         moderationEvent: {
           id: eventId,
@@ -530,7 +530,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!unban",
           action: "reply",
-          replyText: "⚠️ *Permission Denied*: Only approved group administrators can unban members.",
+          replyText: "*[PERMISSION DENIED]*: Only approved group administrators can unban members.",
           executedByAdmin: false,
         };
       }
@@ -543,7 +543,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!unban",
           action: "reply",
-          replyText: "⚠️ *Usage*: `!unban @user`",
+          replyText: "*[USAGE]*: `!unban @user`",
           executedByAdmin: true,
         };
       }
@@ -557,7 +557,7 @@ export function executeGroupCommand(options: {
         isCommand: true,
         command: "!unban",
         action: "reply",
-        replyText: `✅ *MEMBER UNBANNED*: @${targetUser} was unbanned and may rejoin the group.`,
+        replyText: `*[MEMBER UNBANNED]*: @${targetUser} was unbanned and may rejoin the group.`,
         executedByAdmin: true,
       };
     }
@@ -568,7 +568,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!poll",
           action: "reply",
-          replyText: "⚠️ *Permission Denied*: Only approved group administrators can create group polls.",
+          replyText: "*[PERMISSION DENIED]*: Only approved group administrators can create group polls.",
           executedByAdmin: false,
         };
       }
@@ -579,17 +579,17 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!poll",
           action: "reply",
-          replyText: "⚠️ *Usage*: `!poll <Question> | <Option 1> | <Option 2> [| Option 3...]`\nExample: `!poll Meeting Time | 10:00 AM | 2:00 PM | 4:00 PM`",
+          replyText: "*[USAGE]*: `!poll <Question> | <Option 1> | <Option 2> [| Option 3...]`\nExample: `!poll Meeting Time | 10:00 AM | 2:00 PM | 4:00 PM`",
           executedByAdmin: true,
         };
       }
 
       const question = rawParts[0];
       const optionsList = rawParts.slice(1);
-      const formattedOptions = optionsList.map((opt, i) => `${i + 1}️⃣ ${opt}`).join("\n");
+      const formattedOptions = optionsList.map((opt, i) => `[${i + 1}] ${opt}`).join("\n");
 
       const pollText =
-        `📊 *COMMUNITY POLL: ${question.toUpperCase()}*\n` +
+        `*[COMMUNITY POLL: ${question.toUpperCase()}]*\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `${formattedOptions}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -615,7 +615,7 @@ export function executeGroupCommand(options: {
           isCommand: true,
           command: "!ai",
           action: "reply",
-          replyText: "🤖 *J10 AI Assistant*: Please provide a question. Example: `!ai what are your business hours?`",
+          replyText: "*[J10 AI Assistant]*: Please provide a question. Example: `!ai what are your business hours?`",
           executedByAdmin: isAdmin,
         };
       }
@@ -639,7 +639,7 @@ export function executeGroupCommand(options: {
         isCommand: true,
         command: `!${command}`,
         action: "reply",
-        replyText: `❓ *Unknown Command*: \`!${command}\`. Type \`!help\` to see the list of available commands.`,
+        replyText: `*[UNKNOWN COMMAND]*: \`!${command}\`. Type \`!help\` to see the list of available commands.`,
         executedByAdmin: isAdmin,
       };
     }
@@ -678,7 +678,7 @@ export function evaluateGroupMessage(options: {
       violated: true,
       action: "kick",
       reason: "Sender is on the group blacklist.",
-      replyNotice: `🚫 *BANNED USER DETECTED*: @${sender} is permanently blacklisted from this group. Immediate eviction applied.`,
+      replyNotice: `*[BANNED USER DETECTED]*: @${sender} is permanently blacklisted from this group. Immediate eviction applied.`,
       moderationEvent: {
         id: `mod_${Date.now()}`,
         timestamp: new Date().toISOString(),
@@ -723,7 +723,7 @@ export function evaluateGroupMessage(options: {
         warningsCount: newCount,
         maxWarnings: config.warningThreshold,
         autoRemoved: true,
-        replyNotice: `🚨 *MEMBER REMOVED*: @${sender} reached maximum moderation warnings (${newCount}/${config.warningThreshold}) after violating *${ruleName}*. Offender removed from group.`,
+        replyNotice: `*[MEMBER REMOVED]*: @${sender} reached maximum moderation warnings (${newCount}/${config.warningThreshold}) after violating *${ruleName}*. Offender removed from group.`,
         moderationEvent: {
           id: eventId,
           timestamp: now,
@@ -747,7 +747,7 @@ export function evaluateGroupMessage(options: {
       warningsCount: newCount,
       maxWarnings: config.warningThreshold,
       autoRemoved: false,
-      replyNotice: `⚠️ *WARNING (${newCount}/${config.warningThreshold})*: @${sender}, your message violates group policy (*${ruleName}*: ${reason}). ${config.rules.autoDelete ? "Message deleted." : "Please do not repeat."}`,
+      replyNotice: `*[WARNING (${newCount}/${config.warningThreshold})]*: @${sender}, your message violates group policy (*${ruleName}*: ${reason}). ${config.rules.autoDelete ? "Message deleted." : "Please do not repeat."}`,
       moderationEvent: {
         id: eventId,
         timestamp: now,

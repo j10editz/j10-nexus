@@ -123,9 +123,9 @@ export function generateGroundedGroupAnswer(options: {
 
   const citations = matchedSources.map((s) => `• _${s.title}_`).join("\n");
   const formattedReply =
-    `🤖 *J10 AI ASSISTANT (VERIFIED KNOWLEDGE)*\n\n` +
+    `*[J10 AI ASSISTANT - VERIFIED KNOWLEDGE]*\n\n` +
     `${answer}\n\n` +
-    `📚 *Verified Knowledge Sources:*\n` +
+    `*Verified Knowledge Sources:*\n` +
     `${citations}\n\n` +
     `_Answer grounded in verified business knowledge base. Type !help to explore more bot commands._`;
 

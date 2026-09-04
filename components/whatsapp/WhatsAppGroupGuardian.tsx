@@ -286,7 +286,7 @@ export function WhatsAppGroupGuardian({
           setSimulationResponse(dec.replyNotice || `Violated ${dec.ruleName}: ${dec.reason}`);
           setSimulationAction(dec.action || "moderation");
         } else {
-          setSimulationResponse("✅ Message passed all active moderation filters (clean).");
+          setSimulationResponse("Message passed all active moderation filters (clean).");
           setSimulationAction("approved");
         }
         if (dec?.moderationEvent) {

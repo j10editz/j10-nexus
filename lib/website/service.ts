@@ -1,8 +1,17 @@
-﻿import type { WebsiteFunnel } from "@/types/website";
+import type { WebsiteFunnel } from "@/types/website";
+
+export function stripEmojis(text?: string | null): string {
+  if (!text) return "";
+  // Removes unicode emoji ranges, pictographs, symbols, dingbats, variation selectors, and zero-width joiners
+  return text
+    .replace(/[\u{1F300}-\u{1F9FF}]|[\u{1F600}-\u{1F64F}]|[\u{1F680}-\u{1F6FF}]|[\u{2600}-\u{27BF}]|[\u{1F1E6}-\u{1F1FF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FA6F}]|[\u{1FA70}-\u{1FAFF}]|[\u{FE00}-\u{FE0F}]|[\u{1F000}-\u{1F02F}]|[\u{1F0A0}-\u{1F0FF}]|[\u{200D}\u{20E3}]/gu, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 
 export function buildWhatsAppClickToChatLink(phone?: string | null, message?: string): string {
   const cleanPhone = (phone || "").replace(/\D/g, "");
-  const defaultMsg = message || "Hello! I am interested in learning more about your services.";
+  const defaultMsg = stripEmojis(message || "Hello! I am interested in learning more about your services.");
   if (!cleanPhone) {
     return `https://wa.me/?text=${encodeURIComponent(defaultMsg)}`;
   }

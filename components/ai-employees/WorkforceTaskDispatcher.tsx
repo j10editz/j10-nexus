@@ -355,9 +355,9 @@ export default function WorkforceTaskDispatcher({
               </div>
 
               <div className="flex flex-wrap items-center gap-3 text-[10px] text-zinc-400 pt-1">
-                <span>⚡ Status: <strong className="text-emerald-400">Completed</strong></span>
-                <span>🤖 Agent: <strong className="text-white">{executionResult.employee_name}</strong></span>
-                <span>⏱️ Execution Mode: <strong className="text-violet-300">Live API</strong></span>
+                <span>Status: <strong className="text-emerald-400">Completed</strong></span>
+                <span>Agent: <strong className="text-white">{executionResult.employee_name}</strong></span>
+                <span>Execution Mode: <strong className="text-violet-300">Live API</strong></span>
               </div>
             </div>
           )}

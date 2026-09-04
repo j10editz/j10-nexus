@@ -9,10 +9,12 @@ import {
   Brain,
   Check,
   CheckCircle2,
+  Copy,
   DollarSign,
   ExternalLink,
   Eye,
   Globe,
+  HelpCircle,
   Layers,
   Laptop,
   MessageSquare,
@@ -26,49 +28,55 @@ import {
   Sparkles,
   Star,
   Tablet,
+  Trash2,
   X,
   Zap,
 } from "lucide-react";
 import type { WebsiteFAQ, WebsiteFeature, WebsiteFunnel, WebsiteTestimonial } from "@/types/website";
-import { buildWhatsAppClickToChatLink } from "@/lib/website/service";
+import { buildWhatsAppClickToChatLink, getDefaultWebsiteFunnel, stripEmojis } from "@/lib/website/service";
+import AICopyModal from "@/components/website/AICopyModal";
+
+const DEFAULT_BLUEPRINT = getDefaultWebsiteFunnel();
 
 export default function WebsitePage() {
   const [funnel, setFunnel] = useState<WebsiteFunnel | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
   const [viewport, setViewport] = useState<"desktop" | "tablet" | "mobile">("desktop");
-  const [activeTab, setActiveTab] = useState<"hero" | "features" | "testimonials" | "domain">("hero");
+  const [activeTab, setActiveTab] = useState<"hero" | "features" | "testimonials" | "faqs" | "domain">("hero");
 
-  // Form states
-  const [heroHeadline, setHeroHeadline] = useState("");
-  const [heroSubheadline, setHeroSubheadline] = useState("");
-  const [primaryCtaText, setPrimaryCtaText] = useState("");
+  // Form states with guaranteed enterprise defaults
+  const [heroHeadline, setHeroHeadline] = useState(DEFAULT_BLUEPRINT.heroHeadline);
+  const [heroSubheadline, setHeroSubheadline] = useState(DEFAULT_BLUEPRINT.heroSubheadline);
+  const [primaryCtaText, setPrimaryCtaText] = useState(DEFAULT_BLUEPRINT.primaryCtaText);
   const [whatsappPhone, setWhatsappPhone] = useState("+15550192834");
   const [theme, setTheme] = useState<"obsidian" | "violet" | "emerald" | "slate">("obsidian");
   const [customDomain, setCustomDomain] = useState("");
   const [isPublished, setIsPublished] = useState(true);
-  const [features, setFeatures] = useState<WebsiteFeature[]>([]);
-  const [testimonials, setTestimonials] = useState<WebsiteTestimonial[]>([]);
-  const [faqs, setFaqs] = useState<WebsiteFAQ[]>([]);
+  const [features, setFeatures] = useState<WebsiteFeature[]>(DEFAULT_BLUEPRINT.features);
+  const [testimonials, setTestimonials] = useState<WebsiteTestimonial[]>(DEFAULT_BLUEPRINT.testimonials);
+  const [faqs, setFaqs] = useState<WebsiteFAQ[]>(DEFAULT_BLUEPRINT.faqs);
 
   async function loadFunnel() {
     try {
       setLoading(true);
       const res = await fetch("/api/website/funnel");
       const data = await res.json();
-      if (data.success && data.funnel) {
+      if (data.success && data.funnel && data.funnel.heroHeadline) {
         const f = data.funnel;
         setFunnel(f);
-        setHeroHeadline(f.heroHeadline);
-        setHeroSubheadline(f.heroSubheadline);
-        setPrimaryCtaText(f.primaryCtaText);
+        setHeroHeadline(stripEmojis(f.heroHeadline));
+        setHeroSubheadline(stripEmojis(f.heroSubheadline));
+        setPrimaryCtaText(stripEmojis(f.primaryCtaText));
         setTheme(f.theme || "obsidian");
         setCustomDomain(f.customDomain || "");
-        setIsPublished(f.isPublished);
-        setFeatures(f.features || []);
-        setTestimonials(f.testimonials || []);
-        setFaqs(f.faqs || []);
+        setIsPublished(f.isPublished ?? true);
+        setFeatures(f.features && f.features.length ? f.features : DEFAULT_BLUEPRINT.features);
+        setTestimonials(f.testimonials && f.testimonials.length ? f.testimonials : DEFAULT_BLUEPRINT.testimonials);
+        setFaqs(f.faqs && f.faqs.length ? f.faqs : DEFAULT_BLUEPRINT.faqs);
       }
     } catch (err) {
       console.error("Failed to load website funnel:", err);
@@ -95,9 +103,9 @@ export default function WebsitePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          heroHeadline,
-          heroSubheadline,
-          primaryCtaText,
+          heroHeadline: stripEmojis(heroHeadline),
+          heroSubheadline: stripEmojis(heroSubheadline),
+          primaryCtaText: stripEmojis(primaryCtaText),
           primaryCtaLink: whatsappLink,
           theme,
           customDomain,
@@ -119,24 +127,60 @@ export default function WebsitePage() {
     }
   }
 
+  function handleApplyAICopy(generated: {
+    heroHeadline: string;
+    heroSubheadline: string;
+    primaryCtaText: string;
+    features: { title: string; description: string; icon: string }[];
+    testimonials: { name: string; company: string; quote: string; rating: number }[];
+    faqs: { question: string; answer: string }[];
+  }) {
+    setHeroHeadline(stripEmojis(generated.heroHeadline));
+    setHeroSubheadline(stripEmojis(generated.heroSubheadline));
+    setPrimaryCtaText(stripEmojis(generated.primaryCtaText));
+    if (generated.features && generated.features.length) {
+      setFeatures(generated.features);
+    }
+    if (generated.testimonials && generated.testimonials.length) {
+      setTestimonials(generated.testimonials);
+    }
+    if (generated.faqs && generated.faqs.length) {
+      setFaqs(generated.faqs);
+    }
+    setActionSuccess("AI copy applied successfully! Review the live preview and click Save & Publish.");
+  }
+
+  function handleCopyPublicLink() {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const publicUrl = `${origin}/site/main`;
+    navigator.clipboard.writeText(publicUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
+  }
+
   return (
     <div className="min-h-[calc(100dvh-72px)] bg-[#09090B] px-4 py-8 text-white sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1400px]">
         {/* Top Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-6">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-violet-400">
-              J10 Funnel Studio
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-violet-400">
+                J10 Funnel Studio
+              </p>
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                Direct WhatsApp Flow
+              </span>
+            </div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              AI Website & Conversion Engine
+              AI Funnel & Landing Page Builder
             </h1>
             <p className="mt-1 text-sm text-white/50">
-              Publish high-converting landing pages with instant WhatsApp lead capture and CRM pipeline ingestion.
+              Publish high-converting landing pages with instant WhatsApp lead capture, zero AI slop, and clean executive design.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             {/* Viewport Toggles */}
             <div className="flex items-center rounded-xl border border-white/10 bg-[#111216] p-1 text-white/60">
               <button
@@ -162,11 +206,40 @@ export default function WebsitePage() {
               </button>
             </div>
 
+            {/* AI Copywriter Action */}
+            <button
+              onClick={() => setAiModalOpen(true)}
+              className="flex items-center gap-2 rounded-xl border border-violet-500/40 bg-violet-500/10 px-3.5 py-2 text-xs font-semibold text-violet-300 transition hover:bg-violet-500/20 active:scale-[0.98]"
+            >
+              <Sparkles size={14} className="text-violet-400" />
+              <span>AI Copywriter</span>
+            </button>
+
+            {/* Copy Public Link */}
+            <button
+              onClick={handleCopyPublicLink}
+              className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white/70 hover:bg-white/10 hover:text-white transition"
+              title="Copy public page link"
+            >
+              {copiedLink ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+              <span>{copiedLink ? "Copied" : "Copy Link"}</span>
+            </button>
+
+            {/* Visit Live Page */}
+            <Link
+              href="/site/main"
+              target="_blank"
+              className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10 hover:text-white"
+            >
+              <ExternalLink size={13} />
+              <span>Visit Live</span>
+            </Link>
+
             {/* Save & Publish CTA */}
             <button
               onClick={handleSaveFunnel}
               disabled={saving}
-              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-violet-600 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-blue-500/20 transition hover:brightness-110"
+              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-violet-600 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-500/20 transition hover:brightness-110 active:scale-[0.98] disabled:opacity-50"
             >
               {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
               <span>Save & Publish</span>
@@ -178,7 +251,7 @@ export default function WebsitePage() {
         {actionSuccess && (
           <div className="mt-6 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">
             <div className="flex items-center gap-3">
-              <CheckCircle2 size={18} className="text-emerald-400" />
+              <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
               <span>{actionSuccess}</span>
             </div>
             <button onClick={() => setActionSuccess(null)} className="text-xs opacity-60 hover:opacity-100">
@@ -187,12 +260,15 @@ export default function WebsitePage() {
           </div>
         )}
 
-        {/* Main Studio Grid: Editor Left (40%), Preview Right (60%) */}
-        <div className="mt-8 grid gap-8 lg:grid-cols-[450px_1fr]">
+        {/* Main Studio Grid: Editor Left (440px), Preview Right (1fr) */}
+        <div className="mt-8 grid gap-8 lg:grid-cols-[440px_1fr]">
           {/* Left: Customization Drawer */}
           <div className="rounded-2xl border border-white/[0.08] bg-[#111216] p-6 space-y-6">
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
-              <h2 className="text-base font-semibold text-white">Funnel Customizer</h2>
+              <div>
+                <h2 className="text-base font-semibold text-white">Funnel Customizer</h2>
+                <p className="text-[11px] text-white/40">Real-time parameters for your public landing page</p>
+              </div>
               <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[10px] font-bold uppercase text-emerald-300">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 Live Edge CDN
@@ -201,7 +277,7 @@ export default function WebsitePage() {
 
             {/* Section Tabs */}
             <div className="flex rounded-xl border border-white/10 bg-[#0B0C0F] p-1 text-xs">
-              {(["hero", "features", "testimonials", "domain"] as const).map((tab) => (
+              {(["hero", "features", "testimonials", "faqs", "domain"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -266,9 +342,9 @@ export default function WebsitePage() {
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {(
                       [
-                        { id: "obsidian", label: "Cyber Obsidian", color: "bg-black border-blue-500/50" },
-                        { id: "violet", label: "Neon Violet", color: "bg-[#10081d] border-violet-500/50" },
-                        { id: "emerald", label: "Enterprise Mint", color: "bg-[#051610] border-emerald-500/50" },
+                        { id: "obsidian", label: "Obsidian Deep", color: "bg-black border-blue-500/50" },
+                        { id: "violet", label: "Violet Dark", color: "bg-[#10081d] border-violet-500/50" },
+                        { id: "emerald", label: "Emerald Slate", color: "bg-[#051610] border-emerald-500/50" },
                         { id: "slate", label: "Slate Minimal", color: "bg-[#0f172a] border-slate-500/50" },
                       ] as const
                     ).map((t) => (
@@ -382,7 +458,62 @@ export default function WebsitePage() {
               </div>
             )}
 
-            {/* Tab 4: Domain & Customization */}
+            {/* Tab 4: FAQs */}
+            {activeTab === "faqs" && (
+              <div className="space-y-4 text-xs">
+                <div className="flex items-center justify-between">
+                  <p className="text-white/50">Address objections and resolve common customer questions.</p>
+                  <button
+                    type="button"
+                    onClick={() => setFaqs([...faqs, { question: "New Question", answer: "Answer description here." }])}
+                    className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/80 hover:bg-white/10"
+                  >
+                    <Plus size={12} />
+                    <span>Add FAQ</span>
+                  </button>
+                </div>
+                {faqs.map((faq, idx) => (
+                  <div key={idx} className="rounded-xl border border-white/10 bg-[#0B0C0F] p-3 space-y-2 relative">
+                    <button
+                      type="button"
+                      onClick={() => setFaqs(faqs.filter((_, i) => i !== idx))}
+                      className="absolute top-3 right-3 text-zinc-500 hover:text-red-400 transition"
+                      title="Remove FAQ"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                    <div>
+                      <label className="text-[10px] uppercase font-semibold text-white/40">Question #{idx + 1}</label>
+                      <input
+                        type="text"
+                        value={faq.question}
+                        onChange={(e) => {
+                          const updated = [...faqs];
+                          updated[idx].question = e.target.value;
+                          setFaqs(updated);
+                        }}
+                        className="mt-0.5 w-full rounded-lg border border-white/10 bg-[#111216] px-2.5 py-1.5 text-white focus:border-blue-500 focus:outline-none pr-8"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-semibold text-white/40">Answer</label>
+                      <textarea
+                        rows={2}
+                        value={faq.answer}
+                        onChange={(e) => {
+                          const updated = [...faqs];
+                          updated[idx].answer = e.target.value;
+                          setFaqs(updated);
+                        }}
+                        className="mt-0.5 w-full rounded-lg border border-white/10 bg-[#111216] px-2.5 py-1.5 text-white focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Tab 5: Domain & Customization */}
             {activeTab === "domain" && (
               <div className="space-y-4 text-xs">
                 <div>
@@ -410,7 +541,7 @@ export default function WebsitePage() {
                     </button>
                   </div>
                   <p className="text-[11px] text-white/40">
-                    When active, your funnel is globally accelerated across 300+ edge edge locations.
+                    When active, your funnel is globally accelerated across 300+ edge locations.
                   </p>
                 </div>
               </div>
@@ -436,7 +567,7 @@ export default function WebsitePage() {
                   <span className="h-3 w-3 rounded-full bg-emerald-500/80" />
                 </div>
                 <div className="rounded-lg bg-black/40 px-3 py-1 text-[11px] font-mono text-white/40">
-                  {customDomain || "https://go.j10nexus.com/home"}
+                  {customDomain || "https://go.j10nexus.com/main"}
                 </div>
                 <div className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -545,6 +676,25 @@ export default function WebsitePage() {
                   </div>
                 </div>
 
+                {/* FAQs preview */}
+                {faqs.length > 0 && (
+                  <div className="mt-14 border-t border-white/[0.08] pt-10">
+                    <div className="text-center mb-6">
+                      <p className="text-[10px] uppercase font-bold tracking-widest text-violet-400">FAQ</p>
+                      <h2 className="text-base font-bold text-white mt-1">Frequently Answered Questions</h2>
+                    </div>
+
+                    <div className="space-y-3 max-w-xl mx-auto">
+                      {faqs.map((faq, idx) => (
+                        <div key={idx} className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3 text-left">
+                          <p className="text-xs font-semibold text-white">{faq.question}</p>
+                          <p className="mt-1 text-[11px] text-white/50 leading-relaxed">{faq.answer}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Footer conversion CTA */}
                 <div className="mt-14 rounded-2xl border border-violet-500/30 bg-gradient-to-r from-blue-950/40 via-violet-950/40 to-black p-6 text-center">
                   <h3 className="text-sm font-bold text-white">Start Automating Operations Today</h3>
@@ -564,6 +714,13 @@ export default function WebsitePage() {
           </div>
         </div>
       </div>
+
+      {/* AI Copywriter Modal */}
+      <AICopyModal
+        open={aiModalOpen}
+        onClose={() => setAiModalOpen(false)}
+        onApply={handleApplyAICopy}
+      />
     </div>
   );
-}
+}

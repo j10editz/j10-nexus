@@ -1366,14 +1366,14 @@ export default function WhatsAppPage() {
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 pt-4 border-t border-white/[0.06] text-xs">
                       <div className="rounded-xl border border-white/[0.06] bg-black/30 p-3">
-                        <p className="font-medium text-zinc-200">📱 Testing with Free Test Number (+1 555-677-1423)</p>
+                        <p className="font-medium text-zinc-200">Testing with Free Test Number (+1 555-677-1423)</p>
                         <p className="mt-1 text-[11px] leading-4 text-zinc-400">
                           Meta delivers to verified test numbers. In Meta Console under <strong>Step 1</strong>, ensure your personal number is added to <strong>Manage phone number list</strong>.
                         </p>
                       </div>
 
                       <div className="rounded-xl border border-white/[0.06] bg-black/30 p-3">
-                        <p className="font-medium text-zinc-200">👥 Adding Bot to WhatsApp Groups</p>
+                        <p className="font-medium text-zinc-200">Adding Bot to WhatsApp Groups</p>
                         <p className="mt-1 text-[11px] leading-4 text-zinc-400">
                           In the <strong>Group Guardian</strong> tab, use the <strong>Deploy Bot to Group (Wizard)</strong> to add your bot number, promote to Admin, and activate commands like <code>!rules</code> and <code>!ai</code>.
                         </p>

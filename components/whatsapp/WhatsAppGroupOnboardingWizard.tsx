@@ -33,7 +33,7 @@ export const ONBOARDING_PRESETS: Record<
     name: "VIP Executive Community",
     description: "High-value mastermind, strictly moderated networking, zero spam tolerance.",
     welcomeMessage:
-      "👋 *Welcome to the Official VIP Community!*\n\nThis group is actively protected by *J10 Nexus Group Guardian*. We maintain a high standard of discussion. Type *!rules* to view community guidelines or *!ai <question>* for instant assistance.",
+      "*Welcome to the Official VIP Community*\n\nThis group is actively protected by *J10 Nexus Group Guardian*. We maintain a high standard of discussion. Type *!rules* to view community guidelines or *!ai <question>* for instant assistance.",
     defaultRules:
       "1. Respect all members · 2. Zero commercial spam or self-promotion · 3. Keep discussions professional and relevant · 4. Three strikes result in auto-removal.",
   },
@@ -41,15 +41,15 @@ export const ONBOARDING_PRESETS: Record<
     name: "Crypto & Trading Signals",
     description: "Market updates, technical analysis, anti-scam shield and anti-phishing.",
     welcomeMessage:
-      "🚀 *Welcome to the Official Trading Group!*\n\n🛡️ *Security Notice*: J10 Nexus Anti-Scam Shield is active. Any unsolicited DMs, fake airdrop links, or double-your-crypto schemes result in an instant ban. Type *!status* to check protection health.",
+      "*Welcome to the Official Trading Group*\n\n*Security Notice*: J10 Nexus Anti-Scam Shield is active. Any unsolicited DMs, fake airdrop links, or unauthorized schemes result in an instant ban. Type *!status* to check protection health.",
     defaultRules:
-      "1. No unauthorized invite links or Telegram channels · 2. Never share seed phrases or private keys · 3. Admins will NEVER DM you first · 4. 3 warnings = permanent eviction.",
+      "1. No unauthorized invite links · 2. Never share seed phrases or private keys · 3. Admins will never DM you first · 4. 3 warnings = permanent eviction.",
   },
   customer_support: {
     name: "Customer Support & VIP Helpdesk",
     description: "Product inquiries, orders, technical troubleshooting, grounded AI answers.",
     welcomeMessage:
-      "🛎️ *Welcome to Official Customer Support!*\n\nJ10 AI Assistant is active in this group. Ask any product or order question by typing *!ai <your question>* or reach out to our team admins.",
+      "*Welcome to Official Customer Support*\n\nJ10 AI Assistant is active in this group. Ask any product or order question by typing *!ai <your question>* or reach out to our team admins.",
     defaultRules:
       "1. State your inquiry clearly · 2. Do not share sensitive billing credentials in group chat · 3. Standard response SLA is under 2 minutes.",
   },
@@ -57,9 +57,9 @@ export const ONBOARDING_PRESETS: Record<
     name: "E-Commerce & Flash Sales",
     description: "Exclusive discounts, product drops, order notifications, community polls.",
     welcomeMessage:
-      "🛍️ *Welcome to the VIP Flash Club!*\n\nGet exclusive drops, early sale access, and community voting powered by *J10 Nexus*. Admins use *!poll* and *!announce* for official updates.",
+      "*Welcome to the VIP Flash Club*\n\nGet exclusive drops, early sale access, and community voting powered by *J10 Nexus*. Admins use *!poll* and *!announce* for official updates.",
     defaultRules:
-      "1. Community discussions stay focused on product feedback · 2. No third-party marketplace links · 3. Have fun and enjoy member-only perks!",
+      "1. Community discussions stay focused on product feedback · 2. No third-party marketplace links · 3. Enjoy member-only perks.",
   },
 };
 
@@ -137,14 +137,14 @@ export function WhatsAppGroupOnboardingWizard({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             groupName,
-            customRulesText: `📋 *${groupName.toUpperCase()} RULES*\n\n${preset.defaultRules}\n\n_Protected by J10 Nexus Group Guardian._`,
+            customRulesText: `[OFFICIAL RULES - ${groupName.toUpperCase()}]\n\n${preset.defaultRules}\n\n_Protected by J10 Nexus Group Guardian._`,
             warningThreshold: 3,
             enabled: true,
           }),
         }
       );
 
-      setDispatchResult("🎉 Bot deployed and welcome announcement successfully broadcasted to group!");
+      setDispatchResult("Bot deployed and welcome announcement successfully broadcasted to group.");
       onSuccess?.();
     } catch (err) {
       setDispatchResult(err instanceof Error ? err.message : "Error dispatching welcome.");
@@ -357,7 +357,7 @@ export function WhatsAppGroupOnboardingWizard({
                 <div className="flex items-center gap-2.5">
                   <UserCheck size={16} className={adminVerified ? "text-emerald-400" : "text-zinc-400"} />
                   <span className="text-xs font-medium text-white">
-                    {adminVerified ? "Admin Status Verified ✅" : "Check Admin Privileges"}
+                    {adminVerified ? "Admin Status Verified" : "Check Admin Privileges"}
                   </span>
                 </div>
                 <button
