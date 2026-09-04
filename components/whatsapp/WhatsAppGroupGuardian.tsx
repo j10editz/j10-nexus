@@ -39,6 +39,7 @@ import {
 type Props = {
   integrationId: string | null;
   connected: boolean;
+  botPhoneNumber?: string;
 };
 
 const GUARDIAN_RULE_METADATA: Array<{
@@ -121,7 +122,11 @@ const PRESET_COMMANDS = [
   "Join our crypto group for 1000% profits: https://t.me/freecrypto",
 ];
 
-export function WhatsAppGroupGuardian({ integrationId, connected }: Props) {
+export function WhatsAppGroupGuardian({
+  integrationId,
+  connected,
+  botPhoneNumber = "+1 (555) 677-1423",
+}: Props) {
   const [config, setConfig] = useState<WhatsAppGroupConfig>(DEFAULT_WHATSAPP_GROUP_CONFIG);
   const [logs, setLogs] = useState<GroupModerationEvent[]>([]);
   const [busy, setBusy] = useState(false);
@@ -619,6 +624,7 @@ export function WhatsAppGroupGuardian({ integrationId, connected }: Props) {
         isOpen={showOnboardingWizard}
         onClose={() => setShowOnboardingWizard(false)}
         integrationId={integrationId}
+        botPhoneNumber={botPhoneNumber}
         onSuccess={() => {
           void load();
         }}

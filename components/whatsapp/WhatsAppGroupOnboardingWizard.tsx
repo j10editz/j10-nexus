@@ -76,13 +76,14 @@ export function WhatsAppGroupOnboardingWizard({
   isOpen,
   onClose,
   integrationId,
-  botPhoneNumber = "+1 (415) 555-0199",
+  botPhoneNumber = "+1 (555) 677-1423",
   botDisplayName = "J10 Nexus Bot",
   onSuccess,
 }: Props) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedPreset, setSelectedPreset] = useState<OnboardingPreset>("vip_community");
   const [groupName, setGroupName] = useState("VIP Client Community");
+  const [activeNumber, setActiveNumber] = useState(botPhoneNumber);
   const [copied, setCopied] = useState(false);
   const [verifyingAdmin, setVerifyingAdmin] = useState(false);
   const [adminVerified, setAdminVerified] = useState(false);
@@ -111,6 +112,7 @@ export function WhatsAppGroupOnboardingWizard({
     setDispatchResult(null);
 
     const preset = ONBOARDING_PRESETS[selectedPreset];
+    const normalizedSender = activeNumber.replace(/\D/g, "");
 
     try {
       // 1. Dispatch initial welcome announcement
@@ -121,7 +123,7 @@ export function WhatsAppGroupOnboardingWizard({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: `!announce ${preset.welcomeMessage.replace(/\n/g, " ")}`,
-            sender: "+14155550199",
+            sender: normalizedSender ? `+${normalizedSender}` : "+15556771423",
             senderName: "J10 Setup Wizard",
           }),
         }
@@ -222,16 +224,22 @@ export function WhatsAppGroupOnboardingWizard({
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-zinc-400">Bot WhatsApp Number:</span>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-semibold text-violet-300">{botPhoneNumber}</span>
+                    <span className="font-mono font-semibold text-violet-300">{activeNumber}</span>
                     <button
                       type="button"
-                      onClick={() => copyToClipboard(botPhoneNumber)}
+                      onClick={() => copyToClipboard(activeNumber)}
                       className="text-zinc-400 hover:text-white"
                       title="Copy Number"
                     >
                       <Copy size={13} />
                     </button>
                   </div>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-400">Number Type:</span>
+                  <span className="rounded bg-violet-500/20 px-2 py-0.5 text-[10px] font-bold text-violet-300">
+                    {activeNumber.includes("555-677-1423") || activeNumber.includes("5556771423") ? "META CLOUD API TEST NUMBER" : "PRODUCTION DEDICATED NUMBER"}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-zinc-400">Security Mode:</span>
@@ -248,9 +256,29 @@ export function WhatsAppGroupOnboardingWizard({
           {/* STEP 2: ADD BOT TO GROUP */}
           {step === 2 && (
             <div className="space-y-4">
-              <p className="text-xs text-zinc-300">
-                To enable automated group moderation and commands, add your J10 Bot number to the WhatsApp group:
-              </p>
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3.5 text-xs text-amber-300 space-y-1.5">
+                <p className="font-semibold flex items-center gap-1.5">
+                  <Info size={14} className="shrink-0" />
+                  Meta Number Requirements for Groups
+                </p>
+                <p className="text-[11px] leading-relaxed text-zinc-300">
+                  • <strong>Test Number (+1 555-677-1423):</strong> Meta Cloud API free sandbox numbers can send 1-on-1 messages to verified numbers. They do not have a public user profile to be added to consumer groups.<br />
+                  • <strong>Production Group Bot:</strong> To add your bot into any client group, register a real dedicated phone number (a $2/mo SIM, eSIM, or VoIP number) under Meta Developer Console (Step 2: <em>Register your WhatsApp phone number</em>).
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3.5 space-y-2">
+                <label className="block text-xs text-zinc-400">
+                  Target Bot WhatsApp Number:
+                  <input
+                    type="text"
+                    value={activeNumber}
+                    onChange={(e) => setActiveNumber(e.target.value)}
+                    placeholder="+1 (555) 677-1423 or your registered SIM number"
+                    className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111216] px-3 py-2 text-xs text-white font-mono outline-none focus:border-violet-500"
+                  />
+                </label>
+              </div>
 
               <div className="space-y-3 text-xs">
                 <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/40 p-3.5">
@@ -258,7 +286,7 @@ export function WhatsAppGroupOnboardingWizard({
                     1
                   </span>
                   <p className="text-zinc-300">
-                    Open your WhatsApp on your phone or web browser and go to your target group.
+                    Open WhatsApp on your phone or computer and open the target business or client group.
                   </p>
                 </div>
 
@@ -272,7 +300,7 @@ export function WhatsAppGroupOnboardingWizard({
                     </p>
                     <p className="text-zinc-400">
                       Search or type the bot phone number:{" "}
-                      <code className="text-violet-300 font-mono">{botPhoneNumber}</code>
+                      <code className="text-violet-300 font-mono font-semibold">{activeNumber}</code>
                     </p>
                   </div>
                 </div>
@@ -282,20 +310,20 @@ export function WhatsAppGroupOnboardingWizard({
                     3
                   </span>
                   <p className="text-zinc-300">
-                    Confirm to add the bot to the group.
+                    Confirm to add the bot to the group, then click <strong>Next</strong> to verify admin permissions.
                   </p>
                 </div>
               </div>
 
               <div className="flex justify-center pt-2">
                 <a
-                  href={`https://wa.me/${botPhoneNumber.replace(/[^0-9]/g, "")}`}
+                  href={`https://wa.me/${activeNumber.replace(/[^0-9]/g, "")}`}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/20"
                 >
                   <MessageSquare size={14} />
-                  Open WhatsApp Chat with Bot
+                  Open WhatsApp Chat with Bot ({activeNumber})
                   <ExternalLink size={12} />
                 </a>
               </div>

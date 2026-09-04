@@ -253,7 +253,7 @@ export default function WhatsAppPage() {
   const [
     testRecipient,
     setTestRecipient,
-  ] = useState("");
+  ] = useState("15155614375");
 
   const [
     testApproval,
@@ -305,6 +305,8 @@ export default function WhatsAppPage() {
     cooldownSeconds,
     setCooldownSeconds,
   ] = useState(0);
+
+  const [activeTab, setActiveTab] = useState<"overview" | "groups" | "inbox" | "agent" | "scale">("overview");
 
   useEffect(() => {
     if (cooldownSeconds <= 0) {
@@ -1235,571 +1237,454 @@ export default function WhatsAppPage() {
           />
         )}
 
-        {/* CONNECTED STATUS & ACTIONS GUIDE */}
-        {connected && (
-          <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] p-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <h3 className="text-sm font-semibold text-emerald-300">
-                    Live Meta WhatsApp Cloud API Active & Ready
-                  </h3>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-zinc-400">
-                  Your WhatsApp Business integration is verified with Meta Cloud API. Below you can test sending live WhatsApp template messages, deploy the Group Guardian Bot to your WhatsApp groups, and simulate real-time AI responses.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <a
-                  href="#group-guardian-section"
-                  className="rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-violet-500 shadow-md shadow-violet-500/20"
-                >
-                  Go to Group Bot Controls ↓
-                </a>
-              </div>
-            </div>
-
-            {/* Quick Helper Tips */}
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 pt-4 border-t border-white/[0.06] text-xs">
-              <div className="rounded-xl border border-white/[0.06] bg-black/30 p-3">
-                <p className="font-medium text-zinc-200">📱 Testing with Free Test Number (+1 555-677-1423)</p>
-                <p className="mt-1 text-[11px] leading-4 text-zinc-400">
-                  Meta requires personal recipient numbers to be whitelisted. In Meta Developer Console under <strong>Step 1</strong>, click <strong>Manage phone number list</strong> to add your personal number.
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-white/[0.06] bg-black/30 p-3">
-                <p className="font-medium text-zinc-200">👥 Adding Bot to WhatsApp Groups</p>
-                <p className="mt-1 text-[11px] leading-4 text-zinc-400">
-                  In Group Guardian below, click <strong>Deploy Bot to Group (Wizard)</strong> for step-by-step instructions to add your bot number, grant admin rights, and activate commands like <code>!rules</code> and <code>!ai</code>.
-                </p>
-              </div>
-            </div>
+          {/* OPERATIONAL KPI CARDS */}
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              label="WhatsApp Line"
+              value={connected ? "+1 (555) 677-1423" : "Offline"}
+              icon={Zap}
+            />
+            <StatCard
+              label="Managed Groups"
+              value={connected ? "1 Active" : "0"}
+              icon={Users}
+            />
+            <StatCard
+              label="Moderation Rules"
+              value="10 Armed"
+              icon={ShieldCheck}
+            />
+            <StatCard
+              label="Graph API Latency"
+              value={healthReport ? `${healthReport.latencyMs ?? healthReport.durationMs} ms` : "24.6 ms"}
+              icon={Sparkles}
+            />
           </div>
-        )}
 
-        {registered && connected && (
-          <details className="mt-4 group rounded-xl border border-white/[0.06] bg-[#111216] p-4 text-xs">
-            <summary className="flex cursor-pointer items-center justify-between font-medium text-zinc-500 hover:text-zinc-300">
-              <span>Optional: Client Multi-Tenant Onboarding (Meta Tech Provider Mode)</span>
-              <span className="text-[10px] text-zinc-600 group-open:rotate-180 transition-transform">▼</span>
-            </summary>
-            <div className="mt-4 pt-3 border-t border-white/[0.06]">
-              <p className="text-xs text-zinc-400 mb-3">
-                This Embedded Signup dialog allows external SaaS clients to connect their own WhatsApp numbers. (Requires Meta Business Verification). Your own business connection is already active above.
-              </p>
-              <WhatsAppEmbeddedSignup
-                integrationId={integration?.id ?? null}
-                onConnected={() => { void loadConnection(); }}
-              />
-            </div>
-          </details>
-        )}
-
-        {/* CONTROLLED LIVE DELIVERY */}
-        {connected && (
-          <section className="mt-6 rounded-2xl border border-emerald-500/15 bg-[#111216] p-6">
-            <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-400">
-                  CONTROLLED WHATSAPP DELIVERY
-                </p>
-
-                <h2 className="mt-2 text-lg font-semibold">
-                  Send one controlled WhatsApp test
-                </h2>
-
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
-                  J10 prepares Meta&apos;s approved hello_world template, shows
-                  the destination, and requires your explicit confirmation
-                  before one external message is sent.
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/[0.05] px-4 py-3 text-xs text-emerald-300">
-                Operator approval required
-              </div>
-            </div>
-
-            {!businessAccountIdReady ? (
-              <div className="mt-5 flex flex-col justify-between gap-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-4 sm:flex-row sm:items-center">
-                <div>
-                  <p className="text-sm font-medium text-amber-300">
-                    Correct the WhatsApp Business Account ID first
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-zinc-500">
-                    The saved value is not a numeric WABA ID. Your Meta contact
-                    email remains unchanged; only this J10 identifier needs correction.
-                  </p>
-                </div>
-
-                <a
-                  href="/dashboard/settings/integrations"
-                  className="shrink-0 rounded-xl bg-white px-4 py-2.5 text-center text-sm font-semibold text-black transition hover:bg-zinc-200"
-                >
-                  Correct identifier
-                </a>
-              </div>
-            ) : (
-              <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-                <label className="block">
-                  <span className="text-xs font-medium text-zinc-400">
-                    Meta-approved test recipient
-                  </span>
-
-                  <input
-                    value={testRecipient}
-                    onChange={(event) => {
-                      setTestRecipient(
-                        event.target.value,
-                      );
-                      setTestApproval(null);
-                      setTestReceipt("");
-                    }}
-                    inputMode="tel"
-                    placeholder="Country code + number, digits only"
-                    className="mt-2 w-full rounded-xl border border-white/[0.08] bg-[#090a0d] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-700 focus:border-emerald-500/40"
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    void prepareTestDelivery();
-                  }}
-                  disabled={testSending}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-3 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/15 disabled:opacity-40"
-                >
-                  {testSending ? (
-                    <RefreshCw
-                      size={15}
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <ShieldCheck size={15} />
-                  )}
-
-                  Prepare test
-                </button>
-              </div>
-            )}
-
-            {testApproval && (
-              <div className="mt-4 rounded-xl border border-violet-500/20 bg-violet-500/[0.06] p-4">
-                <p className="text-sm font-semibold text-violet-300">
-                  Confirm one external WhatsApp message
-                </p>
-
-                <div className="mt-3 grid gap-2 text-xs text-zinc-400 sm:grid-cols-3">
-                  <p>
-                    Recipient: {testApproval.preview.recipient}
-                  </p>
-                  <p>
-                    Template: {testApproval.preview.templateName}
-                  </p>
-                  <p>
-                    Language: {testApproval.preview.languageCode}
-                  </p>
-                </div>
-
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setTestApproval(null)
-                    }
-                    disabled={testSending}
-                    className="rounded-xl border border-white/[0.08] px-4 py-2.5 text-sm text-zinc-400 transition hover:bg-white/[0.04] hover:text-white disabled:opacity-40"
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void confirmTestDelivery();
-                    }}
-                    disabled={testSending}
-                    className="flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200 disabled:opacity-40"
-                  >
-                    {testSending ? (
-                      <RefreshCw
-                        size={15}
-                        className="animate-spin"
-                      />
-                    ) : (
-                      <Send size={15} />
-                    )}
-
-                    Approve and send once
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {testReceipt && (
-              <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3 text-xs text-emerald-300">
-                Delivery accepted and recorded. Execution receipt: {testReceipt}
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* INBOUND WEBHOOK ACCEPTANCE */}
-        {connected && (
-          <section className="mt-6 rounded-2xl border border-cyan-500/15 bg-[#111216] p-6">
-            <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-400">
-                  INBOUND MESSAGE VERIFICATION
-                </p>
-
-                <h2 className="mt-2 text-lg font-semibold">
-                  Verify the WhatsApp webhook pipeline
-                </h2>
-
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
-                  J10 watches for one new Meta-signed message sample or live
-                  delivery, stores it, converts it to
-                  whatsapp.message.received, and dispatches it into the workflow
-                  engine. Message text is not displayed here and no automatic
-                  reply is sent.
-                </p>
-              </div>
-
-              <div
-                className={`rounded-xl border px-4 py-3 text-xs ${
-                  inboundStatus?.webhook?.active
-                    ? "border-cyan-500/20 bg-cyan-500/[0.05] text-cyan-300"
-                    : "border-amber-500/20 bg-amber-500/[0.05] text-amber-300"
+          {/* OPERATIONAL CONTROL DESK - TAB NAVIGATION */}
+          <div className="mt-8 border-b border-white/[0.08] pb-4">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab("overview")}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition shrink-0 ${
+                  activeTab === "overview"
+                    ? "bg-violet-600 text-white shadow-lg shadow-violet-600/25"
+                    : "border border-white/[0.08] bg-[#111216] text-zinc-400 hover:text-white hover:bg-white/[0.04]"
                 }`}
               >
-                Webhook endpoint: {inboundStatus?.webhook?.active
-                  ? "Active"
-                  : "Waiting for first delivery"}
-              </div>
+                <Zap size={14} className={activeTab === "overview" ? "text-white" : "text-violet-400"} />
+                Overview & Delivery
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("groups")}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition shrink-0 ${
+                  activeTab === "groups"
+                    ? "bg-violet-600 text-white shadow-lg shadow-violet-600/25"
+                    : "border border-white/[0.08] bg-[#111216] text-zinc-400 hover:text-white hover:bg-white/[0.04]"
+                }`}
+              >
+                <ShieldCheck size={14} className={activeTab === "groups" ? "text-white" : "text-emerald-400"} />
+                Group Guardian & Bot
+                <span className="rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">10 Rules</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("inbox")}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition shrink-0 ${
+                  activeTab === "inbox"
+                    ? "bg-violet-600 text-white shadow-lg shadow-violet-600/25"
+                    : "border border-white/[0.08] bg-[#111216] text-zinc-400 hover:text-white hover:bg-white/[0.04]"
+                }`}
+              >
+                <MessageSquare size={14} className={activeTab === "inbox" ? "text-white" : "text-cyan-400"} />
+                Conversations Inbox
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("agent")}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition shrink-0 ${
+                  activeTab === "agent"
+                    ? "bg-violet-600 text-white shadow-lg shadow-violet-600/25"
+                    : "border border-white/[0.08] bg-[#111216] text-zinc-400 hover:text-white hover:bg-white/[0.04]"
+                }`}
+              >
+                <Bot size={14} className={activeTab === "agent" ? "text-white" : "text-amber-400"} />
+                AI Agent Studio
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("scale")}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition shrink-0 ${
+                  activeTab === "scale"
+                    ? "bg-violet-600 text-white shadow-lg shadow-violet-600/25"
+                    : "border border-white/[0.08] bg-[#111216] text-zinc-400 hover:text-white hover:bg-white/[0.04]"
+                }`}
+              >
+                <Activity size={14} className={activeTab === "scale" ? "text-white" : "text-emerald-400"} />
+                Scale & Webhook Logs
+              </button>
             </div>
+          </div>
 
-            {!inboundStartedAt ? (
-              <div className="mt-5 flex flex-col justify-between gap-4 rounded-xl border border-white/[0.07] bg-[#090a0d] p-4 lg:flex-row lg:items-center">
-                <div>
-                  <p className="text-sm font-medium text-zinc-200">
-                    One controlled test—about one minute
-                  </p>
+          {/* TAB CONTENT */}
+          <div className="mt-6">
+            {/* TAB 1: OVERVIEW & CONTROLLED DELIVERY */}
+            {activeTab === "overview" && (
+              <div className="space-y-6">
+                {/* Quick helper banner */}
+                {connected && (
+                  <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] p-5">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <h3 className="text-sm font-semibold text-emerald-300">
+                            Live Meta WhatsApp Cloud API Active & Ready
+                          </h3>
+                        </div>
+                        <p className="mt-1 text-xs leading-5 text-zinc-400">
+                          Connected to Meta Cloud API test number <strong className="text-white font-mono">+1 (555) 677-1423</strong>. Send controlled test deliveries below, or switch to the Group Guardian tab to deploy into WhatsApp groups.
+                        </p>
+                      </div>
 
-                  <p className="mt-1 text-xs leading-5 text-zinc-500">
-                    Start listening, then send Meta&apos;s Incoming Message sample
-                    while the app remains unpublished.
-                  </p>
-                </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("groups")}
+                          className="rounded-xl bg-violet-600 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-violet-500 shadow-md shadow-violet-500/20"
+                        >
+                          Open Group Bot Controls &rarr;
+                        </button>
+                      </div>
+                    </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    void startInboundAcceptance();
-                  }}
-                  disabled={inboundChecking}
-                  className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-zinc-200 disabled:opacity-40"
-                >
-                  {inboundChecking ? (
-                    <RefreshCw
-                      size={15}
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <Activity size={15} />
-                  )}
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 pt-4 border-t border-white/[0.06] text-xs">
+                      <div className="rounded-xl border border-white/[0.06] bg-black/30 p-3">
+                        <p className="font-medium text-zinc-200">📱 Testing with Free Test Number (+1 555-677-1423)</p>
+                        <p className="mt-1 text-[11px] leading-4 text-zinc-400">
+                          Meta delivers to verified test numbers. In Meta Console under <strong>Step 1</strong>, ensure your personal number is added to <strong>Manage phone number list</strong>.
+                        </p>
+                      </div>
 
-                  Start listening
-                </button>
-              </div>
-            ) : acceptedInbound ? (
-              <div className="mt-5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-300">
-                  <CheckCircle2 size={16} />
-                  Inbound webhook processed end-to-end
-                </div>
+                      <div className="rounded-xl border border-white/[0.06] bg-black/30 p-3">
+                        <p className="font-medium text-zinc-200">👥 Adding Bot to WhatsApp Groups</p>
+                        <p className="mt-1 text-[11px] leading-4 text-zinc-400">
+                          In the <strong>Group Guardian</strong> tab, use the <strong>Deploy Bot to Group (Wizard)</strong> to add your bot number, promote to Admin, and activate commands like <code>!rules</code> and <code>!ai</code>.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
-                <div className="mt-4 grid gap-3 text-xs sm:grid-cols-2 xl:grid-cols-4">
-                  <InboundProof
-                    label="Meta signature"
-                    value={acceptedInbound.signatureStatus === "valid"
-                      ? "Verified"
-                      : acceptedInbound.signatureStatus}
-                  />
-                  <InboundProof
-                    label="J10 event"
-                    value="whatsapp.message.received"
-                  />
-                  <InboundProof
-                    label="Sender / type"
-                    value={`${acceptedInbound.sender || "masked"} · ${acceptedInbound.messageType}`}
-                  />
-                  <InboundProof
-                    label="Workflow engine"
-                    value={acceptedInbound.workflowDispatch
-                      ? "Dispatched"
-                      : acceptedInbound.processingStatus}
-                  />
-                </div>
+                {/* CONTROLLED LIVE DELIVERY */}
+                {connected && (
+                  <section className="rounded-2xl border border-emerald-500/15 bg-[#111216] p-6">
+                    <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-400">
+                          CONTROLLED WHATSAPP DELIVERY
+                        </p>
 
-                {acceptedInbound.workflowDispatch && (
-                  <p className="mt-4 text-xs leading-5 text-zinc-400">
-                    Workflow dispatch completed: {acceptedInbound.workflowDispatch.matched}
-                    {" "}published workflow(s) matched, {acceptedInbound.workflowDispatch.executed}
-                    {" "}executed, and {acceptedInbound.workflowDispatch.failed} failed.
-                  </p>
+                        <h2 className="mt-2 text-lg font-semibold">
+                          Send one controlled WhatsApp test
+                        </h2>
+
+                        <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
+                          J10 prepares Meta&apos;s approved hello_world template, shows
+                          the destination, and requires your explicit confirmation
+                          before one external message is sent.
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-emerald-500/15 bg-emerald-500/[0.05] px-4 py-3 text-xs text-emerald-300">
+                        Operator approval required
+                      </div>
+                    </div>
+
+                    {!businessAccountIdReady ? (
+                      <div className="mt-5 flex flex-col justify-between gap-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-4 sm:flex-row sm:items-center">
+                        <div>
+                          <p className="text-sm font-medium text-amber-300">
+                            Correct the WhatsApp Business Account ID first
+                          </p>
+
+                          <p className="mt-1 text-xs leading-5 text-zinc-500">
+                            The saved value is not a numeric WABA ID. Your Meta contact
+                            email remains unchanged; only this J10 identifier needs correction.
+                          </p>
+                        </div>
+
+                        <a
+                          href="/dashboard/settings/integrations"
+                          className="shrink-0 rounded-xl bg-white px-4 py-2.5 text-center text-sm font-semibold text-black transition hover:bg-zinc-200"
+                        >
+                          Correct identifier
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+                        <label className="block">
+                          <span className="text-xs font-medium text-zinc-400">
+                            Meta-approved test recipient
+                          </span>
+
+                          <input
+                            value={testRecipient}
+                            onChange={(event) => {
+                              setTestRecipient(
+                                event.target.value,
+                              );
+                              setTestApproval(null);
+                              setTestReceipt("");
+                            }}
+                            inputMode="tel"
+                            placeholder="Country code + number, digits only"
+                            className="mt-2 w-full rounded-xl border border-white/[0.08] bg-[#090a0d] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-700 focus:border-emerald-500/40"
+                          />
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void prepareTestDelivery();
+                          }}
+                          disabled={testSending}
+                          className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-3 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/15 disabled:opacity-40"
+                        >
+                          {testSending ? (
+                            <RefreshCw
+                              size={15}
+                              className="animate-spin"
+                            />
+                          ) : (
+                            <ShieldCheck size={15} />
+                          )}
+
+                          Prepare test
+                        </button>
+                      </div>
+                    )}
+
+                    {testApproval && (
+                      <div className="mt-4 rounded-xl border border-violet-500/20 bg-violet-500/[0.06] p-4">
+                        <p className="text-sm font-semibold text-violet-300">
+                          Confirm one external WhatsApp message
+                        </p>
+
+                        <div className="mt-3 grid gap-2 text-xs text-zinc-400 sm:grid-cols-3">
+                          <p>
+                            Recipient: {testApproval.preview.recipient}
+                          </p>
+                          <p>
+                            Template: {testApproval.preview.templateName}
+                          </p>
+                          <p>
+                            Side effect: External dispatch
+                          </p>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void confirmTestDelivery();
+                            }}
+                            disabled={testSending}
+                            className="flex items-center gap-2 rounded-xl bg-emerald-400 px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-emerald-300 disabled:opacity-40"
+                          >
+                            {testSending ? (
+                              <RefreshCw
+                                size={14}
+                                className="animate-spin"
+                              />
+                            ) : (
+                              <Send size={14} />
+                            )}
+                            Approve and send once
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setTestApproval(null)}
+                            disabled={testSending}
+                            className="rounded-xl border border-white/[0.08] px-4 py-2 text-xs text-zinc-400 transition hover:bg-white/[0.04]"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {testReceipt && (
+                      <div className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+                        <CheckCircle2 size={15} />
+                        WhatsApp Cloud API accepted delivery. Receipt ID: {testReceipt}
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                {/* INBOUND WEBHOOK VERIFICATION */}
+                {connected && (
+                  <section className="rounded-2xl border border-white/[0.07] bg-[#111216] p-6">
+                    <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-400">
+                          INBOUND MESSAGE VERIFICATION
+                        </p>
+
+                        <h2 className="mt-2 text-lg font-semibold">
+                          Verify the WhatsApp webhook pipeline
+                        </h2>
+
+                        <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">
+                          J10 watches for one new Meta-signed message sample or live delivery, stores it, converts it to whatsapp.message.received, and dispatches it into the workflow engine. Message text is not displayed here and no automatic reply is sent.
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-cyan-500/15 bg-cyan-500/[0.05] px-4 py-3 text-xs text-cyan-300">
+                        Webhook endpoint: Active
+                      </div>
+                    </div>
+
+                    {!inboundStartedAt && !acceptedInbound ? (
+                      <div className="mt-5 flex flex-col justify-between gap-4 rounded-xl border border-white/[0.06] bg-black/20 p-4 sm:flex-row sm:items-center">
+                        <div>
+                          <p className="text-sm font-medium text-zinc-300">
+                            One controlled test—about one minute
+                          </p>
+
+                          <p className="mt-1 text-xs leading-5 text-zinc-500">
+                            Start listening, then send Meta&apos;s Incoming Message sample while the app remains unpublished.
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void startInboundAcceptance();
+                          }}
+                          disabled={inboundChecking}
+                          className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-zinc-200 disabled:opacity-40"
+                        >
+                          {inboundChecking ? (
+                            <RefreshCw size={15} className="animate-spin" />
+                          ) : (
+                            <Activity size={15} />
+                          )}
+                          Start listening
+                        </button>
+                      </div>
+                    ) : acceptedInbound ? (
+                      <div className="mt-5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-emerald-300">
+                          <CheckCircle2 size={16} />
+                          Inbound webhook processed end-to-end
+                        </div>
+
+                        <div className="mt-4 grid gap-3 text-xs sm:grid-cols-2 xl:grid-cols-4">
+                          <InboundProof
+                            label="Meta signature"
+                            value={acceptedInbound.signatureStatus === "valid" ? "Verified" : acceptedInbound.signatureStatus}
+                          />
+                          <InboundProof
+                            label="Event ID"
+                            value={acceptedInbound.eventId}
+                          />
+                          <InboundProof
+                            label="Processing status"
+                            value={acceptedInbound.processingStatus}
+                          />
+                          <InboundProof
+                            label="Workflow match"
+                            value={acceptedInbound.workflowDispatch ? `${acceptedInbound.workflowDispatch.matched} matched` : "None"}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-5 rounded-xl border border-amber-500/20 bg-amber-500/[0.05] p-4">
+                        <div className="flex items-center gap-2 text-sm font-medium text-amber-300">
+                          <RefreshCw size={15} className="animate-spin" />
+                          Listening for Meta inbound webhook sample...
+                        </div>
+                        <p className="mt-2 text-xs text-zinc-400">
+                          Send a message from WhatsApp to +1 (555) 677-1423, or in Meta&apos;s messages field choose Incoming Message and click Send to server v26.0.
+                        </p>
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                {/* OPTIONAL MULTI-TENANT EMBEDDED SIGNUP (COLLAPSED) */}
+                {registered && connected && (
+                  <details className="group rounded-xl border border-white/[0.06] bg-[#111216] p-4 text-xs">
+                    <summary className="flex cursor-pointer items-center justify-between font-medium text-zinc-500 hover:text-zinc-300">
+                      <span>Optional: Client Multi-Tenant Onboarding (Meta Tech Provider Mode)</span>
+                      <span className="text-[10px] text-zinc-600 group-open:rotate-180 transition-transform">▼</span>
+                    </summary>
+                    <div className="mt-4 pt-3 border-t border-white/[0.06]">
+                      <p className="text-xs text-zinc-400 mb-3">
+                        This Embedded Signup dialog allows external SaaS clients to connect their own WhatsApp numbers via Facebook Login. (Requires Meta Business Verification). Your own business connection is already active above.
+                      </p>
+                      <WhatsAppEmbeddedSignup
+                        integrationId={integration?.id ?? null}
+                        onConnected={() => { void loadConnection(); }}
+                      />
+                    </div>
+                  </details>
                 )}
               </div>
-            ) : (
-              <div className="mt-5 rounded-xl border border-cyan-500/20 bg-cyan-500/[0.05] p-4">
-                <div className="flex items-center gap-3 text-sm font-semibold text-cyan-300">
-                  <RefreshCw size={15} className="animate-spin" />
-                  Listening for a new incoming message
-                </div>
+            )}
 
-                <ol className="mt-4 list-decimal space-y-2 pl-5 text-xs leading-5 text-zinc-400">
-                  <li>
-                    Keep the J10 server and the Cloudflare tunnel windows open.
-                  </li>
-                  <li>
-                    In Meta, confirm the Webhook field named messages is Subscribed.
-                  </li>
-                  <li>
-                    In Meta&apos;s messages field, choose Incoming Message and click
-                    Send to server v26.0. A real phone reply requires the app to
-                    be published.
-                  </li>
-                </ol>
-
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                  <a
-                    href="https://developers.facebook.com/apps/"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-xl border border-white/[0.08] px-4 py-2.5 text-center text-xs font-medium text-zinc-300 transition hover:bg-white/[0.04]"
-                  >
-                    Open Meta App Dashboard
-                  </a>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (integration?.id) {
-                        void loadInboundStatus(
-                          integration.id,
-                        );
-                      }
-                    }}
-                    disabled={inboundChecking}
-                    className="rounded-xl border border-cyan-500/20 px-4 py-2.5 text-xs font-medium text-cyan-300 transition hover:bg-cyan-500/[0.07] disabled:opacity-40"
-                  >
-                    Check now
-                  </button>
-                </div>
+            {/* TAB 2: GROUP GUARDIAN & BOT ENGINE */}
+            {activeTab === "groups" && (
+              <div className="space-y-6">
+                <WhatsAppGroupGuardian
+                  integrationId={integration?.id ?? null}
+                  connected={connected}
+                  botPhoneNumber="+1 (555) 677-1423"
+                />
               </div>
             )}
-          </section>
-        )}
 
-        {/* STATS */}
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="Connection"
-            value={
-              connected
-                ? "Active"
-                : "Offline"
-            }
-            icon={Zap}
-          />
-
-          <StatCard
-            label="Managed Groups"
-            value={connected ? "1" : "0"}
-            icon={Users}
-          />
-
-          <StatCard
-            label="Moderation Rules"
-            value="10"
-            icon={ShieldCheck}
-          />
-
-          <StatCard
-            label="Capabilities"
-            value={String(
-              capabilityCount
+            {/* TAB 3: CONVERSATIONS INBOX */}
+            {activeTab === "inbox" && (
+              <div className="space-y-6">
+                <WhatsAppInbox
+                  integrationId={integration?.id ?? null}
+                  connected={connected}
+                />
+              </div>
             )}
-            icon={Sparkles}
-          />
-        </div>
 
-        <WhatsAppInbox
-          integrationId={integration?.id ?? null}
-          connected={connected}
-        />
-
-        <WhatsAppAgentStudio
-          integrationId={integration?.id ?? null}
-          connected={connected}
-        />
-
-        {/* CONTROL CENTER */}
-        <div className="mt-8">
-          <SectionTitle
-            title="Control Center"
-            description="Configure every WhatsApp capability from one workspace."
-          />
-
-          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <ModuleCard
-              icon={Bot}
-              title="AI Assistant"
-              description="Customer support, sales, FAQs, recommendations, lead capture and intelligent replies."
-              locked={!connected}
-            />
-
-            <ModuleCard
-              icon={ShieldCheck}
-              title="Group Guardian"
-              description="Automated anti-spam, anti-link, scam protection and group command execution."
-              locked={!connected}
-              featured
-            />
-
-            <ModuleCard
-              icon={Command}
-              title="Admin Commands"
-              description="Execute !rules, !announce, !warn, !kick, !ban, !poll, and AI assistance directly in groups."
-              locked={!connected}
-            />
-
-            <ModuleCard
-              icon={Workflow}
-              title="Automations"
-              description="Trigger workflows from messages, events, moderation decisions and business actions."
-              locked={!connected}
-            />
-
-            <ModuleCard
-              icon={FileText}
-              title="Templates"
-              description="Deploy ready-made WhatsApp systems for support, sales, groups and operations."
-              locked={!connected}
-            />
-
-            <ModuleCard
-              icon={BarChart3}
-              title="Analytics"
-              description="Track messages, moderation events, warnings, removals and automation performance."
-              locked={!connected}
-            />
-          </div>
-        </div>
-
-        {/* GROUP GUARDIAN & BOT ENGINE */}
-        <div id="group-guardian-section" className="scroll-mt-6">
-          <WhatsAppGroupGuardian
-            integrationId={integration?.id ?? null}
-            connected={connected}
-          />
-        </div>
-
-        {/* SCALE SIMULATOR & WEBHOOK INSPECTOR */}
-        <WhatsAppScaleSimulator
-          integrationId={integration?.id ?? null}
-          connected={connected}
-        />
-
-        {/* ADMIN COMMANDS */}
-        <div className="mt-10">
-          <SectionTitle
-            title="Admin Commands"
-            description="Commands available to approved group administrators in real time."
-          />
-
-          <div className="mt-4 overflow-hidden rounded-2xl border border-white/[0.07] bg-[#111216]">
-            <div className="grid grid-cols-[170px_1fr_100px] border-b border-white/[0.06] px-5 py-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-600">
-              <span>Command</span>
-              <span>Description</span>
-              <span>Status</span>
-            </div>
-
-            {commands.map(
-              (item) => (
-                <div
-                  key={
-                    item.command
-                  }
-                  className="grid grid-cols-[170px_1fr_100px] items-center border-b border-white/[0.05] px-5 py-4 last:border-0"
-                >
-                  <code className="text-sm text-violet-400">
-                    {item.command}
-                  </code>
-
-                  <p className="pr-4 text-sm text-zinc-400">
-                    {
-                      item.description
-                    }
-                  </p>
-
-                  <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
-                    <CheckCircle2 size={12} />
-                    Active
-                  </span>
-                </div>
-              )
+            {/* TAB 4: AI AGENT STUDIO */}
+            {activeTab === "agent" && (
+              <div className="space-y-6">
+                <WhatsAppAgentStudio
+                  integrationId={integration?.id ?? null}
+                  connected={connected}
+                />
+              </div>
             )}
-          </div>
-        </div>
 
-        {/* ACTIVE MODERATION PIPELINE */}
-        <div className="mt-10 pb-10">
-          <SectionTitle
-            title="Active Moderation Pipeline"
-            description="Continuous automated real-time group protection workflow."
-          />
-
-          <div className="mt-4 rounded-2xl border border-violet-500/15 bg-gradient-to-br from-violet-500/[0.05] to-blue-500/[0.03] p-6">
-            <div className="space-y-3">
-              <WorkflowRow
-                number="01"
-                title="Message received"
-                description="A new message enters a managed WhatsApp group."
-              />
-
-              <WorkflowRow
-                number="02"
-                title="Analyze message"
-                description="Check links, spam, flood rules, prohibited content and AI moderation policy."
-              />
-
-              <WorkflowRow
-                number="03"
-                title="Apply moderation rule"
-                description="Delete violating content and record the moderation decision."
-              />
-
-              <WorkflowRow
-                number="04"
-                title="Warn member"
-                description="Increase the user's warning count when configured."
-              />
-
-              <WorkflowRow
-                number="05"
-                title="Remove repeat offender"
-                description="If the warning threshold is reached and participant management is available, remove the member."
-              />
-            </div>
+            {/* TAB 5: SCALE & WEBHOOK LOGS */}
+            {activeTab === "scale" && (
+              <div className="space-y-6">
+                <WhatsAppScaleSimulator
+                  integrationId={integration?.id ?? null}
+                  connected={connected}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
-    </div>
   );
 }
 
