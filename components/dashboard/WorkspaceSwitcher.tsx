@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Building,
   Building2,
@@ -31,6 +31,7 @@ export default function WorkspaceSwitcher() {
   );
   const [menuOpen, setMenuOpen] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [isLivePersisted, setIsLivePersisted] = useState(false);
 
   // Form state for onboarding new client workspace
   const [clientName, setClientName] = useState("");
@@ -39,6 +40,50 @@ export default function WorkspaceSwitcher() {
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [notice, setNotice] = useState("");
+
+  // Load real authorized workspaces from server
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadServerWorkspaces() {
+      try {
+        const res = await fetch("/api/workspaces", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (isMounted && data.success && Array.isArray(data.workspaces) && data.workspaces.length > 0) {
+          const mapped: Workspace[] = data.workspaces.map((w: any) => ({
+            id: w.id,
+            name: w.name,
+            slug: w.slug,
+            type: w.workspace_type || "client",
+            plan: w.plan || "growth",
+            monthlySubscriptionPrice: PLAN_PRICING[w.plan as WorkspacePlan] || 499,
+            status: w.status || "active",
+            brandName: w.brand_name || w.name,
+            accentColor: w.accent_color || "#3B82F6",
+            clientContactName: "Account Administrator",
+            clientContactEmail: "",
+            createdAt: w.created_at || new Date().toISOString(),
+          }));
+
+          setWorkspaces(mapped);
+          setIsLivePersisted(true);
+          if (data.activeWorkspace?.id) {
+            setActiveWorkspaceId(data.activeWorkspace.id);
+          } else {
+            setActiveWorkspaceId(mapped[0].id);
+          }
+        }
+      } catch {
+        // Retain sandbox state in local/disconnected dev mode
+      }
+    }
+
+    void loadServerWorkspaces();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const activeWorkspace = useMemo(() => {
     return (
@@ -50,16 +95,77 @@ export default function WorkspaceSwitcher() {
     return calculateAgencySubscriptionRevenue(workspaces);
   }, [workspaces]);
 
-  function handleSelectWorkspace(id: string) {
+  async function handleSelectWorkspace(id: string) {
     setActiveWorkspaceId(id);
     setMenuOpen(false);
-    setNotice(`Switched to workspace: ${workspaces.find((w) => w.id === id)?.name}`);
+
+    const targetWs = workspaces.find((w) => w.id === id);
+    setNotice(`Switched to workspace: ${targetWs?.name}`);
     setTimeout(() => setNotice(""), 3000);
+
+    // If connected to persistent backend, notify server
+    if (isLivePersisted) {
+      try {
+        await fetch("/api/workspaces/switch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workspaceId: id }),
+        });
+      } catch (err) {
+        console.warn("Failed to persist workspace selection to server:", err);
+      }
+    }
   }
 
-  function handleCreateClientWorkspace(e: React.FormEvent) {
+  async function handleCreateClientWorkspace(e: React.FormEvent) {
     e.preventDefault();
     if (!clientName.trim() || !contactEmail.trim()) return;
+
+    if (isLivePersisted) {
+      try {
+        const res = await fetch("/api/workspaces", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: clientName.trim(),
+            brandName: brandName.trim() || clientName.trim(),
+            plan,
+            workspaceType: "client",
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.workspace) {
+          const w = data.workspace;
+          const newWs: Workspace = {
+            id: w.id,
+            name: w.name,
+            slug: w.slug,
+            type: "client",
+            plan: w.plan || plan,
+            monthlySubscriptionPrice: PLAN_PRICING[plan],
+            status: "active",
+            brandName: w.brand_name || w.name,
+            accentColor: w.accent_color || "#3B82F6",
+            clientContactName: contactName.trim() || "Account Lead",
+            clientContactEmail: contactEmail.trim(),
+            createdAt: w.created_at || new Date().toISOString(),
+          };
+          setWorkspaces((prev) => [...prev, newWs]);
+          setActiveWorkspaceId(newWs.id);
+          setAddModalOpen(false);
+          setMenuOpen(false);
+          setClientName("");
+          setBrandName("");
+          setContactName("");
+          setContactEmail("");
+          setNotice(`New client provisioned in database: ${newWs.name}`);
+          setTimeout(() => setNotice(""), 4500);
+          return;
+        }
+      } catch (err) {
+        console.warn("Failed to create workspace on server, falling back:", err);
+      }
+    }
 
     const newWs = createClientWorkspace(
       {

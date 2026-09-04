@@ -6,6 +6,7 @@ export interface StripeCheckoutResult {
   amount: number;
   currency: string;
   mode: "live" | "simulated";
+  provider_mode: "live" | "sandbox";
 }
 
 /**
@@ -21,6 +22,7 @@ export async function createStripePaymentLink({
   customerEmail,
   productId,
   sku,
+  metadata,
 }: {
   title: string;
   description?: string;
@@ -29,6 +31,7 @@ export async function createStripePaymentLink({
   customerEmail?: string;
   productId?: string;
   sku?: string;
+  metadata?: Record<string, string>;
 }): Promise<StripeCheckoutResult> {
   const cleanTitle = stripEmojis(title);
   const cleanDesc = stripEmojis(description || "");
@@ -54,6 +57,15 @@ export async function createStripePaymentLink({
         params.append("customer_email", customerEmail);
       }
 
+      // Attach internal metadata (workspace_id, contact_id, thread_id, internal_checkout_id)
+      if (metadata) {
+        for (const [key, value] of Object.entries(metadata)) {
+          if (value) {
+            params.append(`metadata[${key}]`, String(value));
+          }
+        }
+      }
+
       const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
         method: "POST",
         headers: {
@@ -71,6 +83,7 @@ export async function createStripePaymentLink({
           amount,
           currency,
           mode: "live",
+          provider_mode: "live",
         };
       }
     } catch (err) {
@@ -88,5 +101,6 @@ export async function createStripePaymentLink({
     amount,
     currency,
     mode: "simulated",
+    provider_mode: "sandbox",
   };
 }

@@ -1,24 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 import {
-  processStripeSubscriptionEvent,
+  processStripeWebhookEvent,
   verifyStripeWebhookSignature,
 } from "@/lib/billing/stripe-webhook";
-
-function getServiceSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SECRET_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
-
-  return createClient(url, key, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
+import { createAdminSupabaseClient } from "@/lib/auth";
 
 export async function POST(request: Request) {
   try {
@@ -40,15 +26,18 @@ export async function POST(request: Request) {
         );
       }
     } else {
-      // If no secret configured and running in development, allow testing
-      const isDev = process.env.NODE_ENV !== "production" || process.env.J10_AI_MODE === "development";
+      const isDev =
+        process.env.NODE_ENV !== "production" ||
+        process.env.J10_AI_MODE === "development";
       if (!isDev) {
         return NextResponse.json(
           { error: "STRIPE_WEBHOOK_SECRET is not configured." },
           { status: 500 }
         );
       }
-      console.warn("Stripe webhook invoked without STRIPE_WEBHOOK_SECRET in development mode.");
+      console.warn(
+        "Stripe webhook invoked without STRIPE_WEBHOOK_SECRET in development/test mode."
+      );
     }
 
     let event: any;
@@ -68,24 +57,37 @@ export async function POST(request: Request) {
       );
     }
 
-    const supabase = getServiceSupabase();
-    const result = await processStripeSubscriptionEvent(supabase, event);
+    const payloadHash = createHash("sha256").update(rawBody).digest("hex");
+    const supabase = createAdminSupabaseClient();
+    const result = await processStripeWebhookEvent(supabase, event, payloadHash);
+
+    if (!result.processed && result.error) {
+      return NextResponse.json(
+        {
+          received: false,
+          error: result.error,
+          action: result.action,
+        },
+        { status: 400 }
+      );
+    }
 
     return NextResponse.json({
       received: true,
       eventType: event.type,
       action: result.action,
+      idempotent: result.idempotent || false,
+      checkoutId: result.checkoutId,
+      ledgerId: result.ledgerId,
       subscriptionId: result.subscriptionId,
     });
   } catch (error) {
-    console.error("Stripe webhook processing error:", error);
+    const sanitizedMessage =
+      error instanceof Error ? error.message : "Stripe webhook internal processing error.";
+    console.error("Stripe webhook processing error:", sanitizedMessage);
+
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Stripe webhook internal processing error.",
-      },
+      { error: "Stripe webhook internal processing error." },
       { status: 500 }
     );
   }

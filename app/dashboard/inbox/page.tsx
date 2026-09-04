@@ -51,6 +51,8 @@ export default function UnifiedInboxPage() {
   const [stageFilter, setStageFilter] = useState<"all" | InboxDealStage>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityOnly, setPriorityOnly] = useState(false);
+  const [isLivePersisted, setIsLivePersisted] = useState(false);
+  const [isLoadingThreads, setIsLoadingThreads] = useState(false);
 
   // Message reply composer state
   const [replyBody, setReplyBody] = useState("");
@@ -61,6 +63,59 @@ export default function UnifiedInboxPage() {
   const [stripeAmount, setStripeAmount] = useState<number>(4800);
   const [stripeProduct, setStripeProduct] = useState("Enterprise AI Rollout");
   const [generatingStripe, setGeneratingStripe] = useState(false);
+
+  // Fetch persistent threads from API
+  async function loadThreads(silent = false) {
+    if (!silent) setIsLoadingThreads(true);
+    try {
+      const res = await fetch("/api/inbox/threads", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.threads)) {
+          setThreads(data.threads);
+          setIsLivePersisted(true);
+          if (data.threads.length > 0 && (!selectedThreadId || !data.threads.some((t: any) => t.id === selectedThreadId))) {
+            setSelectedThreadId(data.threads[0].id);
+          }
+          return;
+        }
+      }
+    } catch {
+      // Retain fallback in local disconnected mode
+    } finally {
+      if (!silent) setIsLoadingThreads(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadThreads();
+  }, []);
+
+  // Fetch full messages for active thread when selected
+  useEffect(() => {
+    if (!isLivePersisted || !selectedThreadId) return;
+
+    let isCurrent = true;
+    async function fetchThreadDetails() {
+      try {
+        const res = await fetch(`/api/inbox/threads/${selectedThreadId}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (isCurrent && data.success && data.thread) {
+          setThreads((prev) =>
+            prev.map((t) => (t.id === selectedThreadId ? { ...t, ...data.thread } : t)),
+          );
+        }
+      } catch {
+        // Keep current state
+      }
+    }
+
+    void fetchThreadDetails();
+    return () => {
+      isCurrent = false;
+    };
+  }, [selectedThreadId, isLivePersisted]);
 
   const activeThread = useMemo(() => {
     return threads.find((t) => t.id === selectedThreadId) || threads[0] || null;
@@ -90,22 +145,67 @@ export default function UnifiedInboxPage() {
     );
   }
 
-  function handleStageChange(newStage: InboxDealStage) {
+  async function handleStageChange(newStage: InboxDealStage) {
     if (!activeThread) return;
     const updated = advanceThreadStage(activeThread, newStage);
     setThreads((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
     setStatusNotice(`Deal stage advanced to ${STAGE_METADATA[newStage].label}`);
     setTimeout(() => setStatusNotice(""), 3500);
+
+    if (isLivePersisted) {
+      try {
+        await fetch(`/api/inbox/threads/${activeThread.id}/stage`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dealStage: newStage }),
+        });
+      } catch (err) {
+        console.warn("Failed to persist stage change to server:", err);
+      }
+    }
   }
 
   async function handleSendReply() {
     if (!activeThread || !replyBody.trim()) return;
 
     setIsSending(true);
+    const textToSend = replyBody.trim();
     try {
+      if (isLivePersisted) {
+        const res = await fetch(`/api/inbox/threads/${activeThread.id}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            body: textToSend,
+            direction: "outbound",
+            agentName: "Sarah Chen (Sales Specialist)",
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.message) {
+          const newMsg = data.message;
+          setThreads((prev) =>
+            prev.map((t) =>
+              t.id === activeThread.id
+                ? {
+                    ...t,
+                    lastMessageSnippet: textToSend,
+                    lastMessageTimestamp: newMsg.timestamp,
+                    messages: [...t.messages, newMsg],
+                  }
+                : t,
+            ),
+          );
+          setReplyBody("");
+          setStatusNotice("Message delivered and persisted to database");
+          setTimeout(() => setStatusNotice(""), 3000);
+          return;
+        }
+      }
+
       const updated = appendThreadReply(activeThread, {
         threadId: activeThread.id,
-        body: replyBody.trim(),
+        body: textToSend,
         agentName: "Sarah Chen (Sales Specialist)",
       });
 
@@ -129,7 +229,8 @@ export default function UnifiedInboxPage() {
         body: JSON.stringify({
           productId: "custom-inbox-order",
           title: stripeProduct,
-          unitAmountCents: Math.round(stripeAmount * 100),
+          amount: stripeAmount,
+          threadId: activeThread.id,
           customerPhone: activeThread.contactIdentifier,
           customerName: activeThread.contactName,
         }),
@@ -140,7 +241,44 @@ export default function UnifiedInboxPage() {
         data.checkoutUrl ||
         `https://checkout.stripe.com/c/pay/cs_test_${Math.random().toString(36).slice(2, 10)}`;
 
-      const paymentMessage = `Here is your direct Stripe invoice for ${stripeProduct} ($${stripeAmount.toLocaleString()} USD):\n${checkoutUrl}`;
+      const paymentMessage = `Here is your official Stripe checkout link for ${stripeProduct} ($${stripeAmount.toLocaleString()} USD):\n${checkoutUrl}`;
+
+      if (isLivePersisted) {
+        const msgRes = await fetch(`/api/inbox/threads/${activeThread.id}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            body: paymentMessage,
+            direction: "outbound",
+            agentName: "Stripe Billing Hub",
+            stripePayment: {
+              amount: stripeAmount,
+              productName: stripeProduct,
+              checkoutUrl,
+            },
+          }),
+        });
+        const msgData = await msgRes.json();
+        if (msgData.success && msgData.message) {
+          setThreads((prev) =>
+            prev.map((t) =>
+              t.id === activeThread.id
+                ? {
+                    ...t,
+                    lastMessageSnippet: paymentMessage,
+                    lastMessageTimestamp: msgData.message.timestamp,
+                    messages: [...t.messages, msgData.message],
+                  }
+                : t,
+            ),
+          );
+          setStatusNotice(
+            `Stripe checkout record persisted and attached ($${stripeAmount.toLocaleString()})`,
+          );
+          setTimeout(() => setStatusNotice(""), 4000);
+          return;
+        }
+      }
 
       const updated = appendThreadReply(activeThread, {
         threadId: activeThread.id,
