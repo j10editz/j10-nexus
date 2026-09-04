@@ -15,4 +15,15 @@ describe("landing page navigation", () => {
     expect(source).toContain("href={moduleDestinations[active.id]");
     expect(source).toContain('whatsapp: "/dashboard/whatsapp"');
   });
+
+  it("provides direct card navigation links alongside interactive workstation inspection", async () => {
+    const source = await readFile("components/Features.tsx", "utf8");
+    // Direct link on every card to prevent UX confusion
+    expect(source).toContain("href={destination}");
+    expect(source).toContain("Open");
+    // Workstation console with execution flow and specs
+    expect(source).toContain("Step-By-Step Execution Flow");
+    expect(source).toContain("System & Security Specs");
+    expect(source).toContain("Runtime Pipeline");
+  });
 });
