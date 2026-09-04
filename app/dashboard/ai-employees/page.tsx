@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import {
+  ArrowUpRight,
   Ban,
   BarChart3,
   Bot,
@@ -21,14 +22,18 @@ import {
   Gauge,
   ListFilter,
   LoaderCircle,
+  Play,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
   ShieldCheck,
+  Sparkles,
   TriangleAlert,
   UserRound,
   UsersRound,
   X,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -39,6 +44,8 @@ import Filters from "@/components/ai-employees/Filters";
 import EmployeeGrid from "@/components/ai-employees/EmployeeGrid";
 import CreateEmployeeModal from "@/components/ai-employees/CreateEmployeeModal";
 import EmployeeDetailsModal from "@/components/ai-employees/EmployeeDetailsModal";
+import SalesAgentCRMPanel from "@/components/ai-employees/SalesAgentCRMPanel";
+import WorkforceTaskDispatcher from "@/components/ai-employees/WorkforceTaskDispatcher";
 
 import { createClient } from "@/lib/supabase";
 
@@ -292,6 +299,22 @@ export default function AIEmployeesPage() {
     useState<WorkforceTask | null>(
       null
     );
+
+  const [activeTab, setActiveTab] =
+    useState<
+      "specialists" | "operations" | "intelligence" | "crm"
+    >("specialists");
+
+  const [taskDispatcherOpen, setTaskDispatcherOpen] =
+    useState(false);
+
+  const [dispatcherEmployeeId, setDispatcherEmployeeId] =
+    useState<string | null>(null);
+
+  function openDispatcherForEmployee(employee: Employee) {
+    setDispatcherEmployeeId(employee.id);
+    setTaskDispatcherOpen(true);
+  }
 
   /*
   ============================================================
@@ -1809,419 +1832,335 @@ export default function AIEmployeesPage() {
 
   return (
     <>
-      <div className="space-y-8">
-        <EmployeeHeader
-          onCreateEmployee={() =>
-            setCreateOpen(
-              true
-            )
-          }
-        />
-
-        <EmployeeStats
-          employees={
-            employeeList
-          }
-        />
-
-        <section className="overflow-hidden rounded-2xl border border-violet-500/15 bg-[#0d0e12]">
-          <div className="flex flex-col gap-4 border-b border-white/[0.07] p-6 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-400">
-                <Bot
-                  size={19}
-                />
-              </div>
-
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-400">
-                  J10 WORKFORCE ENGINE
-                </p>
-
-                <h2 className="mt-1 text-xl font-semibold text-white">
-                  AI Task Operations
-                </h2>
-
-                <p className="mt-1 text-sm text-zinc-600">
-                  Central task execution across the J10 AI workforce.
-                </p>
-              </div>
+      <div className="space-y-6">
+        {/* COMMAND HEADER */}
+        <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-300">
+                J10 AUTONOMOUS WORKFORCE
+              </span>
+              <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Real-Time Telemetry
+              </span>
             </div>
+            <h1 className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight text-white">
+              AI Workforce Command
+            </h1>
+            <p className="mt-1 max-w-2xl text-xs sm:text-sm text-zinc-400">
+              Deploy, orchestrate, and observe autonomous AI specialists powering your business 24/7.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                setDispatcherEmployeeId(null);
+                setTaskDispatcherOpen(true);
+              }}
+              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-violet-600/25 transition hover:brightness-110 active:scale-95"
+            >
+              <Zap size={14} className="fill-white" />
+              Dispatch Task
+            </button>
 
             <button
               type="button"
-              disabled={
-                workforceLoading
-              }
-              onClick={() =>
-                void loadWorkforceTasks()
-              }
-              className="flex items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
+              onClick={() => setCreateOpen(true)}
+              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-white/[0.08] active:scale-95"
+            >
+              <Plus size={14} />
+              Deploy Specialist
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                void loadEmployees();
+                void loadWorkforceTasks();
+              }}
+              disabled={loading || workforceLoading}
+              className="flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] p-2.5 text-zinc-400 transition hover:bg-white/[0.08] hover:text-white disabled:opacity-40"
+              title="Refresh Telemetry"
             >
               <RefreshCw
                 size={14}
-                className={
-                  workforceLoading
-                    ? "animate-spin"
-                    : ""
-                }
+                className={loading || workforceLoading ? "animate-spin" : ""}
               />
-
-              Refresh Tasks
             </button>
           </div>
+        </div>
 
-          <div className="p-6">
-            {/* TASK OPERATIONS */}
+        {/* EXECUTIVE KPI BAR (2x2 on mobile, 4-col on desktop) */}
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <div className="rounded-2xl border border-white/[0.08] bg-[#111217] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                Active Specialists
+              </span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                <Bot size={16} />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <p className="text-xl sm:text-2xl font-bold text-white">
+                {employeeList.filter((e) => e.status === "Running").length}
+              </p>
+              <span className="text-[11px] text-zinc-500">
+                of {employeeList.length} deployed
+              </span>
+            </div>
+          </div>
 
+          <div className="rounded-2xl border border-white/[0.08] bg-[#111217] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                Tasks Completed
+              </span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/10 text-violet-400">
+                <CheckCircle2 size={16} />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <p className="text-xl sm:text-2xl font-bold text-white">
+                {workforceSummary.completed.toLocaleString()}
+              </p>
+              <span className="text-[11px] text-emerald-400 font-medium">
+                {workforceAnalytics.completionRate}% rate
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/[0.08] bg-[#111217] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                Revenue Impact
+              </span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                <CircleDollarSign size={16} />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <p className="text-xl sm:text-2xl font-bold text-emerald-400">
+                $
+                {employeeList
+                  .reduce((sum, e) => sum + (e.revenueGenerated || 0), 0)
+                  .toLocaleString()}
+              </p>
+              <span className="text-[11px] text-zinc-500">tracked ROI</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/[0.08] bg-[#111217] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                Inference Engines
+              </span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
+                <Cpu size={16} />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <p className="text-xl sm:text-2xl font-bold text-white">
+                Multi-Model
+              </p>
+              <span className="text-[11px] text-violet-300 font-mono">
+                GPT-4o / Claude / Gemini
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 4-TAB NAVIGATION DESK */}
+        <div className="border-b border-white/[0.08] pb-3">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab("specialists")}
+              className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition shrink-0 ${
+                activeTab === "specialists"
+                  ? "bg-violet-600 text-white shadow-lg shadow-violet-600/25"
+                  : "border border-white/[0.08] bg-[#111216] text-zinc-400 hover:text-white hover:bg-white/[0.04]"
+              }`}
+            >
+              <Bot
+                size={14}
+                className={
+                  activeTab === "specialists" ? "text-white" : "text-violet-400"
+                }
+              />
+              AI Specialists
+              <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                {employeeList.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("operations")}
+              className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition shrink-0 ${
+                activeTab === "operations"
+                  ? "bg-violet-600 text-white shadow-lg shadow-violet-600/25"
+                  : "border border-white/[0.08] bg-[#111216] text-zinc-400 hover:text-white hover:bg-white/[0.04]"
+              }`}
+            >
+              <Zap
+                size={14}
+                className={
+                  activeTab === "operations" ? "text-white" : "text-amber-400"
+                }
+              />
+              Task Dispatch & Feed
+              <span className="rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
+                {workforceTasks.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("intelligence")}
+              className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition shrink-0 ${
+                activeTab === "intelligence"
+                  ? "bg-violet-600 text-white shadow-lg shadow-violet-600/25"
+                  : "border border-white/[0.08] bg-[#111216] text-zinc-400 hover:text-white hover:bg-white/[0.04]"
+              }`}
+            >
+              <BarChart3
+                size={14}
+                className={
+                  activeTab === "intelligence"
+                    ? "text-white"
+                    : "text-emerald-400"
+                }
+              />
+              Workforce Intelligence & ROI
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("crm")}
+              className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition shrink-0 ${
+                activeTab === "crm"
+                  ? "bg-violet-600 text-white shadow-lg shadow-violet-600/25"
+                  : "border border-white/[0.08] bg-[#111216] text-zinc-400 hover:text-white hover:bg-white/[0.04]"
+              }`}
+            >
+              <ShieldCheck
+                size={14}
+                className={activeTab === "crm" ? "text-white" : "text-cyan-400"}
+              />
+              Sales Agent & CRM Pipeline
+            </button>
+          </div>
+        </div>
+
+        {/* TAB 1: AI SPECIALISTS */}
+        {activeTab === "specialists" && (
+          <div className="space-y-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <SearchBar value={search} onChange={setSearch} />
+              <Filters
+                status={status}
+                department={department}
+                onStatusChange={setStatus}
+                onDepartmentChange={setDepartment}
+              />
+            </div>
+
+            {loading ? (
+              <div className="rounded-2xl border border-white/[0.07] bg-[#111216] p-12 text-center">
+                <p className="text-sm text-zinc-500">
+                  Loading AI employees...
+                </p>
+              </div>
+            ) : (
+              <EmployeeGrid
+                employees={filteredEmployees}
+                onEmployeeClick={setSelectedEmployee}
+                onAssignTask={openDispatcherForEmployee}
+              />
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: TASK DISPATCH & FEED */}
+        {activeTab === "operations" && (
+          <div className="space-y-6">
+            {/* QUICK DISPATCH LAUNCHER BANNER */}
+            <div className="flex flex-col justify-between gap-4 rounded-2xl border border-violet-500/20 bg-gradient-to-r from-violet-600/10 via-indigo-600/5 to-transparent p-5 sm:flex-row sm:items-center">
+              <div>
+                <div className="flex items-center gap-2 text-violet-300 font-semibold text-sm">
+                  <Sparkles size={15} />
+                  Instant Autonomous Task Execution
+                </div>
+                <p className="mt-1 text-xs text-zinc-400 max-w-xl leading-relaxed">
+                  Dispatch tasks directly to specialized AI agents. Instructions are executed in real time using your connected OpenAI GPT-4o engine.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDispatcherEmployeeId(null);
+                  setTaskDispatcherOpen(true);
+                }}
+                className="flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-2.5 text-xs font-semibold text-white shadow-md shadow-violet-600/25 transition hover:bg-violet-500 active:scale-95 shrink-0"
+              >
+                <Play size={12} className="fill-white" />
+                Dispatch Task Now
+              </button>
+            </div>
+
+            {/* TASK STATUS COUNTERS */}
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <WorkforceStatCard
                 label="Total Tasks"
-                value={
-                  workforceSummary.total
-                }
-                icon={
-                  FileText
-                }
+                value={workforceSummary.total}
+                icon={FileText}
               />
-
               <WorkforceStatCard
                 label="Completed"
-                value={
-                  workforceSummary.completed
-                }
-                icon={
-                  CheckCircle2
-                }
+                value={workforceSummary.completed}
+                icon={CheckCircle2}
               />
-
               <WorkforceStatCard
                 label="Pending"
-                value={
-                  workforceSummary.pending
-                }
-                icon={
-                  Clock3
-                }
+                value={workforceSummary.pending}
+                icon={Clock3}
               />
-
               <WorkforceStatCard
                 label="Running"
-                value={
-                  workforceSummary.running
-                }
-                icon={
-                  LoaderCircle
-                }
+                value={workforceSummary.running}
+                icon={LoaderCircle}
               />
-
               <WorkforceStatCard
                 label="Failed"
-                value={
-                  workforceSummary.failed
-                }
-                icon={
-                  TriangleAlert
-                }
+                value={workforceSummary.failed}
+                icon={TriangleAlert}
               />
             </div>
 
             {workforceError && (
-              <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-                {
-                  workforceError
-                }
+              <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                {workforceError}
               </div>
             )}
 
-            {/* 11L WORKFORCE ANALYTICS */}
-
-            <div className="mt-7 rounded-2xl border border-violet-500/15 bg-violet-500/[0.025] p-5">
-              <div className="flex items-start gap-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-400">
-                  <BarChart3
-                    size={17}
-                  />
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-400">
-                    J10 WORKFORCE ANALYTICS
-                  </p>
-
-                  <h3 className="mt-1 text-lg font-semibold text-white">
-                    Workforce Intelligence
-                  </h3>
-
-                  <p className="mt-1 text-xs text-zinc-600">
-                    Live analytics calculated from J10 AI task execution records.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <AnalyticsMetricCard
-                  icon={
-                    Gauge
-                  }
-                  label="Completion Rate"
-                  value={`${workforceAnalytics.completionRate}%`}
-                  description="Completed vs finished runs"
-                />
-
-                <AnalyticsMetricCard
-                  icon={
-                    CircleDollarSign
-                  }
-                  label="Total AI Cost"
-                  value={
-                    formatCost(
-                      workforceAnalytics.totalCost
-                    )
-                  }
-                  description="Recorded workforce usage"
-                />
-
-                <AnalyticsMetricCard
-                  icon={
-                    ShieldCheck
-                  }
-                  label="API Calls"
-                  value={String(
-                    workforceAnalytics.apiCalls
-                  )}
-                  description="Tasks that called an API"
-                />
-
-                <AnalyticsMetricCard
-                  icon={
-                    UsersRound
-                  }
-                  label="Most Active"
-                  value={
-                    workforceAnalytics
-                      .mostActiveEmployee
-                      ?.name ??
-                    "No activity"
-                  }
-                  description={
-                    workforceAnalytics
-                      .mostActiveEmployee
-                      ? `${workforceAnalytics.mostActiveEmployee.total} assigned tasks`
-                      : "No workforce tasks yet"
-                  }
-                />
-              </div>
-
-              <div className="mt-5 grid gap-4 xl:grid-cols-2">
-                {/* STATUS DISTRIBUTION */}
-
-                <div className="rounded-xl border border-white/[0.07] bg-black/20 p-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                      Task Distribution
-                    </p>
-
-                    <h4 className="mt-1 text-sm font-semibold text-white">
-                      Tasks by Status
-                    </h4>
-                  </div>
-
-                  <div className="mt-5 space-y-4">
-                    <AnalyticsBar
-                      label="Completed"
-                      value={
-                        taskStatusCounts.completed
-                      }
-                      total={
-                        taskStatusCounts.all
-                      }
-                    />
-
-                    <AnalyticsBar
-                      label="Pending"
-                      value={
-                        taskStatusCounts.pending
-                      }
-                      total={
-                        taskStatusCounts.all
-                      }
-                    />
-
-                    <AnalyticsBar
-                      label="Running"
-                      value={
-                        taskStatusCounts.running
-                      }
-                      total={
-                        taskStatusCounts.all
-                      }
-                    />
-
-                    <AnalyticsBar
-                      label="Failed"
-                      value={
-                        taskStatusCounts.failed
-                      }
-                      total={
-                        taskStatusCounts.all
-                      }
-                    />
-
-                    <AnalyticsBar
-                      label="Cancelled"
-                      value={
-                        taskStatusCounts.cancelled
-                      }
-                      total={
-                        taskStatusCounts.all
-                      }
-                    />
-                  </div>
-                </div>
-
-                {/* EXECUTION ENVIRONMENT */}
-
-                <div className="rounded-xl border border-white/[0.07] bg-black/20 p-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                      Runtime Distribution
-                    </p>
-
-                    <h4 className="mt-1 text-sm font-semibold text-white">
-                      Execution Environment
-                    </h4>
-                  </div>
-
-                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                    <RuntimeMetric
-                      label="Development"
-                      value={
-                        workforceAnalytics.developmentExecutions
-                      }
-                    />
-
-                    <RuntimeMetric
-                      label="Live"
-                      value={
-                        workforceAnalytics.liveExecutions
-                      }
-                    />
-
-                    <RuntimeMetric
-                      label="Executed"
-                      value={
-                        workforceAnalytics.executedCount
-                      }
-                    />
-                  </div>
-
-                  <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-                    <div className="flex items-start gap-3">
-                      <Cpu
-                        size={16}
-                        className="mt-0.5 shrink-0 text-violet-400"
-                      />
-
-                      <div>
-                        <p className="text-sm font-medium text-white">
-                          Current Runtime Profile
-                        </p>
-
-                        <p className="mt-1 text-xs leading-5 text-zinc-600">
-                          Development executions remain isolated from live API usage. Cost and API activity are tracked independently per task.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* EMPLOYEE TASK DISTRIBUTION */}
-
-              <div className="mt-4 rounded-xl border border-white/[0.07] bg-black/20 p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                      AI Employee Distribution
-                    </p>
-
-                    <h4 className="mt-1 text-sm font-semibold text-white">
-                      Workforce Task Load
-                    </h4>
-                  </div>
-
-                  <span className="text-xs text-zinc-700">
-                    {
-                      workforceAnalytics
-                        .employeeDistribution
-                        .length
-                    }{" "}
-                    employees with task history
-                  </span>
-                </div>
-
-                {workforceAnalytics
-                  .employeeDistribution
-                  .length ===
-                0 ? (
-                  <div className="mt-5 rounded-xl border border-dashed border-white/[0.08] px-5 py-8 text-center">
-                    <UsersRound
-                      size={20}
-                      className="mx-auto text-zinc-700"
-                    />
-
-                    <p className="mt-3 text-sm text-zinc-500">
-                      No employee task analytics yet.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-5 space-y-3">
-                    {workforceAnalytics
-                      .employeeDistribution
-                      .map(
-                        (
-                          employee
-                        ) => (
-                          <EmployeeAnalyticsRow
-                            key={
-                              employee.id
-                            }
-                            employee={
-                              employee
-                            }
-                            maxTasks={
-                              workforceAnalytics
-                                .mostActiveEmployee
-                                ?.total ??
-                              1
-                            }
-                          />
-                        )
-                      )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* WORKFORCE FILTERS */}
-
-            <div className="mt-7 rounded-xl border border-white/[0.07] bg-black/20 p-4">
+            {/* WORKFORCE TASK FILTERS */}
+            <div className="rounded-xl border border-white/[0.07] bg-black/20 p-4">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-violet-400">
-                    <ListFilter
-                      size={15}
-                    />
+                    <ListFilter size={15} />
                   </div>
-
                   <div>
                     <p className="text-sm font-medium text-white">
-                      Workforce Filters
+                      Task Feed Filters
                     </p>
-
                     <p className="mt-0.5 text-xs text-zinc-600">
-                      Search and isolate specific AI work.
+                      Search and isolate specific AI executions.
                     </p>
                   </div>
                 </div>
@@ -2232,73 +2171,39 @@ export default function AIEmployeesPage() {
                       size={14}
                       className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
                     />
-
                     <input
                       type="text"
-                      value={
-                        workforceTaskSearch
+                      value={workforceTaskSearch}
+                      onChange={(event) =>
+                        setWorkforceTaskSearch(event.target.value)
                       }
-                      onChange={(
-                        event
-                      ) =>
-                        setWorkforceTaskSearch(
-                          event.target.value
-                        )
-                      }
-                      placeholder="Search workforce tasks..."
+                      placeholder="Search tasks or results..."
                       className="h-10 w-full rounded-xl border border-white/[0.08] bg-[#101116] pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-zinc-700 focus:border-violet-500/30"
                     />
                   </div>
 
                   <select
-                    value={
-                      workforceEmployeeFilter
+                    value={workforceEmployeeFilter}
+                    onChange={(event) =>
+                      setWorkforceEmployeeFilter(event.target.value)
                     }
-                    onChange={(
-                      event
-                    ) =>
-                      setWorkforceEmployeeFilter(
-                        event.target.value
-                      )
-                    }
-                    className="h-10 min-w-[210px] rounded-xl border border-white/[0.08] bg-[#101116] px-3 text-sm text-zinc-300 outline-none transition focus:border-violet-500/30"
+                    className="h-10 min-w-[200px] rounded-xl border border-white/[0.08] bg-[#101116] px-3 text-sm text-zinc-300 outline-none transition focus:border-violet-500/30"
                   >
-                    <option value="all">
-                      All AI Employees
-                    </option>
-
-                    {workforceEmployeeOptions.map(
-                      (
-                        employee
-                      ) => (
-                        <option
-                          key={
-                            employee.id
-                          }
-                          value={
-                            employee.id
-                          }
-                        >
-                          {
-                            employee.name
-                          }
-                        </option>
-                      )
-                    )}
+                    <option value="all">All AI Specialists</option>
+                    {workforceEmployeeOptions.map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.name}
+                      </option>
+                    ))}
                   </select>
 
                   {workforceFiltersActive && (
                     <button
                       type="button"
-                      onClick={
-                        clearWorkforceFilters
-                      }
+                      onClick={clearWorkforceFilters}
                       className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 text-sm text-zinc-500 transition hover:bg-white/[0.06] hover:text-white"
                     >
-                      <X
-                        size={14}
-                      />
-
+                      <X size={14} />
                       Clear
                     </button>
                   )}
@@ -2308,264 +2213,306 @@ export default function AIEmployeesPage() {
               <div className="mt-4 flex flex-wrap gap-2">
                 <TaskFilterButton
                   label="All"
-                  count={
-                    taskStatusCounts.all
-                  }
-                  active={
-                    workforceTaskStatus ===
-                    "all"
-                  }
-                  onClick={() =>
-                    setWorkforceTaskStatus(
-                      "all"
-                    )
-                  }
+                  count={taskStatusCounts.all}
+                  active={workforceTaskStatus === "all"}
+                  onClick={() => setWorkforceTaskStatus("all")}
                 />
-
                 <TaskFilterButton
                   label="Pending"
-                  count={
-                    taskStatusCounts.pending
-                  }
-                  active={
-                    workforceTaskStatus ===
-                    "pending"
-                  }
-                  onClick={() =>
-                    setWorkforceTaskStatus(
-                      "pending"
-                    )
-                  }
+                  count={taskStatusCounts.pending}
+                  active={workforceTaskStatus === "pending"}
+                  onClick={() => setWorkforceTaskStatus("pending")}
                 />
-
                 <TaskFilterButton
                   label="Running"
-                  count={
-                    taskStatusCounts.running
-                  }
-                  active={
-                    workforceTaskStatus ===
-                    "running"
-                  }
-                  onClick={() =>
-                    setWorkforceTaskStatus(
-                      "running"
-                    )
-                  }
+                  count={taskStatusCounts.running}
+                  active={workforceTaskStatus === "running"}
+                  onClick={() => setWorkforceTaskStatus("running")}
                 />
-
                 <TaskFilterButton
                   label="Completed"
-                  count={
-                    taskStatusCounts.completed
-                  }
-                  active={
-                    workforceTaskStatus ===
-                    "completed"
-                  }
-                  onClick={() =>
-                    setWorkforceTaskStatus(
-                      "completed"
-                    )
-                  }
+                  count={taskStatusCounts.completed}
+                  active={workforceTaskStatus === "completed"}
+                  onClick={() => setWorkforceTaskStatus("completed")}
                 />
-
                 <TaskFilterButton
                   label="Failed"
-                  count={
-                    taskStatusCounts.failed
-                  }
-                  active={
-                    workforceTaskStatus ===
-                    "failed"
-                  }
-                  onClick={() =>
-                    setWorkforceTaskStatus(
-                      "failed"
-                    )
-                  }
+                  count={taskStatusCounts.failed}
+                  active={workforceTaskStatus === "failed"}
+                  onClick={() => setWorkforceTaskStatus("failed")}
                 />
-
                 <TaskFilterButton
                   label="Cancelled"
-                  count={
-                    taskStatusCounts.cancelled
-                  }
-                  active={
-                    workforceTaskStatus ===
-                    "cancelled"
-                  }
-                  onClick={() =>
-                    setWorkforceTaskStatus(
-                      "cancelled"
-                    )
-                  }
+                  count={taskStatusCounts.cancelled}
+                  active={workforceTaskStatus === "cancelled"}
+                  onClick={() => setWorkforceTaskStatus("cancelled")}
                 />
               </div>
             </div>
 
-            {/* RECENT WORK */}
-
-            <div className="mt-7">
+            {/* TASK LIST */}
+            <div className="space-y-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                    Recent Work
-                  </p>
-
-                  <h3 className="mt-1 text-lg font-semibold text-white">
-                    Workforce Activity
+                  <h3 className="text-sm font-semibold text-white">
+                    Execution Feed
                   </h3>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Live reasoning logs, inputs, and results. Click any task to inspect details.
+                  </p>
                 </div>
 
                 {!workforceLoading && (
                   <div className="text-xs text-zinc-600">
                     Showing{" "}
                     <span className="font-medium text-zinc-400">
-                      {
-                        Math.min(
-                          recentTasks.length,
-                          10
-                        )
-                      }
+                      {Math.min(recentTasks.length, 10)}
                     </span>{" "}
                     of{" "}
                     <span className="font-medium text-zinc-400">
-                      {
-                        filteredWorkforceTasks.length
-                      }
+                      {filteredWorkforceTasks.length}
                     </span>{" "}
-                    matching tasks
+                    tasks
                   </div>
                 )}
               </div>
 
               {workforceLoading ? (
-                <div className="mt-4 space-y-3">
-                  {[
-                    1,
-                    2,
-                    3,
-                  ].map(
-                    (
-                      item
-                    ) => (
-                      <div
-                        key={
-                          item
-                        }
-                        className="h-20 animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.02]"
-                      />
-                    )
-                  )}
+                <div className="space-y-3">
+                  {[1, 2, 3].map((item) => (
+                    <div
+                      key={item}
+                      className="h-20 animate-pulse rounded-xl border border-white/[0.06] bg-white/[0.02]"
+                    />
+                  ))}
                 </div>
-              ) : recentTasks.length ===
-                0 ? (
-                <div className="mt-4 rounded-xl border border-dashed border-white/[0.08] px-6 py-10 text-center">
-                  <Search
-                    size={21}
-                    className="mx-auto text-zinc-700"
-                  />
-
+              ) : recentTasks.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-white/[0.08] px-6 py-10 text-center">
+                  <Search size={21} className="mx-auto text-zinc-700" />
                   <p className="mt-3 text-sm font-medium text-zinc-400">
-                    No matching tasks
+                    No matching tasks found
                   </p>
-
-                  <p className="mt-1 text-xs text-zinc-700">
-                    Change or clear your workforce filters.
+                  <p className="mt-1 text-xs text-zinc-600">
+                    Dispatch an instant task above or clear active filters.
                   </p>
-
-                  {workforceFiltersActive && (
-                    <button
-                      type="button"
-                      onClick={
-                        clearWorkforceFilters
-                      }
-                      className="mt-4 rounded-lg border border-violet-500/20 bg-violet-500/10 px-4 py-2 text-xs font-medium text-violet-300 transition hover:bg-violet-500/15"
-                    >
-                      Clear Filters
-                    </button>
-                  )}
                 </div>
               ) : (
-                <div className="mt-4 space-y-3">
-                  {recentTasks.map(
-                    (
-                      task
-                    ) => (
-                      <WorkforceTaskRow
-                        key={
-                          task.id
-                        }
-                        task={
-                          task
-                        }
-                        onOpen={() =>
-                          openTask(
-                            task
-                          )
-                        }
-                      />
-                    )
-                  )}
-
-                  {filteredWorkforceTasks.length >
-                    10 && (
-                    <div className="rounded-xl border border-dashed border-white/[0.06] px-4 py-3 text-center text-xs text-zinc-600">
-                      Showing the 10 most recent matching tasks.
-                    </div>
-                  )}
+                <div className="space-y-3">
+                  {recentTasks.map((task) => (
+                    <WorkforceTaskRow
+                      key={task.id}
+                      task={task}
+                      onOpen={() => openTask(task)}
+                    />
+                  ))}
                 </div>
               )}
             </div>
           </div>
-        </section>
+        )}
 
-        {/* EMPLOYEE SEARCH */}
+        {/* TAB 3: WORKFORCE INTELLIGENCE */}
+        {activeTab === "intelligence" && (
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-violet-500/15 bg-violet-500/[0.025] p-5">
+              <div className="flex items-start gap-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-400">
+                  <BarChart3 size={17} />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-400">
+                    J10 WORKFORCE ANALYTICS
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold text-white">
+                    Workforce Intelligence & Efficiency
+                  </h3>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Live productivity analytics calculated from autonomous AI execution records.
+                  </p>
+                </div>
+              </div>
 
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <SearchBar
-            value={
-              search
-            }
-            onChange={
-              setSearch
-            }
-          />
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <AnalyticsMetricCard
+                  icon={Gauge}
+                  label="Completion Rate"
+                  value={`${workforceAnalytics.completionRate}%`}
+                  description="Completed vs finished runs"
+                />
+                <AnalyticsMetricCard
+                  icon={CircleDollarSign}
+                  label="Total AI Cost"
+                  value={formatCost(workforceAnalytics.totalCost)}
+                  description="Recorded workforce usage"
+                />
+                <AnalyticsMetricCard
+                  icon={ShieldCheck}
+                  label="API Calls"
+                  value={String(workforceAnalytics.apiCalls)}
+                  description="Tasks that called live API"
+                />
+                <AnalyticsMetricCard
+                  icon={UsersRound}
+                  label="Most Active Specialist"
+                  value={
+                    workforceAnalytics.mostActiveEmployee?.name ??
+                    "No activity"
+                  }
+                  description={
+                    workforceAnalytics.mostActiveEmployee
+                      ? `${workforceAnalytics.mostActiveEmployee.total} assigned tasks`
+                      : "No tasks executed yet"
+                  }
+                />
+              </div>
 
-          <Filters
-            status={
-              status
-            }
-            department={
-              department
-            }
-            onStatusChange={
-              setStatus
-            }
-            onDepartmentChange={
-              setDepartment
-            }
-          />
-        </div>
+              <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                {/* STATUS DISTRIBUTION */}
+                <div className="rounded-xl border border-white/[0.07] bg-black/20 p-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Task Distribution
+                    </p>
+                    <h4 className="mt-1 text-sm font-semibold text-white">
+                      Tasks by Status
+                    </h4>
+                  </div>
+                  <div className="mt-5 space-y-4">
+                    <AnalyticsBar
+                      label="Completed"
+                      value={taskStatusCounts.completed}
+                      total={taskStatusCounts.all}
+                    />
+                    <AnalyticsBar
+                      label="Pending"
+                      value={taskStatusCounts.pending}
+                      total={taskStatusCounts.all}
+                    />
+                    <AnalyticsBar
+                      label="Running"
+                      value={taskStatusCounts.running}
+                      total={taskStatusCounts.all}
+                    />
+                    <AnalyticsBar
+                      label="Failed"
+                      value={taskStatusCounts.failed}
+                      total={taskStatusCounts.all}
+                    />
+                    <AnalyticsBar
+                      label="Cancelled"
+                      value={taskStatusCounts.cancelled}
+                      total={taskStatusCounts.all}
+                    />
+                  </div>
+                </div>
 
-        {/* EMPLOYEES */}
+                {/* EXECUTION ENVIRONMENT */}
+                <div className="rounded-xl border border-white/[0.07] bg-black/20 p-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Runtime Distribution
+                    </p>
+                    <h4 className="mt-1 text-sm font-semibold text-white">
+                      Execution Environment
+                    </h4>
+                  </div>
+                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                    <RuntimeMetric
+                      label="Development"
+                      value={workforceAnalytics.developmentExecutions}
+                    />
+                    <RuntimeMetric
+                      label="Live API"
+                      value={workforceAnalytics.liveExecutions}
+                    />
+                    <RuntimeMetric
+                      label="Executed"
+                      value={workforceAnalytics.executedCount}
+                    />
+                  </div>
+                  <div className="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                    <div className="flex items-start gap-3">
+                      <Cpu
+                        size={16}
+                        className="mt-0.5 shrink-0 text-violet-400"
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-white">
+                          Current Runtime Profile
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-zinc-500">
+                          Live API calls run directly against OpenAI GPT-4o. Cost and API activity are tracked independently per task.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-        {loading ? (
-          <div className="rounded-2xl border border-white/[0.07] bg-[#111216] p-12 text-center">
-            <p className="text-sm text-zinc-500">
-              Loading AI employees...
-            </p>
+              {/* EMPLOYEE TASK LOAD */}
+              <div className="mt-4 rounded-xl border border-white/[0.07] bg-black/20 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      AI Specialist Distribution
+                    </p>
+                    <h4 className="mt-1 text-sm font-semibold text-white">
+                      Specialist Workload Breakdown
+                    </h4>
+                  </div>
+                  <span className="text-xs text-zinc-600">
+                    {workforceAnalytics.employeeDistribution.length} specialists with task history
+                  </span>
+                </div>
+
+                {workforceAnalytics.employeeDistribution.length === 0 ? (
+                  <div className="mt-5 rounded-xl border border-dashed border-white/[0.08] px-5 py-8 text-center">
+                    <UsersRound size={20} className="mx-auto text-zinc-700" />
+                    <p className="mt-3 text-sm text-zinc-500">
+                      No specialist task analytics yet.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-5 space-y-3">
+                    {workforceAnalytics.employeeDistribution.map((employee) => (
+                      <EmployeeAnalyticsRow
+                        key={employee.id}
+                        employee={employee}
+                        maxTasks={
+                          workforceAnalytics.mostActiveEmployee?.total ?? 1
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        ) : (
-          <EmployeeGrid
-            employees={
-              filteredEmployees
-            }
-            onEmployeeClick={
-              setSelectedEmployee
-            }
-          />
+        )}
+
+        {/* TAB 4: SALES AGENT & CRM PIPELINE */}
+        {activeTab === "crm" && (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-white/[0.08] bg-[#0c0d12] p-4 sm:p-6">
+              {employeeList.length === 0 ? (
+                <div className="p-8 text-center text-zinc-500 text-sm">
+                  Deploy an AI specialist to view live CRM pipeline intelligence.
+                </div>
+              ) : (
+                <SalesAgentCRMPanel
+                  employeeId={
+                    employeeList.find((e) =>
+                      e.department.toLowerCase().includes("sales")
+                    )?.id ?? employeeList[0].id
+                  }
+                  onCRMChanged={() => {
+                    void loadEmployees();
+                    void loadWorkforceTasks();
+                  }}
+                />
+              )}
+            </div>
+          </div>
         )}
       </div>
 
@@ -2659,6 +2606,17 @@ export default function AIEmployeesPage() {
           }
         />
       )}
+
+      <WorkforceTaskDispatcher
+        open={taskDispatcherOpen}
+        onClose={() => setTaskDispatcherOpen(false)}
+        employees={employeeList}
+        initialEmployeeId={dispatcherEmployeeId}
+        onTaskCompleted={() => {
+          void loadWorkforceTasks();
+          void loadEmployees();
+        }}
+      />
     </>
   );
 }

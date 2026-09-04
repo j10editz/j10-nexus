@@ -1,14 +1,18 @@
+"use client";
+
 import EmployeeCard from "./EmployeeCard";
 import type { Employee } from "@/components/types/employee";
 
 type EmployeeGridProps = {
   employees: Employee[];
   onEmployeeClick?: (employee: Employee) => void;
+  onAssignTask?: (employee: Employee) => void;
 };
 
 export default function EmployeeGrid({
   employees,
   onEmployeeClick,
+  onAssignTask,
 }: EmployeeGridProps) {
   if (employees.length === 0) {
     return (
@@ -25,18 +29,17 @@ export default function EmployeeGrid({
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {employees.map((employee) => (
         <div
           key={employee.id}
           onClick={() => onEmployeeClick?.(employee)}
-          className={
-            onEmployeeClick
-              ? "cursor-pointer"
-              : ""
-          }
+          className={onEmployeeClick ? "cursor-pointer" : ""}
         >
-          <EmployeeCard employee={employee} />
+          <EmployeeCard
+            employee={employee}
+            onAssignTask={(emp) => onAssignTask?.(emp)}
+          />
         </div>
       ))}
     </div>

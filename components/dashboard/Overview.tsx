@@ -19,6 +19,7 @@ import {
   Plus,
   Trash2,
   TrendingUp,
+  Users,
   Workflow,
   Zap,
 } from "lucide-react";
@@ -74,10 +75,10 @@ const quickActions = [
   },
   {
     title: "Website",
-    description: "Scheduled for the product sprint",
+    description: "High-converting landing pages",
     icon: Globe,
-    href: null,
-    status: "building" as const,
+    href: "/dashboard/website",
+    status: "ready" as const,
   },
   {
     title: "WhatsApp Bot",
@@ -87,18 +88,18 @@ const quickActions = [
     status: "ready" as const,
   },
   {
-    title: "Generate Images",
-    description: "Scheduled for AI Studio",
-    icon: Image,
-    href: null,
-    status: "building" as const,
+    title: "CRM Pipeline",
+    description: "Manage deals & AI lead score",
+    icon: Users,
+    href: "/dashboard/crm",
+    status: "ready" as const,
   },
   {
-    title: "Upload Documents",
-    description: "Scheduled for Knowledge Hub",
+    title: "Knowledge Hub",
+    description: "Company Brain vector grounding",
     icon: FileText,
-    href: null,
-    status: "building" as const,
+    href: "/dashboard/knowledge",
+    status: "ready" as const,
   },
 ];
 
