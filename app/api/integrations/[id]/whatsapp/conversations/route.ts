@@ -67,6 +67,38 @@ export async function GET(_request: Request, context: RouteContext) {
 
     if (error) throw error;
 
+    // Look up recent CRM contacts for linking
+    const { data: crmRows } = await supabase
+      .from("crm_contacts")
+      .select("id,phone,type,status,company,estimated_value")
+      .eq("user_id", user.id)
+      .limit(200);
+
+    const contactMap = new Map<string, {
+      id: string;
+      status: string;
+      type: string;
+      company?: string | null;
+      estimatedValue?: number;
+    }>();
+
+    for (const c of crmRows ?? []) {
+      if (c.phone) {
+        const clean = c.phone.replace(/[\s()+.-]/g, "");
+        if (clean.length >= 7) {
+          contactMap.set(clean.slice(-8), {
+            id: c.id,
+            status: c.status,
+            type: c.type,
+            company: c.company,
+            estimatedValue: c.estimated_value,
+          });
+        }
+      }
+    }
+
+    const { detectEscalationIntent } = await import("@/lib/whatsapp/inbox-service");
+
     const conversations = new Map<string, {
       sender: string;
       name: string;
@@ -75,6 +107,15 @@ export async function GET(_request: Request, context: RouteContext) {
       lastReceivedAt: string;
       messageCount: number;
       status: string;
+      escalated: boolean;
+      escalationReason?: string;
+      crmContact?: {
+        id: string;
+        status: string;
+        type: string;
+        company?: string | null;
+        estimatedValue?: number;
+      } | null;
     }>();
 
     for (const event of (data ?? []) as EventRow[]) {
@@ -93,14 +134,22 @@ export async function GET(_request: Request, context: RouteContext) {
         continue;
       }
 
+      const preview = messagePreview(message);
+      const clean = sender.replace(/[\s()+.-]/g, "");
+      const matchedContact = clean.length >= 8 ? contactMap.get(clean.slice(-8)) : null;
+      const escalation = detectEscalationIntent(preview);
+
       conversations.set(sender, {
         sender,
         name: text(actor?.displayName) ?? `WhatsApp ••••${sender.slice(-4)}`,
-        lastMessage: messagePreview(message),
+        lastMessage: preview,
         messageType: text(message.type) ?? "unknown",
         lastReceivedAt: event.received_at,
         messageCount: 1,
         status: event.processing_status,
+        escalated: escalation.escalated,
+        escalationReason: escalation.reason,
+        crmContact: matchedContact ?? null,
       });
     }
 
@@ -112,3 +161,4 @@ export async function GET(_request: Request, context: RouteContext) {
     return integrationApiErrorResponse(error, "Could not load WhatsApp conversations.");
   }
 }
+

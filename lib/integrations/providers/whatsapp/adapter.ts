@@ -149,9 +149,21 @@ function providerError(
       : null;
   const retryAfterSeconds = parseRetryAfter(response);
 
-  if (response.status === 401) {
+  if (providerCode === 131030) {
     return new IntegrationRuntimeError(
-      "WhatsApp authentication failed. Replace the Meta access token.",
+      "Recipient phone number is not in Meta's allowed list. Since you are using a Meta Test Number, open Meta Developer Console -> WhatsApp -> API Setup -> Step 1, click 'Manage phone number list', add and verify this phone number with the OTP code Meta texts you.",
+      {
+        code: "WHATSAPP_RECIPIENT_NOT_ALLOWED",
+        category: "authorization",
+        status: 400,
+        details: { providerCode },
+      },
+    );
+  }
+
+  if (response.status === 401 || providerCode === 190) {
+    return new IntegrationRuntimeError(
+      "WhatsApp authentication failed or Meta token expired. Refresh your Meta access token in .env.local.",
       {
         code: "WHATSAPP_AUTHENTICATION_FAILED",
         category: "authentication",

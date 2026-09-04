@@ -62,7 +62,7 @@ describe("Dashboard activation", () => {
 
     expect(invalidReadyItems).toEqual([]);
     expect(dishonestBuildingLinks).toEqual([]);
-    expect(readyDashboardNavigationItems).toHaveLength(17);
+    expect(readyDashboardNavigationItems).toHaveLength(18);
   });
 
   it("backs every ready route with a Next.js page", () => {
@@ -83,7 +83,7 @@ describe("Dashboard activation", () => {
       )
     );
 
-    expect(readyHrefs.size).toBe(17);
+    expect(readyHrefs.size).toBe(18);
     expect(readyHrefs.has("/dashboard/activity")).toBe(true);
     expect(
       readyHrefs.has("/dashboard/notifications")
@@ -105,7 +105,9 @@ describe("Dashboard activation", () => {
     expect(readyHrefs.has("/dashboard/knowledge")).toBe(true);
     expect(readyHrefs.has("/dashboard/finance")).toBe(true);
     expect(readyHrefs.has("/dashboard/hr")).toBe(true);
+    expect(readyHrefs.has("/dashboard/commerce")).toBe(true);
   });
+
 
   it("offsets the dashboard shell and preserves the immersive flow builder", () => {
     const shell = readProjectFile(

@@ -138,9 +138,10 @@ export const dashboardNavigationSections:
           id: "commerce",
           label: "Commerce",
           description:
-            "Products, orders, and customers are scheduled for a later sprint.",
+            "Manage products, inventory, orders, and WhatsApp click-to-order conversions.",
           icon: "commerce",
-          status: "building",
+          status: "ready",
+          href: "/dashboard/commerce",
         },
         {
           id: "finance",
