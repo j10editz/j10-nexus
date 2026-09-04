@@ -28,6 +28,7 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 type Module = {
@@ -411,6 +412,23 @@ const modules: Module[] = [
   },
 ];
 
+const moduleDestinations: Record<string, string> = {
+  "ai-employees": "/dashboard/ai-employees",
+  whatsapp: "/dashboard/whatsapp",
+  "ai-studio": "/dashboard/website",
+  marketing: "/dashboard/marketing",
+  automation: "/dashboard/automation",
+  commerce: "/dashboard/crm",
+  crm: "/dashboard/crm",
+  finance: "/dashboard/finance",
+  hr: "/dashboard/hr",
+  analytics: "/dashboard/analytics",
+  knowledge: "/dashboard/knowledge",
+  website: "/dashboard/website",
+  marketplace: "/login",
+  integrations: "/dashboard/settings/integrations",
+};
+
 export default function Features() {
   const [activeModule, setActiveModule] = useState("ai-employees");
 
@@ -574,14 +592,14 @@ export default function Features() {
                 </span>
               </div>
 
-              <button className="group mt-8 flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-black transition-all hover:-translate-y-0.5 hover:bg-zinc-200">
+              <Link href={moduleDestinations[active.id] ?? "/login"} className="group mt-8 flex w-fit items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-black transition-all hover:-translate-y-0.5 hover:bg-zinc-200">
                 Explore {active.title}
 
                 <ArrowRight
                   size={15}
                   className="transition-transform group-hover:translate-x-1"
                 />
-              </button>
+              </Link>
             </div>
 
             {/* CAPABILITY GRID */}

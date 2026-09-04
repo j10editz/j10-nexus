@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Navbar() {
   return (
     <nav className="flex items-center justify-between px-8 py-6 border-b border-gray-800">
@@ -6,15 +8,15 @@ export default function Navbar() {
       </h1>
 
       <div className="flex gap-6 text-gray-300">
-        <a href="#">Features</a>
-        <a href="#">Pricing</a>
-        <a href="#">Marketplace</a>
-        <a href="#">Contact</a>
+        <a href="#features">Features</a>
+        <Link href="/login">Pricing</Link>
+        <Link href="/login">Marketplace</Link>
+        <a href="mailto:contact@j10-nexus.com">Contact</a>
       </div>
 
-      <button className="bg-blue-600 px-5 py-2 rounded-lg hover:bg-blue-700">
+      <Link href="/login" className="bg-blue-600 px-5 py-2 rounded-lg hover:bg-blue-700">
         Start Free
-      </button>
+      </Link>
     </nav>
   );
 }
