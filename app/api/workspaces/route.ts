@@ -66,48 +66,73 @@ export async function POST(req: Request) {
 
     const supabase = createServerSupabaseClient();
 
-    // 1. Create workspace
-    const { data: newWs, error: wsError } = await supabase
-      .from("workspaces")
-      .insert({
-        name: trimmedName,
-        slug,
-        workspace_type: workspaceType,
-        plan,
-        status: "active",
-        brand_name: brandName?.trim() || trimmedName,
-        accent_color: accentColor,
-        owner_user_id: user.id,
-      })
-      .select("*")
-      .single();
+    let newWs: any = null;
+    let membership: any = null;
 
-    if (wsError || !newWs) {
-      console.error("Workspace insertion error:", wsError);
-      return NextResponse.json(
-        { success: false, error: "Failed to create workspace." },
-        { status: 500 }
-      );
+    // 1. Attempt atomic RPC provisioning first
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc("provision_workspace", {
+        p_name: trimmedName,
+        p_slug: slug,
+        p_brand_name: brandName?.trim() || trimmedName,
+        p_accent_color: accentColor,
+        p_workspace_type: workspaceType,
+        p_plan: plan,
+      });
+
+      if (!rpcError && rpcData?.workspace && rpcData?.membership) {
+        newWs = rpcData.workspace;
+        membership = rpcData.membership;
+      }
+    } catch {
+      // Fall through to standard insert
     }
 
-    // 2. Add creator as owner membership
-    const { data: membership, error: memError } = await supabase
-      .from("workspace_memberships")
-      .insert({
-        workspace_id: newWs.id,
-        user_id: user.id,
-        role: "owner",
-        status: "active",
-      })
-      .select("*")
-      .single();
+    // 2. Direct fallback insert if RPC not present
+    if (!newWs) {
+      const { data: createdWs, error: wsError } = await supabase
+        .from("workspaces")
+        .insert({
+          name: trimmedName,
+          slug,
+          workspace_type: workspaceType,
+          plan,
+          status: "active",
+          brand_name: brandName?.trim() || trimmedName,
+          accent_color: accentColor,
+          owner_user_id: user.id,
+        })
+        .select("*")
+        .single();
 
-    if (memError) {
-      console.error("Membership insertion error:", memError);
-      return NextResponse.json(
-        { success: false, error: "Failed to assign workspace ownership." },
-        { status: 500 }
-      );
+      if (wsError || !createdWs) {
+        console.error("Workspace insertion error:", wsError);
+        return NextResponse.json(
+          { success: false, error: "Failed to create workspace." },
+          { status: 500 }
+        );
+      }
+      newWs = createdWs;
+
+      const { data: createdMem, error: memError } = await supabase
+        .from("workspace_memberships")
+        .insert({
+          workspace_id: newWs.id,
+          user_id: user.id,
+          role: "owner",
+          status: "active",
+        })
+        .select("*")
+        .single();
+
+      if (memError) {
+        console.error("Membership insertion error:", memError);
+        return NextResponse.json(
+          { success: false, error: "Failed to assign workspace ownership." },
+          { status: 500 }
+        );
+      }
+      membership = createdMem;
     }
 
     // 3. Switch active workspace to newly created one

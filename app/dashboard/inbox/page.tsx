@@ -43,16 +43,15 @@ import type {
 } from "@/types/inbox";
 
 export default function UnifiedInboxPage() {
-  const [threads, setThreads] = useState<InboxThread[]>(SEED_INBOX_THREADS);
-  const [selectedThreadId, setSelectedThreadId] = useState<string>(
-    SEED_INBOX_THREADS[0]?.id || "",
-  );
+  const [threads, setThreads] = useState<InboxThread[]>([]);
+  const [selectedThreadId, setSelectedThreadId] = useState<string>("");
+  const [isSandboxDemo, setIsSandboxDemo] = useState(false);
   const [channelFilter, setChannelFilter] = useState<"all" | InboxChannel>("all");
   const [stageFilter, setStageFilter] = useState<"all" | InboxDealStage>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityOnly, setPriorityOnly] = useState(false);
   const [isLivePersisted, setIsLivePersisted] = useState(false);
-  const [isLoadingThreads, setIsLoadingThreads] = useState(false);
+  const [isLoadingThreads, setIsLoadingThreads] = useState(true);
 
   // Message reply composer state
   const [replyBody, setReplyBody] = useState("");
@@ -74,14 +73,17 @@ export default function UnifiedInboxPage() {
         if (data.success && Array.isArray(data.threads)) {
           setThreads(data.threads);
           setIsLivePersisted(true);
+          setIsSandboxDemo(false);
           if (data.threads.length > 0 && (!selectedThreadId || !data.threads.some((t: any) => t.id === selectedThreadId))) {
             setSelectedThreadId(data.threads[0].id);
+          } else if (data.threads.length === 0) {
+            setSelectedThreadId("");
           }
           return;
         }
       }
     } catch {
-      // Retain fallback in local disconnected mode
+      // In offline or pre-migration mode, maintain honest empty state
     } finally {
       if (!silent) setIsLoadingThreads(false);
     }
@@ -322,9 +324,19 @@ export default function UnifiedInboxPage() {
               <h1 className="text-base font-semibold text-white">
                 Unified Omnichannel Inbox
               </h1>
-              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                LIVE DESK
-              </span>
+              {isSandboxDemo ? (
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                  SANDBOX DEMO MODE
+                </span>
+              ) : isLivePersisted ? (
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                  LIVE WORKSPACE PERSISTED
+                </span>
+              ) : (
+                <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-300">
+                  WORKSPACE DESK
+                </span>
+              )}
             </div>
             <p className="text-xs text-white/50">
               WhatsApp, Website Form Leads, and CRM conversations synchronized in a single command center.
@@ -352,10 +364,10 @@ export default function UnifiedInboxPage() {
 
           <button
             type="button"
-            onClick={() => setThreads([...SEED_INBOX_THREADS])}
+            onClick={() => void loadThreads()}
             className="flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 text-xs text-white/70 transition hover:bg-white/[0.08] hover:text-white"
           >
-            <RefreshCw size={13} />
+            <RefreshCw size={13} className={isLoadingThreads ? "animate-spin" : ""} />
             Refresh
           </button>
         </div>
@@ -478,9 +490,33 @@ export default function UnifiedInboxPage() {
 
           {/* Threads List */}
           <div className="flex-1 overflow-y-auto divide-y divide-white/[0.04]">
-            {filteredThreads.length === 0 ? (
-              <div className="p-8 text-center text-xs text-white/40">
-                No threads match the selected channel or query.
+            {isLoadingThreads ? (
+              <div className="flex flex-col items-center justify-center p-8 text-center text-xs text-white/40">
+                <RefreshCw size={18} className="mb-2 animate-spin text-blue-400" />
+                <p>Loading workspace threads...</p>
+              </div>
+            ) : filteredThreads.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-6 text-center">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.04] text-white/40">
+                  <InboxIcon size={20} />
+                </div>
+                <p className="text-xs font-semibold text-white/80">No Active Conversations</p>
+                <p className="mt-1 max-w-xs text-[11px] text-white/40">
+                  Inbound WhatsApp messages, website form leads, and CRM inquiries will appear here automatically for this workspace.
+                </p>
+                {!isSandboxDemo && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setThreads([...SEED_INBOX_THREADS]);
+                      setIsSandboxDemo(true);
+                      if (SEED_INBOX_THREADS[0]) setSelectedThreadId(SEED_INBOX_THREADS[0].id);
+                    }}
+                    className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] font-medium text-amber-300 transition hover:bg-amber-500/20"
+                  >
+                    Preview Sandbox Demo Conversations
+                  </button>
+                )}
               </div>
             ) : (
               filteredThreads.map((thread) => {

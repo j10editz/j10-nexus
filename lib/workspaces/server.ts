@@ -140,11 +140,50 @@ export async function getActiveWorkspaceContext(): Promise<ActiveWorkspaceContex
     };
   }
 
-  // 3. User has no workspaces: provision initial master agency workspace using service client
+  // 3. User has no workspaces: provision initial canonical "J10 NEXUS HQ" workspace
   const adminClient = createAdminSupabaseClient();
-  const slug = `ws-${user.id.slice(0, 8)}-${Date.now().toString(36)}`;
-  const workspaceName = user.email ? `${user.email.split("@")[0]}'s Workspace` : "Master Agency Workspace";
+  const baseSlug = "j10-nexus-hq";
+  const slug = `${baseSlug}-${user.id.slice(0, 8)}`;
+  const workspaceName = "J10 NEXUS HQ";
 
+  // Attempt atomic database RPC first
+  try {
+    const { data: rpcData, error: rpcError } = await adminClient.rpc("provision_workspace", {
+      p_name: workspaceName,
+      p_slug: slug,
+      p_brand_name: workspaceName,
+      p_accent_color: "#3B82F6",
+      p_workspace_type: "agency_master",
+      p_plan: "enterprise",
+    });
+
+    if (!rpcError && rpcData?.workspace && rpcData?.membership) {
+      const ws = rpcData.workspace as WorkspaceRecord;
+      const mem = rpcData.membership as WorkspaceMembershipRecord;
+
+      try {
+        cookieStore.set(ACTIVE_WORKSPACE_COOKIE, ws.id, {
+          httpOnly: true,
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          path: "/",
+          maxAge: 60 * 60 * 24 * 30,
+        });
+      } catch {
+        // Ignore cookie write errors in read-only render contexts
+      }
+
+      return {
+        workspace: ws,
+        membership: mem,
+        user: { id: user.id, email: user.email },
+      };
+    }
+  } catch {
+    // Fall back to direct atomic insert if RPC is not present
+  }
+
+  // Fallback direct insert
   const { data: newWs, error: wsError } = await adminClient
     .from("workspaces")
     .insert({
