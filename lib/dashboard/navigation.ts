@@ -126,6 +126,15 @@ export const dashboardNavigationSections:
       title: "BUSINESS",
       items: [
         {
+          id: "inbox",
+          label: "Unified Inbox",
+          description:
+            "Omnichannel desk: WhatsApp, website leads, CRM chat, Stripe pay.",
+          icon: "message",
+          status: "ready",
+          href: "/dashboard/inbox",
+        },
+        {
           id: "crm",
           label: "CRM",
           description:

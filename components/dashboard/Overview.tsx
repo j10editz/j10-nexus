@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import AIWidget from "@/components/dashboard/AIWidget";
+import RevenueAutopilotCard from "@/components/dashboard/RevenueAutopilotCard";
 
 type DashboardStats = {
   aiEmployees: {
@@ -384,6 +385,12 @@ export default function Overview({
             )}
           </div>
         </div>
+
+        {/* FOUNDER REVENUE AUTOPILOT & EXECUTIVE BRIEFING */}
+        <div className="mb-6">
+          <RevenueAutopilotCard founderName={userName} />
+        </div>
+
 
         {/* J10 AI COMMAND CENTER */}
         <div

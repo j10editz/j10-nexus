@@ -36,7 +36,7 @@ function routeFile(href: string) {
 
 describe("Dashboard activation", () => {
   it("classifies every navigation item as ready or building", () => {
-    expect(dashboardNavigationItems).toHaveLength(20);
+    expect(dashboardNavigationItems).toHaveLength(21);
     expect(
       dashboardNavigationItems.every(
         (item) =>
@@ -62,7 +62,7 @@ describe("Dashboard activation", () => {
 
     expect(invalidReadyItems).toEqual([]);
     expect(dishonestBuildingLinks).toEqual([]);
-    expect(readyDashboardNavigationItems).toHaveLength(18);
+    expect(readyDashboardNavigationItems).toHaveLength(19);
   });
 
   it("backs every ready route with a Next.js page", () => {
@@ -83,7 +83,8 @@ describe("Dashboard activation", () => {
       )
     );
 
-    expect(readyHrefs.size).toBe(18);
+    expect(readyHrefs.size).toBe(19);
+    expect(readyHrefs.has("/dashboard/inbox")).toBe(true);
     expect(readyHrefs.has("/dashboard/activity")).toBe(true);
     expect(
       readyHrefs.has("/dashboard/notifications")

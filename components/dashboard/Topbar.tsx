@@ -24,6 +24,7 @@ import {
 import {
   readyDashboardNavigationItems,
 } from "@/lib/dashboard/navigation";
+import WorkspaceSwitcher from "@/components/dashboard/WorkspaceSwitcher";
 
 type TopbarProps = {
   onOpenNavigation: () => void;
@@ -302,6 +303,9 @@ export default function Topbar({
             </span>
           )}
         </Link>
+
+        {/* Multi-Tenant Workspace & Client Switcher */}
+        <WorkspaceSwitcher />
 
         <div className="relative">
           <button

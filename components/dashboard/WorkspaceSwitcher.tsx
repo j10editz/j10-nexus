@@ -1,0 +1,353 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import {
+  Building,
+  Building2,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  DollarSign,
+  Layers,
+  Plus,
+  Shield,
+  Sparkles,
+  Users,
+  X,
+} from "lucide-react";
+
+import {
+  calculateAgencySubscriptionRevenue,
+  createClientWorkspace,
+  PLAN_PRICING,
+  SEED_WORKSPACES,
+} from "@/lib/workspaces/service";
+import type { Workspace, WorkspacePlan } from "@/types/workspace";
+
+export default function WorkspaceSwitcher() {
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(SEED_WORKSPACES);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(
+    SEED_WORKSPACES[0].id,
+  );
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+
+  // Form state for onboarding new client workspace
+  const [clientName, setClientName] = useState("");
+  const [brandName, setBrandName] = useState("");
+  const [plan, setPlan] = useState<WorkspacePlan>("growth");
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const activeWorkspace = useMemo(() => {
+    return (
+      workspaces.find((w) => w.id === activeWorkspaceId) || workspaces[0]
+    );
+  }, [workspaces, activeWorkspaceId]);
+
+  const agencyStats = useMemo(() => {
+    return calculateAgencySubscriptionRevenue(workspaces);
+  }, [workspaces]);
+
+  function handleSelectWorkspace(id: string) {
+    setActiveWorkspaceId(id);
+    setMenuOpen(false);
+    setNotice(`Switched to workspace: ${workspaces.find((w) => w.id === id)?.name}`);
+    setTimeout(() => setNotice(""), 3000);
+  }
+
+  function handleCreateClientWorkspace(e: React.FormEvent) {
+    e.preventDefault();
+    if (!clientName.trim() || !contactEmail.trim()) return;
+
+    const newWs = createClientWorkspace(
+      {
+        name: clientName.trim(),
+        brandName: brandName.trim() || clientName.trim(),
+        plan,
+        monthlySubscriptionPrice: PLAN_PRICING[plan],
+        clientContactName: contactName.trim() || "Account Lead",
+        clientContactEmail: contactEmail.trim(),
+      },
+      workspaces,
+    );
+
+    setWorkspaces((prev) => [...prev, newWs]);
+    setActiveWorkspaceId(newWs.id);
+    setAddModalOpen(false);
+    setMenuOpen(false);
+
+    // Reset form
+    setClientName("");
+    setBrandName("");
+    setContactName("");
+    setContactEmail("");
+    setNotice(
+      `New client onboarded: ${newWs.name} ($${newWs.monthlySubscriptionPrice}/mo MRR)`,
+    );
+    setTimeout(() => setNotice(""), 4500);
+  }
+
+  return (
+    <div className="relative">
+      {/* Active Workspace Selector Button */}
+      <button
+        type="button"
+        onClick={() => setMenuOpen(!menuOpen)}
+        className="flex h-11 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-[#111216] px-3 text-left transition hover:bg-white/[0.06]"
+      >
+        <div
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold text-white shadow-sm"
+          style={{ backgroundColor: activeWorkspace.accentColor }}
+        >
+          {activeWorkspace.name.slice(0, 2).toUpperCase()}
+        </div>
+
+        <div className="hidden min-w-0 sm:block text-left">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-xs font-semibold text-white">
+              {activeWorkspace.name}
+            </span>
+            <span
+              className={`rounded px-1.5 py-0.2 text-[9px] font-medium border ${
+                activeWorkspace.type === "agency_master"
+                  ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
+                  : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+              }`}
+            >
+              {activeWorkspace.type === "agency_master"
+                ? "AGENCY HQ"
+                : `$${activeWorkspace.monthlySubscriptionPrice}/mo`}
+            </span>
+          </div>
+          <p className="truncate text-[10px] text-white/40">
+            {activeWorkspace.brandName}
+          </p>
+        </div>
+
+        <ChevronDown size={14} className="text-white/40" />
+      </button>
+
+      {/* Notice Toast */}
+      {notice && (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-[#12141A] px-4 py-2.5 text-xs font-medium text-emerald-400 shadow-2xl">
+          <CheckCircle2 size={15} />
+          {notice}
+        </div>
+      )}
+
+      {/* Dropdown Menu */}
+      {menuOpen && (
+        <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-80 rounded-2xl border border-white/[0.1] bg-[#111216] p-2.5 shadow-2xl shadow-black/80">
+          {/* Agency Revenue Header */}
+          <div className="rounded-xl border border-white/[0.06] bg-black/40 p-3">
+            <div className="flex items-center justify-between text-white/40">
+              <span className="text-[10px] font-semibold uppercase tracking-wider">
+                Client Subscription MRR
+              </span>
+              <span className="text-[10px] font-semibold text-emerald-400">
+                {agencyStats.activeClientCount} Client Tenants
+              </span>
+            </div>
+            <p className="mt-1 text-lg font-bold text-white">
+              ${agencyStats.totalMonthlyRevenue.toLocaleString()} / mo
+            </p>
+            <p className="text-[10px] text-white/40">
+              Avg ${agencyStats.averageRevenuePerClient.toLocaleString()}/client monthly
+            </p>
+          </div>
+
+          {/* Workspaces List */}
+          <div className="mt-2 max-h-60 space-y-1 overflow-y-auto pt-1">
+            <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/30">
+              Switch Workspace
+            </p>
+
+            {workspaces.map((ws) => {
+              const isSelected = ws.id === activeWorkspaceId;
+
+              return (
+                <button
+                  key={ws.id}
+                  type="button"
+                  onClick={() => handleSelectWorkspace(ws.id)}
+                  className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition ${
+                    isSelected
+                      ? "bg-white/[0.08] text-white font-medium"
+                      : "text-white/60 hover:bg-white/[0.04] hover:text-white"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
+                      style={{ backgroundColor: ws.accentColor }}
+                    >
+                      {ws.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-xs">{ws.name}</p>
+                      <p className="truncate text-[10px] text-white/40">
+                        {ws.type === "agency_master"
+                          ? "Master Agency Account"
+                          : `Client: $${ws.monthlySubscriptionPrice}/mo (${ws.plan})`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {isSelected && <Check size={14} className="text-blue-400" />}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Onboard Client Workspace Trigger */}
+          <div className="mt-2 border-t border-white/[0.06] pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                setAddModalOpen(true);
+              }}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-blue-500/30 bg-blue-500/10 py-2 text-xs font-semibold text-blue-300 transition hover:bg-blue-500/20"
+            >
+              <Plus size={14} />
+              Onboard Client Workspace ($/mo)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Onboard Client Modal */}
+      {addModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#111216] p-6 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setAddModalOpen(false)}
+              className="absolute right-4 top-4 text-white/40 hover:text-white"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
+                <Building2 size={18} />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-white">
+                  Onboard Client Workspace
+                </h3>
+                <p className="text-xs text-white/50">
+                  Provision an isolated white-label J10 tenant and bill monthly.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleCreateClientWorkspace} className="mt-5 space-y-3.5">
+              <div>
+                <label className="text-[11px] font-medium uppercase tracking-wider text-white/40">
+                  Client Business Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder="e.g. Horizon Wealth Advisory"
+                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2 text-xs text-white placeholder:text-white/30 focus:border-blue-500/50 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium uppercase tracking-wider text-white/40">
+                  White-Label Brand Title
+                </label>
+                <input
+                  type="text"
+                  value={brandName}
+                  onChange={(e) => setBrandName(e.target.value)}
+                  placeholder="e.g. Horizon Autonomous Client Desk"
+                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2 text-xs text-white placeholder:text-white/30 focus:border-blue-500/50 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium uppercase tracking-wider text-white/40">
+                  Monthly Subscription Plan
+                </label>
+                <div className="mt-1.5 grid grid-cols-3 gap-2">
+                  {(["starter", "growth", "enterprise"] as WorkspacePlan[]).map((p) => {
+                    const isSelected = plan === p;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPlan(p)}
+                        className={`rounded-xl border p-2.5 text-center transition ${
+                          isSelected
+                            ? "border-blue-500 bg-blue-500/20 text-white"
+                            : "border-white/[0.08] bg-black/30 text-white/60 hover:border-white/20"
+                        }`}
+                      >
+                        <p className="text-xs font-semibold capitalize">{p}</p>
+                        <p className="mt-0.5 text-[11px] font-bold text-emerald-400">
+                          ${PLAN_PRICING[p]}/mo
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[11px] font-medium uppercase tracking-wider text-white/40">
+                    Contact Name
+                  </label>
+                  <input
+                    type="text"
+                    value={contactName}
+                    onChange={(e) => setContactName(e.target.value)}
+                    placeholder="David Vance"
+                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2 text-xs text-white placeholder:text-white/30 focus:border-blue-500/50 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium uppercase tracking-wider text-white/40">
+                    Contact Email
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                    placeholder="david@horizon.com"
+                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2 text-xs text-white placeholder:text-white/30 focus:border-blue-500/50 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5 flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAddModalOpen(false)}
+                  className="rounded-lg px-3 py-2 text-xs text-white/60 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition hover:bg-blue-500"
+                >
+                  <Plus size={14} />
+                  Provision Client Workspace (${PLAN_PRICING[plan]}/mo)
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
