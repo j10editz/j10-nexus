@@ -109,6 +109,7 @@ export async function POST(req: Request) {
           description: resolvedTitle,
           status: "pending",
           checkout_url: "pending_provider_creation",
+          provider_mode: process.env.STRIPE_SECRET_KEY?.startsWith("sk_live_") ? "live" : "test",
           metadata: {
             customerEmail: customerEmail || null,
             customerPhone: customerPhone || null,

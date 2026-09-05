@@ -388,6 +388,7 @@ export async function processStripeWebhookEvent(
           amount: amountTotal,
           currency,
           status: "succeeded",
+          provider_mode: checkout.provider_mode || (obj.livemode ? "live" : "test"),
           occurred_at: new Date((obj.created || Date.now() / 1000) * 1000).toISOString(),
           metadata: {
             sessionId: obj.id,
