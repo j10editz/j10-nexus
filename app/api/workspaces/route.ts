@@ -4,6 +4,8 @@ import {
   ACTIVE_WORKSPACE_COOKIE,
   getActiveWorkspaceContext,
   getUserWorkspaces,
+  getUserPlatformRole,
+  getUserProfile,
 } from "@/lib/workspaces/server";
 import { createServerSupabaseClient, getCurrentUser } from "@/lib/auth";
 
@@ -17,13 +19,19 @@ export async function GET() {
       );
     }
 
-    const context = await getActiveWorkspaceContext();
-    const workspaces = await getUserWorkspaces(user.id);
+    const [context, workspaces, platformRole, profile] = await Promise.all([
+      getActiveWorkspaceContext(),
+      getUserWorkspaces(user.id),
+      getUserPlatformRole(user.id),
+      getUserProfile(user.id),
+    ]);
 
     return NextResponse.json({
       success: true,
       activeWorkspace: context?.workspace || null,
       role: context?.membership?.role || null,
+      platformRole,
+      profile,
       workspaces,
     });
   } catch (error) {
@@ -61,6 +69,13 @@ export async function POST(req: Request) {
       );
     }
 
+    // Verify platform privileges before permitting agency_master creation
+    const platformRole = await getUserPlatformRole(user.id);
+    const isPlatformAdmin = platformRole === "platform_founder" || platformRole === "platform_admin";
+
+    const safeWorkspaceType = isPlatformAdmin && workspaceType === "agency_master" ? "agency_master" : "client";
+    const safePlan = isPlatformAdmin ? plan : (["starter", "growth"].includes(plan) ? plan : "growth");
+
     const trimmedName = name.trim();
     const slug = `${trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-${Date.now().toString(36)}`;
 
@@ -76,8 +91,8 @@ export async function POST(req: Request) {
         p_slug: slug,
         p_brand_name: brandName?.trim() || trimmedName,
         p_accent_color: accentColor,
-        p_workspace_type: workspaceType,
-        p_plan: plan,
+        p_workspace_type: safeWorkspaceType,
+        p_plan: safePlan,
       });
 
       if (!rpcError && rpcData?.workspace && rpcData?.membership) {
@@ -95,8 +110,8 @@ export async function POST(req: Request) {
         .insert({
           name: trimmedName,
           slug,
-          workspace_type: workspaceType,
-          plan,
+          workspace_type: safeWorkspaceType,
+          plan: safePlan,
           status: "active",
           brand_name: brandName?.trim() || trimmedName,
           accent_color: accentColor,

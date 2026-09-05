@@ -18,11 +18,13 @@ export interface ExecutiveDigest {
   aiTasksCompleted24h: number;
   aiAttributedRevenue: number;
   autonomousActions: AutopilotAction[];
+  isSimulated?: boolean;
 }
 
 export function computeExecutiveDigest(params?: {
   overrideRevenue24h?: number;
   overridePipeline?: number;
+  isSimulated?: boolean;
 }): ExecutiveDigest {
   const dateString = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -38,6 +40,7 @@ export function computeExecutiveDigest(params?: {
   const aiTasksCompleted24h = 142;
   const aiAttributedRevenue = 48500;
   const projectedMrr = 68000;
+  const isSimulated = params?.isSimulated ?? true;
 
   const autonomousActions: AutopilotAction[] = [
     {
@@ -79,6 +82,7 @@ export function computeExecutiveDigest(params?: {
     aiTasksCompleted24h,
     aiAttributedRevenue,
     autonomousActions,
+    isSimulated,
   };
 }
 

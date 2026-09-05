@@ -52,6 +52,62 @@ export default function Topbar({
   const [attentionCount, setAttentionCount] =
     useState(0);
 
+  const [profileData, setProfileData] = useState<{
+    displayName: string;
+    jobTitle: string;
+    workspaceRole: string;
+    workspaceName: string;
+    platformRole: string | null;
+    email: string;
+    loading: boolean;
+  }>({
+    displayName: "User",
+    jobTitle: "",
+    workspaceRole: "Member",
+    workspaceName: "Workspace",
+    platformRole: null,
+    email: "",
+    loading: true,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProfile() {
+      try {
+        const res = await fetch("/api/account/profile", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !data.success) return;
+
+        const roleLabels: Record<string, string> = {
+          owner: "Owner",
+          admin: "Admin",
+          manager: "Manager",
+          agent: "Agent",
+          viewer: "Viewer",
+        };
+
+        setProfileData({
+          displayName: data.profile?.display_name || (data.user?.email ? data.user.email.split("@")[0] : "User"),
+          jobTitle: data.profile?.job_title || "",
+          workspaceRole: roleLabels[data.activeWorkspaceRole] || data.activeWorkspaceRole || "Member",
+          workspaceName: data.activeWorkspaceName || "Workspace",
+          platformRole: data.platformRole || null,
+          email: data.user?.email || "",
+          loading: false,
+        });
+      } catch {
+        // Retain fallback in local or offline
+      }
+    }
+
+    void loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     function handleKeyboard(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -315,7 +371,7 @@ export default function Topbar({
               setSearchOpen(false);
             }}
             aria-expanded={profileOpen}
-            aria-label="Open workspace menu"
+            aria-label="Open user profile menu"
             className="flex h-11 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-[#111216] px-2.5 text-left transition hover:bg-white/[0.06] sm:px-3"
           >
             <UserCircle2
@@ -323,30 +379,61 @@ export default function Topbar({
               className="text-white/80"
             />
             <div className="hidden sm:block">
-              <p className="text-xs font-semibold text-white">
-                CEO
-              </p>
-              <p className="text-[10px] text-white/35">
-                Founder
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs font-semibold text-white truncate max-w-[120px]">
+                  {profileData.displayName}
+                </p>
+                {profileData.platformRole === "platform_founder" && (
+                  <span className="rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.2 text-[9px] font-semibold text-violet-300">
+                    Founder
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-white/40">
+                {profileData.jobTitle ? `${profileData.jobTitle} - ${profileData.workspaceRole}` : profileData.workspaceRole}
               </p>
             </div>
           </button>
 
           {profileOpen && (
-            <div className="absolute right-0 top-[calc(100%+8px)] w-64 rounded-2xl border border-white/[0.09] bg-[#101115] p-2 shadow-2xl shadow-black/50">
+            <div className="absolute right-0 top-[calc(100%+8px)] w-64 rounded-2xl border border-white/[0.09] bg-[#101115] p-2 shadow-2xl shadow-black/50 z-50">
               <div className="rounded-xl bg-white/[0.03] px-3 py-3">
-                <p className="text-sm font-semibold text-white">
-                  J10 Workspace
+                <p className="text-sm font-semibold text-white truncate">
+                  {profileData.displayName}
                 </p>
-                <p className="mt-1 text-xs text-white/35">
-                  Founder operations environment
+                <p className="mt-0.5 text-xs text-white/50 truncate">
+                  {profileData.email}
                 </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                  <span className="rounded bg-white/[0.06] px-2 py-0.5 text-white/70">
+                    {profileData.workspaceRole}
+                  </span>
+                  {profileData.platformRole === "platform_founder" && (
+                    <span className="rounded bg-violet-500/20 text-violet-300 border border-violet-500/30 px-2 py-0.5 font-medium">
+                      Platform Founder
+                    </span>
+                  )}
+                  {profileData.platformRole === "platform_admin" && (
+                    <span className="rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 font-medium">
+                      Platform Admin
+                    </span>
+                  )}
+                </div>
               </div>
+
+              <Link
+                href="/dashboard/settings/account"
+                onClick={() => setProfileOpen(false)}
+                className="mt-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/60 transition hover:bg-white/[0.05] hover:text-white"
+              >
+                <UserCircle2 size={16} />
+                Account &amp; Email
+              </Link>
 
               <Link
                 href="/dashboard/settings"
                 onClick={() => setProfileOpen(false)}
-                className="mt-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/60 transition hover:bg-white/[0.05] hover:text-white"
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/60 transition hover:bg-white/[0.05] hover:text-white"
               >
                 <Settings size={16} />
                 Workspace settings

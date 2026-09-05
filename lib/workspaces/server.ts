@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { createServerSupabaseClient, getCurrentUser, createAdminSupabaseClient } from "@/lib/auth";
+import type { PlatformRoleType, UserProfileRecord } from "@/types/identity";
 
 export const ACTIVE_WORKSPACE_COOKIE = "j10_active_workspace_id";
 
@@ -37,6 +38,8 @@ export interface ActiveWorkspaceContext {
     id: string;
     email?: string;
   };
+  profile?: UserProfileRecord | null;
+  platformRole?: PlatformRoleType | null;
 }
 
 export const ROLE_HIERARCHY: Record<WorkspaceRole, number> = {
@@ -52,9 +55,49 @@ export function hasMinimumRole(userRole: WorkspaceRole, minimumRole: WorkspaceRo
 }
 
 /**
+ * Returns verified platform role for a user if granted and active.
+ */
+export async function getUserPlatformRole(userId: string): Promise<PlatformRoleType | null> {
+  try {
+    const admin = createAdminSupabaseClient();
+    const { data, error } = await admin
+      .from("platform_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .is("revoked_at", null)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return data.role as PlatformRoleType;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns canonical user profile.
+ */
+export async function getUserProfile(userId: string): Promise<UserProfileRecord | null> {
+  try {
+    const admin = createAdminSupabaseClient();
+    const { data, error } = await admin
+      .from("profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return data as UserProfileRecord;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolves the authenticated user and their active workspace membership.
  * Validates that the active workspace requested via cookie actually belongs to the user.
  * Never trusts client-supplied workspace IDs without database membership verification.
+ * Does NOT auto-provision "J10 NEXUS HQ" or platform roles to arbitrary new users.
  */
 export async function getActiveWorkspaceContext(): Promise<ActiveWorkspaceContext | null> {
   const user = await getCurrentUser();
@@ -66,6 +109,12 @@ export async function getActiveWorkspaceContext(): Promise<ActiveWorkspaceContex
   const requestedWorkspaceId = cookieStore.get(ACTIVE_WORKSPACE_COOKIE)?.value;
 
   const supabase = createServerSupabaseClient();
+
+  // Load platform role and user profile concurrently
+  const [platformRole, profile] = await Promise.all([
+    getUserPlatformRole(user.id),
+    getUserProfile(user.id),
+  ]);
 
   // 1. If a workspace cookie is set, verify active membership
   if (requestedWorkspaceId) {
@@ -93,6 +142,8 @@ export async function getActiveWorkspaceContext(): Promise<ActiveWorkspaceContex
           id: user.id,
           email: user.email,
         },
+        profile,
+        platformRole,
       };
     }
   }
@@ -137,109 +188,15 @@ export async function getActiveWorkspaceContext(): Promise<ActiveWorkspaceContex
         id: user.id,
         email: user.email,
       },
+      profile,
+      platformRole,
     };
   }
 
-  // 3. User has no workspaces: provision initial canonical "J10 NEXUS HQ" workspace
-  const adminClient = createAdminSupabaseClient();
-  const baseSlug = "j10-nexus-hq";
-  const slug = `${baseSlug}-${user.id.slice(0, 8)}`;
-  const workspaceName = "J10 NEXUS HQ";
-
-  // Attempt atomic database RPC first
-  try {
-    const { data: rpcData, error: rpcError } = await adminClient.rpc("provision_workspace", {
-      p_name: workspaceName,
-      p_slug: slug,
-      p_brand_name: workspaceName,
-      p_accent_color: "#3B82F6",
-      p_workspace_type: "agency_master",
-      p_plan: "enterprise",
-    });
-
-    if (!rpcError && rpcData?.workspace && rpcData?.membership) {
-      const ws = rpcData.workspace as WorkspaceRecord;
-      const mem = rpcData.membership as WorkspaceMembershipRecord;
-
-      try {
-        cookieStore.set(ACTIVE_WORKSPACE_COOKIE, ws.id, {
-          httpOnly: true,
-          sameSite: "lax",
-          secure: process.env.NODE_ENV === "production",
-          path: "/",
-          maxAge: 60 * 60 * 24 * 30,
-        });
-      } catch {
-        // Ignore cookie write errors in read-only render contexts
-      }
-
-      return {
-        workspace: ws,
-        membership: mem,
-        user: { id: user.id, email: user.email },
-      };
-    }
-  } catch {
-    // Fall back to direct atomic insert if RPC is not present
-  }
-
-  // Fallback direct insert
-  const { data: newWs, error: wsError } = await adminClient
-    .from("workspaces")
-    .insert({
-      name: workspaceName,
-      slug,
-      workspace_type: "agency_master",
-      plan: "enterprise",
-      status: "active",
-      brand_name: workspaceName,
-      accent_color: "#3B82F6",
-      owner_user_id: user.id,
-    })
-    .select("*")
-    .single();
-
-  if (wsError || !newWs) {
-    console.error("Failed to provision default workspace for user:", wsError);
-    return null;
-  }
-
-  const { data: newMem, error: memError } = await adminClient
-    .from("workspace_memberships")
-    .insert({
-      workspace_id: newWs.id,
-      user_id: user.id,
-      role: "owner",
-      status: "active",
-    })
-    .select("*")
-    .single();
-
-  if (memError || !newMem) {
-    console.error("Failed to create membership for user workspace:", memError);
-    return null;
-  }
-
-  try {
-    cookieStore.set(ACTIVE_WORKSPACE_COOKIE, newWs.id, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-    });
-  } catch {
-    // Ignore cookie write errors in read-only render contexts
-  }
-
-  return {
-    workspace: newWs as WorkspaceRecord,
-    membership: newMem as WorkspaceMembershipRecord,
-    user: {
-      id: user.id,
-      email: user.email,
-    },
-  };
+  // 3. User has no active workspaces:
+  // Strictly return null. Do NOT automatically provision "J10 NEXUS HQ" or agency master status.
+  // The client will direct the user to new workspace onboarding or invitation acceptance.
+  return null;
 }
 
 /**

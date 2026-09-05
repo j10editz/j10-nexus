@@ -93,6 +93,9 @@ export default function RevenueAutopilotCard({
               <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-300">
                 ACTIVE MONITOR
               </span>
+              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                SANDBOX / DEMO METRICS
+              </span>
             </div>
             <p className="text-xs text-white/50">
               Autonomous cashflow velocity, pipeline risk defense, and WhatsApp executive briefing.
@@ -134,7 +137,7 @@ export default function RevenueAutopilotCard({
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
           <div className="flex items-center justify-between text-white/40">
             <span className="text-[11px] font-medium uppercase tracking-wider">
-              24h Verified Revenue
+              24h Verified Revenue <span className="ml-1 text-[9px] text-amber-400 font-mono">[Demo / Sandbox]</span>
             </span>
             <DollarSign size={14} className="text-emerald-400" />
           </div>
@@ -150,7 +153,7 @@ export default function RevenueAutopilotCard({
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
           <div className="flex items-center justify-between text-white/40">
             <span className="text-[11px] font-medium uppercase tracking-wider">
-              Active Pipeline Value
+              Active Pipeline Value <span className="ml-1 text-[9px] text-amber-400 font-mono">[Demo]</span>
             </span>
             <TrendingUp size={14} className="text-blue-400" />
           </div>
@@ -182,7 +185,7 @@ export default function RevenueAutopilotCard({
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
           <div className="flex items-center justify-between text-white/40">
             <span className="text-[11px] font-medium uppercase tracking-wider">
-              Autonomous AI Impact
+              Autonomous AI Impact <span className="ml-1 text-[9px] text-amber-400 font-mono">[Demo]</span>
             </span>
             <Bot size={14} className="text-violet-400" />
           </div>
