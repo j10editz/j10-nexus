@@ -576,11 +576,13 @@ DROP POLICY IF EXISTS "workforce_insert" ON public.workforce_members;
 CREATE POLICY "workforce_insert" ON public.workforce_members FOR INSERT
   WITH CHECK (public.has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager']));
 
-DROP POLICY IF EXISTS "workforce_update" ON public.workforce_members FOR UPDATE
+DROP POLICY IF EXISTS "workforce_update" ON public.workforce_members;
+CREATE POLICY "workforce_update" ON public.workforce_members FOR UPDATE
   USING (public.has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager']))
   WITH CHECK (public.has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager']));
 
-DROP POLICY IF EXISTS "workforce_delete" ON public.workforce_members FOR DELETE
+DROP POLICY IF EXISTS "workforce_delete" ON public.workforce_members;
+CREATE POLICY "workforce_delete" ON public.workforce_members FOR DELETE
   USING (public.has_workspace_role(workspace_id, ARRAY['owner', 'admin']));
 
 

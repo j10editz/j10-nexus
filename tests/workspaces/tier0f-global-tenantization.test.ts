@@ -128,4 +128,56 @@ describe("Tier 0F: Global Tenantization, Launch Integrity & Atomic Boundary Veri
       }
     });
   });
+
+  describe("E. PostgreSQL Migration Syntax & DDL Invariant Guard", () => {
+    it("strictly rejects any DROP POLICY statement containing FOR clauses", () => {
+      const dropPolicyMatches = [...migration20260916.matchAll(/DROP\s+POLICY[\s\S]*?;/gi)];
+      expect(dropPolicyMatches.length).toBeGreaterThan(0);
+
+      for (const match of dropPolicyMatches) {
+        const stmt = match[0].replace(/\s+/g, " ").trim();
+        const upper = stmt.toUpperCase();
+        expect(upper).not.toContain(" FOR SELECT");
+        expect(upper).not.toContain(" FOR INSERT");
+        expect(upper).not.toContain(" FOR UPDATE");
+        expect(upper).not.toContain(" FOR DELETE");
+        expect(upper).not.toContain(" FOR ALL");
+        expect(upper).not.toContain(" USING (");
+        expect(upper).not.toContain(" WITH CHECK (");
+      }
+    });
+
+    it("verifies all DROP POLICY statements terminate with semicolons", () => {
+      const lines = migration20260916.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.toUpperCase().startsWith("DROP POLICY")) {
+          expect(line.endsWith(";")).toBe(true);
+        }
+      }
+    });
+
+    it("verifies all CREATE POLICY statements target valid tables with valid clauses", () => {
+      const createPolicyMatches = [...migration20260916.matchAll(/CREATE\s+POLICY\s+"([^"]+)"\s+ON\s+public\.([a-zA-Z0-9_]+)[\s\S]*?;/gi)];
+      expect(createPolicyMatches.length).toBeGreaterThan(20);
+
+      for (const match of createPolicyMatches) {
+        const policyBody = match[0].replace(/\s+/g, " ");
+        const upper = policyBody.toUpperCase();
+        expect(upper).toContain(" ON PUBLIC.");
+        const hasUsing = upper.includes(" USING ");
+        const hasWithCheck = upper.includes(" WITH CHECK ");
+        expect(hasUsing || hasWithCheck).toBe(true);
+      }
+    });
+
+    it("ensures migration is wrapped in an explicit transaction block and is retry-safe", () => {
+      expect(migration20260916).toMatch(/^\s*--[\s\S]*?BEGIN;\s*$/m);
+      expect(migration20260916).toMatch(/^\s*COMMIT;\s*$/m);
+      expect(migrationLower).toContain("create or replace function");
+      expect(migrationLower).toContain("create table if not exists");
+      expect(migrationLower).toContain("drop policy if exists");
+    });
+  });
 });
+
