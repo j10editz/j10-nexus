@@ -63,8 +63,8 @@ export default function Topbar({
   }>({
     displayName: "User",
     jobTitle: "",
-    workspaceRole: "Member",
-    workspaceName: "Workspace",
+    workspaceRole: "",
+    workspaceName: "",
     platformRole: null,
     email: "",
     loading: true,
@@ -76,9 +76,28 @@ export default function Topbar({
     async function loadProfile() {
       try {
         const res = await fetch("/api/account/profile", { cache: "no-store" });
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) {
+            setProfileData((prev) => ({
+              ...prev,
+              loading: false,
+              workspaceRole: "Authorization unavailable",
+              workspaceName: "No authorized workspace",
+            }));
+          }
+          return;
+        }
         const data = await res.json();
-        if (cancelled || !data.success) return;
+        if (cancelled) return;
+        if (!data.success) {
+          setProfileData((prev) => ({
+            ...prev,
+            loading: false,
+            workspaceRole: "Authorization unavailable",
+            workspaceName: "No authorized workspace",
+          }));
+          return;
+        }
 
         const roleLabels: Record<string, string> = {
           owner: "Owner",
@@ -88,17 +107,30 @@ export default function Topbar({
           viewer: "Viewer",
         };
 
+        const resolvedRole = data.activeWorkspaceRole
+          ? roleLabels[data.activeWorkspaceRole] || data.activeWorkspaceRole
+          : "No Workspace";
+
         setProfileData({
-          displayName: data.profile?.display_name || (data.user?.email ? data.user.email.split("@")[0] : "User"),
+          displayName:
+            data.profile?.display_name ||
+            (data.user?.email ? data.user.email.split("@")[0] : "User"),
           jobTitle: data.profile?.job_title || "",
-          workspaceRole: roleLabels[data.activeWorkspaceRole] || data.activeWorkspaceRole || "Member",
-          workspaceName: data.activeWorkspaceName || "Workspace",
+          workspaceRole: resolvedRole,
+          workspaceName: data.activeWorkspaceName || "No active workspace",
           platformRole: data.platformRole || null,
           email: data.user?.email || "",
           loading: false,
         });
       } catch {
-        // Retain fallback in local or offline
+        if (!cancelled) {
+          setProfileData((prev) => ({
+            ...prev,
+            loading: false,
+            workspaceRole: "Authorization unavailable",
+            workspaceName: "No authorized workspace",
+          }));
+        }
       }
     }
 
@@ -381,16 +413,29 @@ export default function Topbar({
             <div className="hidden sm:block">
               <div className="flex items-center gap-1.5">
                 <p className="text-xs font-semibold text-white truncate max-w-[120px]">
-                  {profileData.displayName}
+                  {profileData.loading ? "Loading..." : profileData.displayName}
                 </p>
                 {profileData.platformRole === "platform_founder" && (
                   <span className="rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.2 text-[9px] font-semibold text-violet-300">
                     Founder
                   </span>
                 )}
+                {profileData.workspaceRole === "Owner" && (
+                  <span className="rounded bg-emerald-500/20 border border-emerald-500/30 px-1 py-0.2 text-[9px] font-semibold text-emerald-300">
+                    Owner
+                  </span>
+                )}
               </div>
               <p className="text-[10px] text-white/40">
-                {profileData.jobTitle ? `${profileData.jobTitle} - ${profileData.workspaceRole}` : profileData.workspaceRole}
+                {profileData.loading
+                  ? "Loading authorization..."
+                  : profileData.workspaceRole === "Authorization unavailable"
+                  ? "Authorization unavailable"
+                  : profileData.workspaceRole === "No Workspace"
+                  ? "No Workspace"
+                  : profileData.jobTitle
+                  ? `${profileData.jobTitle} - ${profileData.workspaceRole}`
+                  : profileData.workspaceRole}
               </p>
             </div>
           </button>
@@ -405,8 +450,14 @@ export default function Topbar({
                   {profileData.email}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
-                  <span className="rounded bg-white/[0.06] px-2 py-0.5 text-white/70">
-                    {profileData.workspaceRole}
+                  <span className={`rounded px-2 py-0.5 ${
+                    profileData.workspaceRole === "Owner"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium"
+                      : profileData.workspaceRole === "Authorization unavailable"
+                      ? "bg-red-500/20 text-red-300 border border-red-500/30 font-medium"
+                      : "bg-white/[0.06] text-white/70"
+                  }`}>
+                    {profileData.workspaceRole || (profileData.loading ? "Loading..." : "No Workspace")}
                   </span>
                   {profileData.platformRole === "platform_founder" && (
                     <span className="rounded bg-violet-500/20 text-violet-300 border border-violet-500/30 px-2 py-0.5 font-medium">

@@ -25,10 +25,9 @@ import {
 import type { Workspace, WorkspacePlan } from "@/types/workspace";
 
 export default function WorkspaceSwitcher() {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>(SEED_WORKSPACES);
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(
-    SEED_WORKSPACES[0].id,
-  );
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [isLivePersisted, setIsLivePersisted] = useState(false);
@@ -48,34 +47,51 @@ export default function WorkspaceSwitcher() {
     async function loadServerWorkspaces() {
       try {
         const res = await fetch("/api/workspaces", { cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (isMounted && data.success && Array.isArray(data.workspaces) && data.workspaces.length > 0) {
-          const mapped: Workspace[] = data.workspaces.map((w: any) => ({
-            id: w.id,
-            name: w.name,
-            slug: w.slug,
-            type: w.workspace_type || "client",
-            plan: w.plan || "growth",
-            monthlySubscriptionPrice: PLAN_PRICING[w.plan as WorkspacePlan] || 499,
-            status: w.status || "active",
-            brandName: w.brand_name || w.name,
-            accentColor: w.accent_color || "#3B82F6",
-            clientContactName: "Account Administrator",
-            clientContactEmail: "",
-            createdAt: w.created_at || new Date().toISOString(),
-          }));
-
-          setWorkspaces(mapped);
-          setIsLivePersisted(true);
-          if (data.activeWorkspace?.id) {
-            setActiveWorkspaceId(data.activeWorkspace.id);
-          } else {
-            setActiveWorkspaceId(mapped[0].id);
+        if (!res.ok) {
+          if (isMounted) {
+            setWorkspaces([]);
+            setActiveWorkspaceId("");
+            setIsLoading(false);
           }
+          return;
+        }
+        const data = await res.json();
+        if (isMounted) {
+          if (data.success && Array.isArray(data.workspaces) && data.workspaces.length > 0) {
+            const mapped: Workspace[] = data.workspaces.map((w: any) => ({
+              id: w.id,
+              name: w.name,
+              slug: w.slug,
+              type: w.workspace_type || "client",
+              plan: w.plan || "growth",
+              monthlySubscriptionPrice: PLAN_PRICING[w.plan as WorkspacePlan] || 499,
+              status: w.status || "active",
+              brandName: w.brand_name || w.name,
+              accentColor: w.accent_color || "#3B82F6",
+              clientContactName: "Account Administrator",
+              clientContactEmail: "",
+              createdAt: w.created_at || new Date().toISOString(),
+            }));
+
+            setWorkspaces(mapped);
+            setIsLivePersisted(true);
+            if (data.activeWorkspace?.id) {
+              setActiveWorkspaceId(data.activeWorkspace.id);
+            } else {
+              setActiveWorkspaceId(mapped[0].id);
+            }
+          } else {
+            setWorkspaces([]);
+            setActiveWorkspaceId("");
+          }
+          setIsLoading(false);
         }
       } catch {
-        // Retain sandbox state in local/disconnected dev mode
+        if (isMounted) {
+          setWorkspaces([]);
+          setActiveWorkspaceId("");
+          setIsLoading(false);
+        }
       }
     }
 
@@ -86,6 +102,7 @@ export default function WorkspaceSwitcher() {
   }, []);
 
   const activeWorkspace = useMemo(() => {
+    if (workspaces.length === 0) return null;
     return (
       workspaces.find((w) => w.id === activeWorkspaceId) || workspaces[0]
     );
@@ -195,45 +212,85 @@ export default function WorkspaceSwitcher() {
     setTimeout(() => setNotice(""), 4500);
   }
 
+  if (isLoading) {
+    return (
+      <div className="flex h-11 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-[#111216] px-3">
+        <div className="h-7 w-7 animate-pulse rounded-lg bg-white/10" />
+        <div className="hidden sm:block">
+          <div className="h-3 w-28 animate-pulse rounded bg-white/10" />
+          <div className="mt-1.5 h-2 w-16 animate-pulse rounded bg-white/5" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative">
       {/* Active Workspace Selector Button */}
-      <button
-        type="button"
-        onClick={() => setMenuOpen(!menuOpen)}
-        className="flex h-11 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-[#111216] px-3 text-left transition hover:bg-white/[0.06]"
-      >
-        <div
-          className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold text-white shadow-sm"
-          style={{ backgroundColor: activeWorkspace.accentColor }}
+      {!activeWorkspace ? (
+        <button
+          type="button"
+          onClick={() => setMenuOpen(!menuOpen)}
+          className="flex h-11 items-center gap-2.5 rounded-xl border border-red-500/25 bg-[#111216] px-3 text-left transition hover:bg-white/[0.06]"
         >
-          {activeWorkspace.name.slice(0, 2).toUpperCase()}
-        </div>
-
-        <div className="hidden min-w-0 sm:block text-left">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-xs font-semibold text-white">
-              {activeWorkspace.name}
-            </span>
-            <span
-              className={`rounded px-1.5 py-0.2 text-[9px] font-medium border ${
-                activeWorkspace.type === "agency_master"
-                  ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
-                  : "border-amber-500/30 bg-amber-500/10 text-amber-300"
-              }`}
-            >
-              {activeWorkspace.type === "agency_master"
-                ? "AGENCY HQ"
-                : `$${activeWorkspace.monthlySubscriptionPrice}/mo`}
-            </span>
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-500/10 border border-red-500/20 text-xs font-bold text-red-400">
+            <Shield size={14} />
           </div>
-          <p className="truncate text-[10px] text-white/40">
-            {activeWorkspace.brandName}
-          </p>
-        </div>
 
-        <ChevronDown size={14} className="text-white/40" />
-      </button>
+          <div className="hidden min-w-0 sm:block text-left">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-xs font-semibold text-white/80">
+                No authorized workspace
+              </span>
+              <span className="rounded px-1.5 py-0.2 text-[9px] font-medium border border-red-500/30 bg-red-500/10 text-red-300">
+                NO ACCESS
+              </span>
+            </div>
+            <p className="truncate text-[10px] text-white/30">
+              Tenant unassigned
+            </p>
+          </div>
+
+          <ChevronDown size={14} className="text-white/40" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setMenuOpen(!menuOpen)}
+          className="flex h-11 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-[#111216] px-3 text-left transition hover:bg-white/[0.06]"
+        >
+          <div
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold text-white shadow-sm"
+            style={{ backgroundColor: activeWorkspace.accentColor }}
+          >
+            {activeWorkspace.name.slice(0, 2).toUpperCase()}
+          </div>
+
+          <div className="hidden min-w-0 sm:block text-left">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-xs font-semibold text-white">
+                {activeWorkspace.name}
+              </span>
+              <span
+                className={`rounded px-1.5 py-0.2 text-[9px] font-medium border ${
+                  activeWorkspace.type === "agency_master"
+                    ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
+                    : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                }`}
+              >
+                {activeWorkspace.type === "agency_master"
+                  ? "AGENCY HQ"
+                  : `$${activeWorkspace.monthlySubscriptionPrice}/mo`}
+              </span>
+            </div>
+            <p className="truncate text-[10px] text-white/40">
+              {activeWorkspace.brandName}
+            </p>
+          </div>
+
+          <ChevronDown size={14} className="text-white/40" />
+        </button>
+      )}
 
       {/* Notice Toast */}
       {notice && (
@@ -246,26 +303,36 @@ export default function WorkspaceSwitcher() {
       {/* Dropdown Menu */}
       {menuOpen && (
         <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-80 rounded-2xl border border-white/[0.1] bg-[#111216] p-2.5 shadow-2xl shadow-black/80">
-          {/* Agency Revenue Header */}
-          <div className="rounded-xl border border-white/[0.06] bg-black/40 p-3">
-            <div className="flex items-center justify-between text-white/40">
-              <span className="text-[10px] font-semibold uppercase tracking-wider">
-                Client Subscription MRR
-              </span>
-              <span className="text-[10px] font-semibold text-emerald-400">
-                {agencyStats.activeClientCount} Client Tenants
-              </span>
+          {workspaces.length === 0 ? (
+            <div className="rounded-xl border border-white/[0.06] bg-black/40 p-4 text-center">
+              <Shield className="mx-auto h-6 w-6 text-red-400/60 mb-2" />
+              <p className="text-xs font-semibold text-white">No Authorized Workspace</p>
+              <p className="mt-1 text-[11px] text-white/40">
+                Your account is not assigned to any active workspace. Please accept an invitation or contact the platform administrator.
+              </p>
             </div>
-            <p className="mt-1 text-lg font-bold text-white">
-              ${agencyStats.totalMonthlyRevenue.toLocaleString()} / mo
-            </p>
-            <p className="text-[10px] text-white/40">
-              Avg ${agencyStats.averageRevenuePerClient.toLocaleString()}/client monthly
-            </p>
-          </div>
+          ) : (
+            <>
+              {/* Agency Revenue Header */}
+              <div className="rounded-xl border border-white/[0.06] bg-black/40 p-3">
+                <div className="flex items-center justify-between text-white/40">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider">
+                    Client Subscription MRR
+                  </span>
+                  <span className="text-[10px] font-semibold text-emerald-400">
+                    {agencyStats.activeClientCount} Client Tenants
+                  </span>
+                </div>
+                <p className="mt-1 text-lg font-bold text-white">
+                  ${agencyStats.totalMonthlyRevenue.toLocaleString()} / mo
+                </p>
+                <p className="text-[10px] text-white/40">
+                  Avg ${agencyStats.averageRevenuePerClient.toLocaleString()}/client monthly
+                </p>
+              </div>
 
-          {/* Workspaces List */}
-          <div className="mt-2 max-h-60 space-y-1 overflow-y-auto pt-1">
+              {/* Workspaces List */}
+              <div className="mt-2 max-h-60 space-y-1 overflow-y-auto pt-1">
             <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/30">
               Switch Workspace
             </p>
@@ -321,6 +388,8 @@ export default function WorkspaceSwitcher() {
               Onboard Client Workspace ($/mo)
             </button>
           </div>
+            </>
+          )}
         </div>
       )}
 

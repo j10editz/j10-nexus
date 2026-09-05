@@ -196,12 +196,18 @@ export default function AccountSettingsPage() {
                 Workspace Role
               </span>
               <div className="mt-2">
-                <span className="inline-flex items-center rounded-md border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-xs font-semibold capitalize text-white">
-                  {workspaceRole || "Member"}
+                <span className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-semibold capitalize ${
+                  workspaceRole === "owner"
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                    : workspaceRole
+                    ? "border-white/[0.08] bg-white/[0.04] text-white"
+                    : "border-white/[0.06] bg-white/[0.02] text-white/40"
+                }`}>
+                  {workspaceRole ? (workspaceRole.charAt(0).toUpperCase() + workspaceRole.slice(1)) : "No Role"}
                 </span>
               </div>
               <p className="mt-2 text-[11px] text-white/40">
-                Tenant permissions scoped to active workspace
+                {workspaceName ? "Tenant permissions scoped to active workspace" : "No active tenant membership"}
               </p>
             </div>
           </div>
