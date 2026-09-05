@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-} from "@/lib/integrations/api";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import type { CampaignStatus } from "@/types/marketing";
 
 type RouteContext = {
@@ -11,22 +9,20 @@ type RouteContext = {
 
 export async function GET(request: Request, context: RouteContext) {
   try {
-    const { id } = await context.params;
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
+
+    const { id } = await context.params;
 
     const { data: campaign, error } = await supabase
       .from("marketing_campaigns")
       .select("*")
       .eq("id", id)
-      .eq("user_id", user.id)
+      .eq("workspace_id", wsContext.workspace.id)
       .single();
 
     if (error || !campaign) {
@@ -48,17 +44,14 @@ export async function GET(request: Request, context: RouteContext) {
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
-    const { id } = await context.params;
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
+    const { id } = await context.params;
     const body = await request.json();
     const updates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
@@ -93,7 +86,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         .from("marketing_campaigns")
         .select("target_count")
         .eq("id", id)
-        .eq("user_id", user.id)
+        .eq("workspace_id", wsContext.workspace.id)
         .single();
 
       const targets = existing?.target_count || 10;
@@ -109,14 +102,14 @@ export async function PATCH(request: Request, context: RouteContext) {
       .from("marketing_campaigns")
       .update(updates)
       .eq("id", id)
-      .eq("user_id", user.id)
+      .eq("workspace_id", wsContext.workspace.id)
       .select("*")
       .single();
 
     if (error || !campaign) {
       console.error("Campaign update error:", error);
       return NextResponse.json(
-        { success: false, error: "Could not update campaign." },
+        { success: false, error: error?.message || "Could not update campaign." },
         { status: 500 }
       );
     }
@@ -137,27 +130,25 @@ export async function PATCH(request: Request, context: RouteContext) {
 
 export async function DELETE(request: Request, context: RouteContext) {
   try {
-    const { id } = await context.params;
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("admin");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
+
+    const { id } = await context.params;
 
     const { error } = await supabase
       .from("marketing_campaigns")
       .delete()
       .eq("id", id)
-      .eq("user_id", user.id);
+      .eq("workspace_id", wsContext.workspace.id);
 
     if (error) {
       console.error("Campaign deletion error:", error);
       return NextResponse.json(
-        { success: false, error: "Could not delete campaign." },
+        { success: false, error: error.message || "Could not delete campaign." },
         { status: 500 }
       );
     }

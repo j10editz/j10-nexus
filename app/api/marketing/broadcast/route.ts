@@ -1,40 +1,20 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import type { AudienceSegment, CampaignChannel, MarketingCampaign } from "@/types/marketing";
 import { getCRMAudienceCounts, stripEmojis } from "@/lib/marketing/service";
 
-async function getSupabase() {
-  const cookieStore = await cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options) {
-          try {
-            cookieStore.set({ name, value, ...options });
-          } catch {
-            // Ignored in API routes
-          }
-        },
-        remove(name: string, options) {
-          try {
-            cookieStore.set({ name, value: "", ...options });
-          } catch {
-            // Ignored in API routes
-          }
-        },
-      },
-    }
-  );
-}
-
 export async function POST(req: Request) {
   try {
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
+    }
+    const { context } = auth;
+    const workspaceId = context.workspace.id;
+    const userId = context.user.id;
+    const supabase = createServerSupabaseClient();
+
     const body = await req.json();
     const {
       campaignId,
@@ -55,13 +35,7 @@ export async function POST(req: Request) {
     const cleanTemplate = stripEmojis(messageTemplate);
     const cleanName = stripEmojis(name);
 
-    const supabase = await getSupabase();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const userId = user?.id || "guest_user";
-    const counts = await getCRMAudienceCounts(supabase, userId);
+    const counts = await getCRMAudienceCounts(supabase, workspaceId);
     const segmentCount = counts[segment as AudienceSegment] || (counts.all > 0 ? counts.all : 24);
 
     const targetCount = Math.max(1, segmentCount);
@@ -75,6 +49,7 @@ export async function POST(req: Request) {
 
     const broadcastRecord: MarketingCampaign = {
       id: campaignId || `cmp_${Date.now()}`,
+      workspace_id: workspaceId,
       user_id: userId,
       name: cleanName,
       channel: channel as CampaignChannel,
@@ -92,42 +67,55 @@ export async function POST(req: Request) {
       updated_at: now,
     };
 
-    if (user) {
-      try {
-        if (campaignId) {
-          await supabase
-            .from("marketing_campaigns")
-            .update({
-              status: "completed",
-              sent_count: sentCount,
-              delivered_count: deliveredCount,
-              read_count: readCount,
-              replied_count: repliedCount,
-              completed_at: now,
-              updated_at: now,
-            })
-            .eq("id", campaignId)
-            .eq("user_id", user.id);
-        } else {
-          await supabase.from("marketing_campaigns").insert({
-            user_id: user.id,
-            name: cleanName,
-            channel,
-            audience_segment: segment,
-            status: "completed",
-            target_count: targetCount,
-            sent_count: sentCount,
-            delivered_count: deliveredCount,
-            read_count: readCount,
-            replied_count: repliedCount,
-            message_template: cleanTemplate,
-            completed_at: now,
-          });
-        }
-      } catch (err) {
-        console.warn("Could not persist broadcast to Supabase, returning memory result:", err);
-      }
+    if (campaignId) {
+      await supabase
+        .from("marketing_campaigns")
+        .update({
+          status: "completed",
+          sent_count: sentCount,
+          delivered_count: deliveredCount,
+          read_count: readCount,
+          replied_count: repliedCount,
+          completed_at: now,
+          updated_at: now,
+        })
+        .eq("id", campaignId)
+        .eq("workspace_id", workspaceId);
+    } else {
+      await supabase.from("marketing_campaigns").insert({
+        workspace_id: workspaceId,
+        user_id: userId,
+        name: cleanName,
+        channel,
+        audience_segment: segment,
+        status: "completed",
+        target_count: targetCount,
+        sent_count: sentCount,
+        delivered_count: deliveredCount,
+        read_count: readCount,
+        replied_count: repliedCount,
+        message_template: cleanTemplate,
+        completed_at: now,
+      });
     }
+
+    try {
+      await supabase.from("activity_logs").insert({
+        workspace_id: workspaceId,
+        user_id: userId,
+        action: "marketing_broadcast_sent",
+        entity_type: "marketing_campaign",
+        entity_id: broadcastRecord.id,
+        title: `Broadcast Dispatched: ${cleanName}`,
+        description: `Delivered to ${sentCount} contacts in segment '${segment}'.`,
+        metadata: {
+          channel,
+          audience_segment: segment,
+          target_count: targetCount,
+          delivered_count: deliveredCount,
+        },
+      });
+    } catch {}
 
     return NextResponse.json({
       success: true,

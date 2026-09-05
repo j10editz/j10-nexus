@@ -664,7 +664,7 @@ export async function POST(
 
     try {
       if (mode === "live") {
-        await assertWorkspaceEntitlement(supabase, user.id, { feature: capability.id });
+        await assertWorkspaceEntitlement(supabase, connection.workspaceId, { feature: capability.id });
       }
 
       const adapterResult =
@@ -832,7 +832,7 @@ export async function POST(
         );
 
       if (mode === "live") {
-        await recordWorkspaceMessageUsage(supabase, user.id, 1);
+        await recordWorkspaceMessageUsage(supabase, connection.workspaceId, 1);
       }
 
       await writeIntegrationOperationLog(

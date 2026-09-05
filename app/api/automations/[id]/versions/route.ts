@@ -1,6 +1,6 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext, type WorkspaceRole } from "@/lib/workspaces/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,53 +9,20 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-async function getSupabase() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
-            });
-          } catch {
-            // Cookie writes may be unavailable in route handlers.
-          }
-        },
-      },
-    },
-  );
-}
-
-async function authorize(context: RouteContext) {
+async function authorize(context: RouteContext, minRole: WorkspaceRole = "viewer") {
   const { id } = await context.params;
-  const supabase = await getSupabase();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    return {
-      response: NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 },
-      ),
-    } as const;
+  const auth = await requireApiWorkspaceContext(minRole);
+  if (auth.error) {
+    return { response: auth.error } as const;
   }
+  const { context: wsContext } = auth;
+  const supabase = createServerSupabaseClient();
 
   const { data: automation, error } = await supabase
     .from("automations")
-    .select("id, name, status, published_version_id")
+    .select("id, workspace_id, name, status, published_version_id")
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", wsContext.workspace.id)
     .maybeSingle();
 
   if (error) {
@@ -77,12 +44,12 @@ async function authorize(context: RouteContext) {
     } as const;
   }
 
-  return { supabase, user, automation } as const;
+  return { supabase, wsContext, automation } as const;
 }
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
-    const authorized = await authorize(context);
+    const authorized = await authorize(context, "viewer");
 
     if ("response" in authorized) {
       return authorized.response;
@@ -93,6 +60,7 @@ export async function GET(_request: Request, context: RouteContext) {
       .select(
         `
         id,
+        workspace_id,
         version_number,
         status,
         graph_version,
@@ -106,7 +74,7 @@ export async function GET(_request: Request, context: RouteContext) {
         `,
       )
       .eq("automation_id", authorized.automation.id)
-      .eq("user_id", authorized.user.id)
+      .eq("workspace_id", authorized.wsContext.workspace.id)
       .order("version_number", { ascending: false })
       .limit(50);
 
@@ -134,7 +102,7 @@ export async function GET(_request: Request, context: RouteContext) {
 
 export async function POST(request: Request, context: RouteContext) {
   try {
-    const authorized = await authorize(context);
+    const authorized = await authorize(context, "manager");
 
     if ("response" in authorized) {
       return authorized.response;
@@ -199,7 +167,8 @@ export async function POST(request: Request, context: RouteContext) {
     const { error: activityError } = await authorized.supabase
       .from("activity_logs")
       .insert({
-        user_id: authorized.user.id,
+        workspace_id: authorized.wsContext.workspace.id,
+        user_id: authorized.wsContext.user.id,
         action: "automation_version_rolled_back",
         entity_type: "automation",
         entity_id: authorized.automation.id,

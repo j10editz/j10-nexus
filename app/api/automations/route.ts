@@ -2,14 +2,8 @@ import {
   NextRequest,
   NextResponse,
 } from "next/server";
-
-import {
-  cookies,
-} from "next/headers";
-
-import {
-  createServerClient,
-} from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 type AutomationStatus =
   | "draft"
@@ -28,22 +22,16 @@ type AutomationTriggerType =
 
 type CreateAutomationBody = {
   name?: string;
-
   description?: string;
-
   status?: AutomationStatus;
-
   triggerType?: AutomationTriggerType;
-
   triggerConfig?: Record<
     string,
     unknown
   >;
-
   scheduleExpression?:
     | string
     | null;
-
   timezone?: string;
 };
 
@@ -64,87 +52,14 @@ const allowedTriggerTypes: AutomationTriggerType[] = [
   "integration_event",
 ];
 
-async function getSupabase() {
-  const cookieStore =
-    await cookies();
-
-  return createServerClient(
-    process.env
-      .NEXT_PUBLIC_SUPABASE_URL!,
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(
-          cookiesToSet
-        ) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            /*
-            Route handlers may not always
-            allow cookie mutation.
-            */
-          }
-        },
-      },
-    }
-  );
-}
-
-/*
-============================================================
-GET
-List current user's automations
-============================================================
-*/
-
 export async function GET() {
   try {
-    const supabase =
-      await getSupabase();
-
-    const {
-      data: {
-        user,
-      },
-
-      error:
-        userError,
-    } =
-      await supabase.auth.getUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data,
@@ -157,6 +72,7 @@ export async function GET() {
         .select(
           `
           id,
+          workspace_id,
           user_id,
           name,
           description,
@@ -176,8 +92,8 @@ export async function GET() {
           `
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          context.workspace.id
         )
         .order(
           "created_at",
@@ -239,15 +155,6 @@ export async function GET() {
             "draft"
         ).length,
 
-      archived:
-        automations.filter(
-          (
-            automation
-          ) =>
-            automation.status ===
-            "archived"
-        ).length,
-
       totalExecutions:
         automations.reduce(
           (
@@ -301,45 +208,16 @@ export async function GET() {
   }
 }
 
-/*
-============================================================
-POST
-Create automation
-============================================================
-*/
-
 export async function POST(
   request: NextRequest
 ) {
   try {
-    const supabase =
-      await getSupabase();
-
-    const {
-      data: {
-        user,
-      },
-
-      error:
-        userError,
-    } =
-      await supabase.auth.getUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body =
       (await request.json()) as CreateAutomationBody;
@@ -438,7 +316,6 @@ export async function POST(
     const {
       data:
         automation,
-
       error:
         automationError,
     } =
@@ -447,29 +324,25 @@ export async function POST(
           "automations"
         )
         .insert({
+          workspace_id:
+            context.workspace.id,
           user_id:
-            user.id,
-
+            context.user.id,
           name,
-
           description,
-
           status,
-
           trigger_type:
             triggerType,
-
           trigger_config:
             triggerConfig,
-
           schedule_expression:
             scheduleExpression,
-
           timezone,
         })
         .select(
           `
           id,
+          workspace_id,
           user_id,
           name,
           description,
@@ -511,12 +384,6 @@ export async function POST(
       );
     }
 
-    /*
-    ============================================================
-    ACTIVITY LOG
-    ============================================================
-    */
-
     const {
       error:
         activityError,
@@ -526,37 +393,29 @@ export async function POST(
           "activity_logs"
         )
         .insert({
+          workspace_id:
+            context.workspace.id,
           user_id:
-            user.id,
-
+            context.user.id,
           action:
             "automation_created",
-
           entity_type:
             "automation",
-
           entity_id:
             automation.id,
-
           title:
             `${automation.name} created`,
-
           description:
             `Automation created with ${automation.trigger_type} trigger.`,
-
           metadata: {
             source:
               "automation_api",
-
             automation_id:
               automation.id,
-
             automation_name:
               automation.name,
-
             trigger_type:
               automation.trigger_type,
-
             status:
               automation.status,
           },
@@ -572,10 +431,8 @@ export async function POST(
     return NextResponse.json(
       {
         success: true,
-
         message:
           "Automation created successfully.",
-
         automation,
       },
       {

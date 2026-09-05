@@ -32,7 +32,7 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    await assertWorkspaceEntitlement(supabase, user.id, { feature: "whatsapp_reply_suggestions" });
+    await assertWorkspaceEntitlement(supabase, connection.workspaceId, { feature: "whatsapp_reply_suggestions" });
 
     const body = parseRequestObject(await request.json());
     const customerMessage = typeof body.customerMessage === "string" ? body.customerMessage.trim() : "";
@@ -45,7 +45,7 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const agent = getWhatsAppAgentConfig(connection);
-    const { groundingPrompt } = await getWorkspaceKnowledgeGrounding(supabase, user.id);
+    const { groundingPrompt } = await getWorkspaceKnowledgeGrounding(supabase, connection.workspaceId);
     const effectiveAgent = groundingPrompt
       ? {
           ...agent,

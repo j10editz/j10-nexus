@@ -1,31 +1,26 @@
-﻿import { NextResponse } from "next/server";
-import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-} from "@/lib/integrations/api";
+import { NextResponse } from "next/server";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 export async function DELETE(
   _request: Request,
-  context: { params: Promise<{ id: string }> }
+  routeContext: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("admin");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
-    const { id } = await context.params;
+    const { id } = await routeContext.params;
 
     const { error } = await supabase
       .from("workforce_members")
       .delete()
       .eq("id", id)
-      .eq("user_id", user.id);
+      .eq("workspace_id", context.workspace.id);
 
     if (error) {
       return NextResponse.json(

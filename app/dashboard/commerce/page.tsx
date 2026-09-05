@@ -40,8 +40,6 @@ import {
   generateOrderNumber,
   generateWhatsAppOrderLink,
   getInventoryStatus,
-  SEED_COMMERCE_ORDERS,
-  SEED_COMMERCE_PRODUCTS,
 } from "@/lib/commerce/service";
 import type {
   CommerceOrder,
@@ -57,9 +55,9 @@ type TabType = "overview" | "products" | "orders" | "billing_revenue" | "ai-stud
 
 export default function CommerceDashboardPage() {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
-  const [products, setProducts] = useState<CommerceProduct[]>(SEED_COMMERCE_PRODUCTS as CommerceProduct[]);
-  const [orders, setOrders] = useState<CommerceOrder[]>(SEED_COMMERCE_ORDERS);
-  const [loading, setLoading] = useState(false);
+  const [products, setProducts] = useState<CommerceProduct[]>([]);
+  const [orders, setOrders] = useState<CommerceOrder[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
@@ -81,7 +79,7 @@ export default function CommerceDashboardPage() {
   // Stripe Checkout Link Generator Modal
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   const [checkoutProduct, setCheckoutProduct] = useState<CommerceProduct | null>(null);
-  const [checkoutCustomerPhone, setCheckoutCustomerPhone] = useState("+15550192834");
+  const [checkoutCustomerPhone, setCheckoutCustomerPhone] = useState("");
   const [checkoutCustomerEmail, setCheckoutCustomerEmail] = useState("");
   const [generatingCheckout, setGeneratingCheckout] = useState(false);
   const [generatedStripeUrl, setGeneratedStripeUrl] = useState("");
@@ -96,7 +94,7 @@ export default function CommerceDashboardPage() {
   const [copiedNotification, setCopiedNotification] = useState("");
 
   // WhatsApp Click-to-Order Builder
-  const [waPhone, setWaPhone] = useState("+15553492810");
+  const [waPhone, setWaPhone] = useState("");
   const [waSelectedProdId, setWaSelectedProdId] = useState("");
   const [waQuantity, setWaQuantity] = useState(1);
 

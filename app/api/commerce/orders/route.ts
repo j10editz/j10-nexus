@@ -1,48 +1,35 @@
 import { NextResponse } from "next/server";
-import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-} from "@/lib/integrations/api";
-import {
-  calculateOrderTotal,
-  generateOrderNumber,
-  SEED_COMMERCE_ORDERS,
-} from "@/lib/commerce/service";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+import { calculateOrderTotal, generateOrderNumber } from "@/lib/commerce/service";
 import type { CommerceOrder, OrderStatus } from "@/types/commerce";
 
 export async function GET() {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const { data, error } = await supabase
       .from("commerce_orders")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("workspace_id", context.workspace.id)
       .order("created_at", { ascending: false });
 
-    if (error || !data || data.length === 0) {
-      const seeded: CommerceOrder[] = SEED_COMMERCE_ORDERS.map((o) => ({
-        ...o,
-        userId: user.id,
-      }));
-      return NextResponse.json({
-        success: true,
-        orders: seeded,
-        source: error ? "fallback_seed" : "live_database",
-      });
+    if (error) {
+      console.error("Commerce Orders GET error:", error);
+      return NextResponse.json(
+        { success: false, error: "Failed to load commerce orders." },
+        { status: 500 }
+      );
     }
 
-    const orders: CommerceOrder[] = data.map((row: any) => ({
+    const orders: CommerceOrder[] = (data || []).map((row: any) => ({
       id: row.id,
-      userId: row.user_id,
+      userId: row.user_id || context.user.id,
       orderNumber: row.order_number,
       customerName: row.customer_name,
       customerEmail: row.customer_email,
@@ -70,15 +57,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("agent");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body = await request.json();
     const customerName = String(body.customerName || "").trim();
@@ -99,7 +83,8 @@ export async function POST(request: Request) {
     const { data, error } = await supabase
       .from("commerce_orders")
       .insert({
-        user_id: user.id,
+        workspace_id: context.workspace.id,
+        user_id: context.user.id,
         order_number: orderNumber,
         customer_name: customerName,
         customer_email: body.customerEmail || null,
@@ -116,34 +101,16 @@ export async function POST(request: Request) {
       .single();
 
     if (error || !data) {
-      const fallbackOrder: CommerceOrder = {
-        id: `ord_${Date.now()}`,
-        userId: user.id,
-        orderNumber,
-        customerName,
-        customerEmail: body.customerEmail || null,
-        customerPhone: body.customerPhone || null,
-        contactId: body.contactId || null,
-        totalAmount,
-        currency: body.currency || "USD",
-        status,
-        items,
-        paymentMethod,
-        notes: body.notes || null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      return NextResponse.json({
-        success: true,
-        order: fallbackOrder,
-        source: "local_memory",
-      });
+      console.error("Commerce Orders insert error:", error);
+      return NextResponse.json(
+        { success: false, error: error?.message || "Failed to create commerce order." },
+        { status: 500 }
+      );
     }
 
     const order: CommerceOrder = {
       id: data.id,
-      userId: data.user_id,
+      userId: data.user_id || context.user.id,
       orderNumber: data.order_number,
       customerName: data.customer_name,
       customerEmail: data.customer_email,
@@ -171,15 +138,12 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body = await request.json();
     const { orderId, status } = body;
@@ -198,18 +162,16 @@ export async function PATCH(request: Request) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderId)
-      .eq("user_id", user.id)
+      .eq("workspace_id", context.workspace.id)
       .select("*")
       .single();
 
-    if (error) {
-      return NextResponse.json({
-        success: true,
-        orderId,
-        status,
-        updated: true,
-        source: "fallback_update",
-      });
+    if (error || !data) {
+      console.error("Commerce Orders update error:", error);
+      return NextResponse.json(
+        { success: false, error: error?.message || "Failed to update commerce order." },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ success: true, order: data });

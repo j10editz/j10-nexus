@@ -2,13 +2,8 @@ import {
   NextResponse,
 } from "next/server";
 
-import {
-  cookies,
-} from "next/headers";
-
-import {
-  createServerClient,
-} from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext, type WorkspaceRole } from "@/lib/workspaces/server";
 
 import type {
   AutomationTriggerType,
@@ -51,6 +46,7 @@ type RouteContext = {
 
 type AutomationRow = {
   id: string;
+  workspace_id: string;
   user_id: string;
   name: string;
   description: string | null;
@@ -98,53 +94,21 @@ const STRUCTURAL_DRAFT_ERROR_CODES = new Set([
   "credential_material_forbidden",
 ]);
 
-async function getSupabase() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
-            });
-          } catch {
-            // Cookie writes may be unavailable in read-only route contexts.
-          }
-        },
-      },
-    },
-  );
-}
-
-async function getAuthorizedWorkflow(context: RouteContext) {
+async function getAuthorizedWorkflow(context: RouteContext, minRole: WorkspaceRole = "viewer") {
   const { id } = await context.params;
-  const supabase = await getSupabase();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    return {
-      response: NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 },
-      ),
-    } as const;
+  const auth = await requireApiWorkspaceContext(minRole);
+  if (auth.error) {
+    return { response: auth.error } as const;
   }
+  const { context: wsContext } = auth;
+  const supabase = createServerSupabaseClient();
 
   const { data, error } = await supabase
     .from("automations")
     .select(
       `
       id,
+      workspace_id,
       user_id,
       name,
       description,
@@ -163,7 +127,7 @@ async function getAuthorizedWorkflow(context: RouteContext) {
       `,
     )
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("workspace_id", wsContext.workspace.id)
     .maybeSingle();
 
   if (error) {
@@ -187,7 +151,7 @@ async function getAuthorizedWorkflow(context: RouteContext) {
 
   return {
     supabase,
-    user,
+    wsContext,
     automation: data as AutomationRow,
   } as const;
 }
@@ -197,13 +161,13 @@ export async function GET(
   context: RouteContext,
 ) {
   try {
-    const authorized = await getAuthorizedWorkflow(context);
+    const authorized = await getAuthorizedWorkflow(context, "viewer");
 
     if ("response" in authorized) {
       return authorized.response;
     }
 
-    const { supabase, user, automation } = authorized;
+    const { supabase, wsContext, automation } = authorized;
     const { data: rawSteps, error: stepsError } = await supabase
       .from("automation_steps")
       .select(
@@ -225,7 +189,6 @@ export async function GET(
         `,
       )
       .eq("automation_id", automation.id)
-      .eq("user_id", user.id)
       .order("step_order", { ascending: true });
 
     if (stepsError) {
@@ -252,11 +215,11 @@ export async function GET(
         );
 
     const [connections, employeesResult] = await Promise.all([
-      listIntegrationConnections(supabase, user.id),
+      listIntegrationConnections(supabase, wsContext.workspace.id),
       supabase
         .from("employees")
         .select("id, name, role, department, status")
-        .eq("user_id", user.id)
+        .eq("workspace_id", wsContext.workspace.id)
         .order("created_at", { ascending: false }),
     ]);
 
@@ -312,7 +275,7 @@ export async function PUT(
   context: RouteContext,
 ) {
   try {
-    const authorized = await getAuthorizedWorkflow(context);
+    const authorized = await getAuthorizedWorkflow(context, "manager");
 
     if ("response" in authorized) {
       return authorized.response;

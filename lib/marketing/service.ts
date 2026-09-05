@@ -29,13 +29,13 @@ export const SEGMENT_LABELS: Record<AudienceSegment, string> = {
 
 export async function getCRMAudienceCounts(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
 ): Promise<{ all: number; leads: number; prospects: number; customers: number }> {
   try {
     const { data, error } = await supabase
-      .from("crm_contacts")
+      .from("contacts")
       .select("type")
-      .eq("user_id", userId);
+      .eq("workspace_id", workspaceId);
 
     if (error || !data) {
       return { all: 0, leads: 0, prospects: 0, customers: 0 };

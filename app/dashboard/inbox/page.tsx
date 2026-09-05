@@ -33,7 +33,6 @@ import {
   CHANNEL_METADATA,
   filterInboxThreads,
   generateAICopilotDraft,
-  SEED_INBOX_THREADS,
   STAGE_METADATA,
 } from "@/lib/inbox/service";
 import type {
@@ -504,19 +503,7 @@ export default function UnifiedInboxPage() {
                 <p className="mt-1 max-w-xs text-[11px] text-white/40">
                   Inbound WhatsApp messages, website form leads, and CRM inquiries will appear here automatically for this workspace.
                 </p>
-                {!isSandboxDemo && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setThreads([...SEED_INBOX_THREADS]);
-                      setIsSandboxDemo(true);
-                      if (SEED_INBOX_THREADS[0]) setSelectedThreadId(SEED_INBOX_THREADS[0].id);
-                    }}
-                    className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] font-medium text-amber-300 transition hover:bg-amber-500/20"
-                  >
-                    Preview Sandbox Demo Conversations
-                  </button>
-                )}
+
               </div>
             ) : (
               filteredThreads.map((thread) => {

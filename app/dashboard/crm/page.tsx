@@ -40,7 +40,6 @@ import {
   formatUSD,
   getStalenessInfo,
   groupContactsByStage,
-  SEED_CRM_CONTACTS,
 } from "@/lib/crm/service";
 import type { ContactStatus, ContactType, CRMContact, CRMSummary } from "@/types/crm";
 
@@ -107,9 +106,9 @@ function computeCRMSummary(contactList: CRMContact[]): CRMSummary {
 }
 
 export default function CRMPage() {
-  const [contacts, setContacts] = useState<CRMContact[]>(SEED_CRM_CONTACTS);
-  const [summary, setSummary] = useState<CRMSummary>(() => computeCRMSummary(SEED_CRM_CONTACTS));
-  const [loading, setLoading] = useState(false);
+  const [contacts, setContacts] = useState<CRMContact[]>([]);
+  const [summary, setSummary] = useState<CRMSummary>(emptySummary);
+  const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ContactStatus | "All">("All");
@@ -199,13 +198,10 @@ export default function CRMPage() {
       if (response.ok && data.success && data.contact) {
         updateContactInState(data.contact);
       } else {
-        // Optimistic local fallback
-        const updated = { ...contact, status: nextStatus, updated_at: new Date().toISOString() };
-        updateContactInState(updated);
+        setErrorMessage(data.error || "Failed to update contact status.");
       }
-    } catch {
-      const updated = { ...contact, status: nextStatus, updated_at: new Date().toISOString() };
-      updateContactInState(updated);
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Failed to update contact status.");
     } finally {
       setUpdatingContactId(null);
     }
@@ -223,23 +219,10 @@ export default function CRMPage() {
       if (response.ok && data.success && data.contact) {
         updateContactInState(data.contact);
       } else {
-        // Optimistic local update
-        const updated: CRMContact = {
-          ...contact,
-          status: contact.status === "New" ? "Contacted" : contact.status,
-          last_contacted_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-        updateContactInState(updated);
+        setErrorMessage(data.error || "Failed to mark contact as contacted.");
       }
-    } catch {
-      const updated: CRMContact = {
-        ...contact,
-        status: contact.status === "New" ? "Contacted" : contact.status,
-        last_contacted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      updateContactInState(updated);
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Failed to mark contact as contacted.");
     } finally {
       setUpdatingContactId(null);
     }
@@ -1237,22 +1220,8 @@ function ContactModal({
       }
 
       onUpdate(data.contact);
-      setEditing(false);
-    } catch {
-      // Optimistic local update fallback
-      const updated: CRMContact = {
-        ...contact,
-        ...(body.status ? { status: body.status as ContactStatus } : {}),
-        ...(body.action === "contacted"
-          ? {
-              status: contact.status === "New" ? "Contacted" : contact.status,
-              last_contacted_at: new Date().toISOString(),
-            }
-          : {}),
-        updated_at: new Date().toISOString(),
-      };
-      onUpdate(updated);
-      setEditing(false);
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Failed to update contact.");
     } finally {
       setActionLoading("");
     }

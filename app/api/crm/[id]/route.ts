@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 import {
   dispatchAutomationEvent,
@@ -60,96 +60,20 @@ const VALID_STATUSES: ContactStatus[] = [
   "Lost",
 ];
 
-async function getSupabase() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            // Cookie writes may not
-            // be available here.
-          }
-        },
-      },
-    }
-  );
-}
-
-async function getAuthenticatedUser() {
-  const supabase =
-    await getSupabase();
-
-  const {
-    data: { user },
-    error,
-  } =
-    await supabase.auth.getUser();
-
-  return {
-    supabase,
-    user,
-    error,
-  };
-}
-
-/*
-============================================================
-GET ONE CONTACT
-============================================================
-*/
-
 export async function GET(
   request: Request,
-  context: RouteContext
+  routeContext: RouteContext
 ) {
   try {
     const { id } =
-      await context.params;
+      await routeContext.params;
 
-    const {
-      supabase,
-      user,
-      error: userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data: contact,
@@ -159,8 +83,8 @@ export async function GET(
       .select("*")
       .eq("id", id)
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        context.workspace.id
       )
       .maybeSingle();
 
@@ -211,36 +135,21 @@ UPDATE CONTACT
 
 export async function PATCH(
   request: Request,
-  context: RouteContext
+  routeContext: RouteContext
 ) {
   try {
     const { id } =
-      await context.params;
+      await routeContext.params;
 
     const body =
       (await request.json()) as UpdateContactRequest;
 
-    const {
-      supabase,
-      user,
-      error: userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data: currentContact,
@@ -250,8 +159,8 @@ export async function PATCH(
       .select("*")
       .eq("id", id)
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        context.workspace.id
       )
       .maybeSingle();
 
@@ -527,19 +436,32 @@ export async function PATCH(
       );
     }
 
+    if (updateData.first_name || updateData.last_name) {
+      const fName = (updateData.first_name as string) ?? currentContact.first_name ?? "";
+      const lName = (updateData.last_name as string) ?? currentContact.last_name ?? "";
+      updateData.name = [fName, lName].filter(Boolean).join(" ");
+    }
+
     const {
-      data: updatedContact,
+      data: updatedContactRow,
       error: updateError,
     } = await supabase
-      .from("crm_contacts")
+      .from("contacts")
       .update(updateData)
       .eq("id", id)
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        context.workspace.id
       )
       .select("*")
       .single();
+
+    const updatedContact = updatedContactRow ? {
+      ...updatedContactRow,
+      user_id: updatedContactRow.assigned_user_id || context.user.id,
+      first_name: updatedContactRow.first_name || (updatedContactRow.name ? updatedContactRow.name.split(" ")[0] : ""),
+      last_name: updatedContactRow.last_name || null,
+    } : null;
 
     if (
       updateError ||
@@ -589,8 +511,11 @@ export async function PATCH(
     } = await supabase
       .from("activity_logs")
       .insert({
+        workspace_id:
+          context.workspace.id,
+
         user_id:
-          user.id,
+          context.user.id,
 
         action:
           activityAction,
@@ -653,7 +578,7 @@ export async function PATCH(
             supabase,
 
             userId:
-              user.id,
+              context.user.id,
 
             origin:
               new URL(
@@ -751,33 +676,18 @@ DELETE CONTACT
 
 export async function DELETE(
   request: Request,
-  context: RouteContext
+  routeContext: RouteContext
 ) {
   try {
     const { id } =
-      await context.params;
+      await routeContext.params;
 
-    const {
-      supabase,
-      user,
-      error: userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data: contact,
@@ -787,8 +697,8 @@ export async function DELETE(
       .select("*")
       .eq("id", id)
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        context.workspace.id
       )
       .maybeSingle();
 
@@ -811,12 +721,12 @@ export async function DELETE(
     const {
       error: deleteError,
     } = await supabase
-      .from("crm_contacts")
+      .from("contacts")
       .delete()
       .eq("id", id)
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        context.workspace.id
       );
 
     if (deleteError) {
@@ -851,8 +761,11 @@ export async function DELETE(
     } = await supabase
       .from("activity_logs")
       .insert({
+        workspace_id:
+          context.workspace.id,
+
         user_id:
-          user.id,
+          context.user.id,
 
         action:
           "crm_contact_deleted",

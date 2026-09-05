@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-} from "@/lib/integrations/api";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import {
   computeMarketingSummary,
   getCRMAudienceCounts,
@@ -11,15 +9,12 @@ import type { AudienceSegment, CampaignChannel, MarketingCampaign } from "@/type
 
 export async function GET(request: Request) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const { searchParams } = new URL(request.url);
     const channel = searchParams.get("channel");
@@ -28,7 +23,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from("marketing_campaigns")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("workspace_id", context.workspace.id)
       .order("created_at", { ascending: false });
 
     if (channel && channel !== "all") {
@@ -41,9 +36,8 @@ export async function GET(request: Request) {
 
     const { data, error } = await query;
 
-    // Gracefully handle if table doesn't exist yet
     const campaigns = error ? [] : ((data ?? []) as MarketingCampaign[]);
-    const audienceCounts = await getCRMAudienceCounts(supabase, user.id);
+    const audienceCounts = await getCRMAudienceCounts(supabase, context.workspace.id);
     const summary = computeMarketingSummary(campaigns, audienceCounts);
 
     return NextResponse.json({
@@ -62,15 +56,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body = await request.json();
     const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -105,8 +96,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Resolve audience count dynamically from real CRM data
-    const audienceCounts = await getCRMAudienceCounts(supabase, user.id);
+    // Resolve audience count dynamically from real CRM data scoped by workspace
+    const audienceCounts = await getCRMAudienceCounts(supabase, context.workspace.id);
     const targetCount = audienceCounts[audienceSegment] || 0;
 
     const initialStatus = scheduledAt ? "scheduled" : "draft";
@@ -114,7 +105,8 @@ export async function POST(request: Request) {
     const { data: campaign, error } = await supabase
       .from("marketing_campaigns")
       .insert({
-        user_id: user.id,
+        workspace_id: context.workspace.id,
+        user_id: context.user.id,
         name,
         channel,
         audience_segment: audienceSegment,
@@ -133,7 +125,7 @@ export async function POST(request: Request) {
     if (error || !campaign) {
       console.error("Campaign creation error:", error);
       return NextResponse.json(
-        { success: false, error: "Could not create campaign in database." },
+        { success: false, error: error?.message || "Could not create campaign in database." },
         { status: 500 }
       );
     }
@@ -141,7 +133,8 @@ export async function POST(request: Request) {
     // Write activity log
     try {
       await supabase.from("activity_logs").insert({
-        user_id: user.id,
+        workspace_id: context.workspace.id,
+        user_id: context.user.id,
         action: "marketing_campaign_created",
         entity_type: "marketing_campaign",
         entity_id: campaign.id,

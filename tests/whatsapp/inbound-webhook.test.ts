@@ -15,7 +15,7 @@ function source(path: string) {
   return readFileSync(
     resolve(process.cwd(), path),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
 }
 
 describe("Inbound WhatsApp webhook processing", () => {

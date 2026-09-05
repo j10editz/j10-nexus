@@ -2,14 +2,8 @@ import {
   NextRequest,
   NextResponse,
 } from "next/server";
-
-import {
-  cookies,
-} from "next/headers";
-
-import {
-  createServerClient,
-} from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 type RouteContext = {
   params: Promise<{
@@ -85,55 +79,6 @@ const allowedActions: AutomationAction[] = [
   "archive",
 ];
 
-/*
-============================================================
-SUPABASE
-============================================================
-*/
-
-async function getSupabase() {
-  const cookieStore =
-    await cookies();
-
-  return createServerClient(
-    process.env
-      .NEXT_PUBLIC_SUPABASE_URL!,
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(
-          cookiesToSet
-        ) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            /*
-            Cookie mutation may be unavailable
-            in some route-handler contexts.
-            */
-          }
-        },
-      },
-    }
-  );
-}
 
 /*
 ============================================================
@@ -143,6 +88,7 @@ AUTOMATION SELECT
 
 const automationSelect = `
   id,
+  workspace_id,
   user_id,
   name,
   description,
@@ -161,31 +107,6 @@ const automationSelect = `
   updated_at
 `;
 
-/*
-============================================================
-AUTH
-============================================================
-*/
-
-async function getAuthenticatedUser() {
-  const supabase =
-    await getSupabase();
-
-  const {
-    data: {
-      user,
-    },
-
-    error,
-  } =
-    await supabase.auth.getUser();
-
-  return {
-    supabase,
-    user,
-    error,
-  };
-}
 
 /*
 ============================================================
@@ -195,6 +116,7 @@ ACTIVITY LOGGER
 
 async function recordAutomationActivity({
   supabase,
+  workspaceId,
   userId,
   automationId,
   automationName,
@@ -203,52 +125,23 @@ async function recordAutomationActivity({
   description,
   metadata = {},
 }: {
-  supabase:
-    Awaited<
-      ReturnType<
-        typeof getSupabase
-      >
-    >;
-
-  userId:
-    string;
-
-  automationId:
-    string;
-
-  automationName:
-    string;
-
-  action:
-    string;
-
-  title:
-    string;
-
-  description:
-    string;
-
-  metadata?:
-    Record<
-      string,
-      unknown
-    >;
+  supabase: ReturnType<typeof createServerSupabaseClient>;
+  workspaceId: string;
+  userId: string;
+  automationId: string;
+  automationName: string;
+  action: string;
+  title: string;
+  description: string;
+  metadata?: Record<string, unknown>;
 }) {
-  const {
-    error,
-  } =
-    await supabase
-      .from(
-        "activity_logs"
-      )
-      .insert({
-        user_id:
-          userId,
-
-        action,
-
-        entity_type:
-          "automation",
+  const { error } = await supabase
+    .from("activity_logs")
+    .insert({
+      workspace_id: workspaceId,
+      user_id: userId,
+      action,
+      entity_type: "automation",
 
         entity_id:
           automationId,
@@ -310,35 +203,16 @@ export async function GET(
       );
     }
 
-    const {
-      supabase,
-      user,
-      error:
-        userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data:
         automation,
-
       error,
     } =
       await supabase
@@ -353,8 +227,8 @@ export async function GET(
           id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          wsContext.workspace.id
         )
         .maybeSingle();
 
@@ -431,8 +305,8 @@ export async function GET(
           id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          wsContext.workspace.id
         )
         .order(
           "step_order",
@@ -507,35 +381,16 @@ export async function PATCH(
       );
     }
 
-    const {
-      supabase,
-      user,
-      error:
-        userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data:
         existingAutomation,
-
       error:
         existingError,
     } =
@@ -551,8 +406,8 @@ export async function PATCH(
           id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          wsContext.workspace.id
         )
         .maybeSingle();
 
@@ -890,8 +745,8 @@ export async function PATCH(
           id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          wsContext.workspace.id
         )
         .select(
           automationSelect
@@ -979,38 +834,18 @@ export async function PATCH(
 
     await recordAutomationActivity({
       supabase,
-
-      userId:
-        user.id,
-
-      automationId:
-        automation.id,
-
-      automationName:
-        automation.name,
-
-      action:
-        activityAction,
-
-      title:
-        activityTitle,
-
-      description:
-        activityDescription,
-
+      workspaceId: wsContext.workspace.id,
+      userId: wsContext.user.id,
+      automationId: automation.id,
+      automationName: automation.name,
+      action: activityAction,
+      title: activityTitle,
+      description: activityDescription,
       metadata: {
-        previous_status:
-          existingAutomation.status,
-
-        status:
-          automation.status,
-
-        trigger_type:
-          automation.trigger_type,
-
-        action:
-          body.action ??
-          "update",
+        previous_status: existingAutomation.status,
+        new_status: automation.status,
+        action: body.action ?? "update_config",
+        trigger_type: automation.trigger_type,
       },
     });
 
@@ -1086,35 +921,16 @@ export async function DELETE(
       );
     }
 
-    const {
-      supabase,
-      user,
-      error:
-        userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("admin");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data:
         automation,
-
       error:
         lookupError,
     } =
@@ -1125,6 +941,7 @@ export async function DELETE(
         .select(
           `
           id,
+          workspace_id,
           user_id,
           name,
           status,
@@ -1136,8 +953,8 @@ export async function DELETE(
           id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          wsContext.workspace.id
         )
         .maybeSingle();
 
@@ -1205,51 +1022,24 @@ export async function DELETE(
 
     await recordAutomationActivity({
       supabase,
-
-      userId:
-        user.id,
-
-      automationId:
-        automation.id,
-
-      automationName:
-        automation.name,
-
-      action:
-        "automation_deleted",
-
-      title:
-        `${automation.name} deleted`,
-
-      description:
-        `${automation.name} was permanently deleted.`,
-
+      workspaceId: wsContext.workspace.id,
+      userId: wsContext.user.id,
+      automationId: automation.id,
+      automationName: automation.name,
+      action: "automation_deleted",
+      title: `${automation.name} deleted`,
+      description: `${automation.name} was permanently deleted.`,
       metadata: {
-        previous_status:
-          automation.status,
-
-        trigger_type:
-          automation.trigger_type,
+        previous_status: automation.status,
+        trigger_type: automation.trigger_type,
       },
     });
 
-    const {
-      error:
-        deleteError,
-    } =
-      await supabase
-        .from(
-          "automations"
-        )
-        .delete()
-        .eq(
-          "id",
-          id
-        )
-        .eq(
-          "user_id",
-          user.id
-        );
+    const { error: deleteError } = await supabase
+      .from("automations")
+      .delete()
+      .eq("id", id)
+      .eq("workspace_id", wsContext.workspace.id);
 
     if (deleteError) {
       console.error(

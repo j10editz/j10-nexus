@@ -16,6 +16,7 @@ import {
 
 export const INTEGRATION_DATABASE_SELECT = `
   id,
+  workspace_id,
   user_id,
   provider,
   status,
@@ -43,6 +44,7 @@ type PublicConfigurationValue =
 
 export interface IntegrationDatabaseRow {
   id: string;
+  workspace_id?: string;
   user_id: string;
   provider: string;
   status: string;
@@ -293,7 +295,8 @@ export function mapIntegrationDatabaseRow(
 
   return {
     id: row.id,
-    workspaceId: row.user_id,
+    workspaceId: row.workspace_id || row.user_id,
+    userId: row.user_id,
     providerId,
 
     name:
@@ -411,7 +414,7 @@ export async function listIntegrationConnections(
       .select(
         INTEGRATION_DATABASE_SELECT,
       )
-      .eq("user_id", userId)
+      .or(`workspace_id.eq.${userId},user_id.eq.${userId}`)
       .order("created_at", {
         ascending: true,
       });
@@ -449,7 +452,7 @@ export async function getIntegrationConnectionById(
         INTEGRATION_DATABASE_SELECT,
       )
       .eq("id", connectionId)
-      .eq("user_id", userId)
+      .or(`workspace_id.eq.${userId},user_id.eq.${userId}`)
       .maybeSingle();
 
   if (error) {
@@ -484,7 +487,7 @@ export async function getIntegrationConnectionByProvider(
       .select(
         INTEGRATION_DATABASE_SELECT,
       )
-      .eq("user_id", userId)
+      .or(`workspace_id.eq.${userId},user_id.eq.${userId}`)
       .in(
         "provider",
         [...aliases],

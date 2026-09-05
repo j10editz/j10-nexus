@@ -3,7 +3,6 @@ import {
 } from "next/server";
 
 import {
-  createIntegrationApiClient,
   getAuthenticatedIntegrationUser,
   integrationApiErrorResponse,
 } from "@/lib/integrations/api";
@@ -11,6 +10,8 @@ import {
 import {
   getIntegrationConnectionById,
 } from "@/lib/integrations/database";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 type RouteContext = {
   params: Promise<{
@@ -83,28 +84,17 @@ export async function GET(
     const { id } =
       await context.params;
 
-    const supabase =
-      await createIntegrationApiClient();
-
-    const user =
-      await getAuthenticatedIntegrationUser(
-        supabase,
-      );
-
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        { status: 401 },
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const connection =
       await getIntegrationConnectionById(
         supabase,
-        user.id,
+        wsContext.workspace.id,
         id,
       );
 
@@ -132,7 +122,6 @@ export async function GET(
         "id,status,last_received_at",
       )
       .eq("integration_id", id)
-      .eq("user_id", user.id)
       .limit(1);
 
     if (endpointError) {
@@ -171,7 +160,6 @@ export async function GET(
         "id,event_type,signature_status,processing_status,normalized_event,received_at,processed_at,failure_code,failure_message",
       )
       .eq("integration_id", id)
-      .eq("user_id", user.id)
       .order("received_at", {
         ascending: false,
       })
@@ -201,7 +189,6 @@ export async function GET(
         .from("integration_operation_logs")
         .select("status,metadata,created_at")
         .eq("integration_id", id)
-        .eq("user_id", user.id)
         .eq("webhook_event_id", inboundEvent.id)
         .eq(
           "event_type",

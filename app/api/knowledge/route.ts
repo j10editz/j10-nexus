@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-} from "@/lib/integrations/api";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import {
   computeKnowledgeSummary,
   estimateTokenCount,
@@ -12,15 +10,12 @@ import type { KnowledgeCategory, KnowledgeDocument } from "@/types/knowledge";
 
 export async function GET(request: Request) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category")?.trim();
@@ -29,7 +24,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from("company_knowledge_documents")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("workspace_id", context.workspace.id)
       .order("created_at", { ascending: false });
 
     if (category && category !== "all" && category in KNOWLEDGE_CATEGORIES) {
@@ -39,7 +34,6 @@ export async function GET(request: Request) {
     const { data, error } = await query;
 
     if (error) {
-      // If table does not exist yet, return empty list gracefully
       console.warn("Knowledge documents load warning:", error.message);
       return NextResponse.json({
         success: true,
@@ -77,15 +71,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body = await request.json();
     const title = typeof body.title === "string" ? body.title.trim() : "";
@@ -118,7 +109,8 @@ export async function POST(request: Request) {
     const { data: document, error: insertError } = await supabase
       .from("company_knowledge_documents")
       .insert({
-        user_id: user.id,
+        workspace_id: context.workspace.id,
+        user_id: context.user.id,
         title,
         content,
         category,
@@ -135,16 +127,17 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Could not create knowledge document in database.",
+          error: insertError?.message || "Could not create knowledge document in database.",
         },
         { status: 500 }
       );
     }
 
-    // Attempt activity log write
+    // Write activity log
     try {
       await supabase.from("activity_logs").insert({
-        user_id: user.id,
+        workspace_id: context.workspace.id,
+        user_id: context.user.id,
         action: "knowledge_document_created",
         entity_type: "knowledge_document",
         entity_id: document.id,
@@ -158,18 +151,15 @@ export async function POST(request: Request) {
       });
     } catch {}
 
-    return NextResponse.json(
-      {
-        success: true,
-        document,
-        message: "Knowledge document added to Company Brain.",
-      },
-      { status: 201 }
-    );
+    return NextResponse.json({
+      success: true,
+      document,
+      message: "Document created and grounded into J10 Knowledge Engine.",
+    });
   } catch (error) {
     console.error("Knowledge POST API error:", error);
     return NextResponse.json(
-      { success: false, error: "J10 NEXUS could not save knowledge document." },
+      { success: false, error: "J10 NEXUS could not create knowledge document." },
       { status: 500 }
     );
   }

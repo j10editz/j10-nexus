@@ -1,54 +1,15 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 export async function GET() {
   try {
-    const cookieStore = await cookies();
-
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(
-                ({ name, value, options }) => {
-                  cookieStore.set(
-                    name,
-                    value,
-                    options
-                  );
-                }
-              );
-            } catch {
-              // Server context may not allow cookie writes.
-            }
-          },
-        },
-      }
-    );
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        {
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     // EMPLOYEES
     const {
@@ -63,7 +24,8 @@ export async function GET() {
         tasks_completed,
         revenue_generated
         `
-      );
+      )
+      .eq("workspace_id", context.workspace.id);
 
     if (employeesError) {
       console.error(
@@ -82,42 +44,34 @@ export async function GET() {
       );
     }
 
-    // WORKFLOWS
+    // AUTOMATIONS / WORKFLOWS
+    let workflowList: Array<{ id: string; status: string; runs_count?: number }> = [];
     const {
-      data: workflows,
-      error: workflowsError,
+      data: automationsData,
+      error: automationsError,
     } = await supabase
-      .from("workflows")
+      .from("automations")
       .select(
         `
         id,
         status,
         runs_count
         `
-      );
+      )
+      .eq("workspace_id", context.workspace.id);
 
-    if (workflowsError) {
-      console.error(
-        "Dashboard workflow stats error:",
-        workflowsError
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "Could not load automation statistics.",
-        },
-        {
-          status: 500,
-        }
-      );
+    if (!automationsError && automationsData) {
+      workflowList = automationsData;
+    } else {
+      const { data: wfData } = await supabase
+        .from("workflows")
+        .select("id, status, runs_count")
+        .eq("workspace_id", context.workspace.id);
+      workflowList = wfData ?? [];
     }
 
     const employeeList =
       employees ?? [];
-
-    const workflowList =
-      workflows ?? [];
 
     const totalEmployees =
       employeeList.length;

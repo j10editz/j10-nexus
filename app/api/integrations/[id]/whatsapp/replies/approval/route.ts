@@ -38,7 +38,7 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    await assertWorkspaceEntitlement(supabase, user.id, { feature: "whatsapp.message.send" });
+    await assertWorkspaceEntitlement(supabase, connection.workspaceId, { feature: "whatsapp.message.send" });
 
     const body = parseRequestObject(await request.json());
     const to = typeof body.to === "string" ? body.to.replace(/\D/g, "") : "";

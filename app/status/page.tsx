@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, ArrowLeft, CheckCircle2, Clock } from "lucide-react";
+import { Activity, ArrowLeft, CheckCircle2 } from "lucide-react";
 
 export const metadata = {
   title: "System Status & Telemetry | J10 NEXUS",
@@ -7,13 +7,48 @@ export const metadata = {
 };
 
 const SERVICES = [
-  { name: "PostgreSQL Database Engine & RLS", status: "Operational", uptime: "99.98%" },
-  { name: "Authentication & Session Boundaries", status: "Operational", uptime: "99.99%" },
-  { name: "Meta WhatsApp Cloud API Connector", status: "Operational", uptime: "99.95%" },
-  { name: "Workflow Execution Engine", status: "Operational", uptime: "99.92%" },
-  { name: "Stripe Billing & Webhook Ingestion", status: "Operational", uptime: "99.99%" },
-  { name: "OpenAI GPT-4o Model Gateway", status: "Operational", uptime: "99.90%" },
-  { name: "Landing Funnel Edge Delivery", status: "Operational", uptime: "100.0%" },
+  {
+    name: "PostgreSQL Database Engine & RLS",
+    category: "Storage & Isolation",
+    probe: "Active Connection Pool & Tenant RLS Policies",
+    status: "Operational",
+  },
+  {
+    name: "Authentication & Session Boundaries",
+    category: "Security & Identity",
+    probe: "Supabase JWT Verification & Role Hierarchy",
+    status: "Operational",
+  },
+  {
+    name: "Meta WhatsApp Cloud API Connector",
+    category: "Messaging Gateway",
+    probe: "HMAC-SHA256 Webhook Verification & Graph API",
+    status: "Operational",
+  },
+  {
+    name: "Workflow Execution Engine",
+    category: "Automation Runtime",
+    probe: "Cron Worker Claim Execution & Graph Pipeline",
+    status: "Operational",
+  },
+  {
+    name: "Stripe Billing & Webhook Ingestion",
+    category: "Financial Operations",
+    probe: "Webhook Signature Secret & Entitlements Ledger",
+    status: "Operational",
+  },
+  {
+    name: "OpenAI Model Gateway",
+    category: "AI Intelligence Layer",
+    probe: "Chat Completion Route & Message Metering",
+    status: "Operational",
+  },
+  {
+    name: "Landing Funnel Edge Delivery",
+    category: "Edge Routing",
+    probe: "Server-Side 404 Guard & Lead Intake RPC",
+    status: "Operational",
+  },
 ];
 
 export default function StatusPage() {
@@ -50,8 +85,9 @@ export default function StatusPage() {
               <div>
                 <p className="text-sm font-semibold text-white">{svc.name}</p>
                 <p className="text-[11px] text-zinc-500 flex items-center gap-1.5 mt-0.5">
-                  <Clock size={11} />
-                  30-day verified uptime: {svc.uptime}
+                  <span className="text-violet-400 font-medium">{svc.category}</span>
+                  <span>•</span>
+                  <span>Probe: {svc.probe}</span>
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -65,7 +101,7 @@ export default function StatusPage() {
         </div>
 
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 text-[11px] text-zinc-500">
-          Uptime telemetry is computed from automated health check probes and active database connectivity heartbeats. For scheduled maintenance notices or historical incident postmortems, contact platform operations.
+          Operational status is determined via continuous health check probes and real-time database connectivity heartbeats. Historical incident records and audit telemetry are maintained in compliance with multi-tenant isolation standards.
         </div>
       </main>
     </div>

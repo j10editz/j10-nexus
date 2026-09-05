@@ -250,14 +250,7 @@ async function getStepAttemptNumber(args: {
         "run_id",
         args.runId
       )
-      .eq(
-        "automation_step_id",
-        args.automationStepId
-      )
-      .eq(
-        "user_id",
-        args.userId
-      )
+      .eq("automation_step_id", args.automationStepId)
       .eq(
         "status",
         "failed"
@@ -373,7 +366,6 @@ async function assertContinuationVersionIntegrity(args: {
     )
     .eq("automation_version_id", args.automationVersionId)
     .eq("automation_id", args.automationId)
-    .eq("user_id", args.userId)
     .eq("is_enabled", true)
     .order("step_order", {
       ascending: true,
@@ -482,10 +474,10 @@ export async function POST(
       .from(
         "automation_runs"
       )
-      .select(
-        `
+      .select(`
         id,
         automation_id,
+        workspace_id,
         user_id,
         automation_version_id,
         graph_snapshot,
@@ -502,14 +494,7 @@ export async function POST(
         completed_at
         `
       )
-      .eq(
-        "id",
-        runId
-      )
-      .eq(
-        "user_id",
-        user.id
-      )
+      .eq("id", runId)
       .maybeSingle();
 
   if (
@@ -601,14 +586,7 @@ export async function POST(
         awaiting_approval_executions
         `
       )
-      .eq(
-        "id",
-        run.automation_id
-      )
-      .eq(
-        "user_id",
-        user.id
-      )
+      .eq("id", run.automation_id)
       .maybeSingle();
 
   if (
@@ -697,18 +675,7 @@ export async function POST(
         is_enabled
         `
       )
-      .eq(
-        "automation_id",
-        automation.id
-      )
-      .eq(
-        "user_id",
-        user.id
-      )
-      .eq(
-        "is_enabled",
-        true
-      )
+      .eq("automation_id", automation.id).eq("is_enabled", true)
       .gte(
         "step_order",
         startOrder
@@ -783,14 +750,7 @@ export async function POST(
         input_payload
         `
       )
-      .eq(
-        "run_id",
-        run.id
-      )
-      .eq(
-        "user_id",
-        user.id
-      )
+      .eq("run_id", run.id)
       .order(
         "step_order",
         {
@@ -947,14 +907,7 @@ export async function POST(
         error_message:
           null,
       })
-      .eq(
-        "id",
-        run.id
-      )
-      .eq(
-        "user_id",
-        user.id
-      )
+      .eq("id", run.id)
       .eq(
         "status",
         "queued"
@@ -1464,14 +1417,7 @@ export async function POST(
           current_step_order:
             step.step_order,
         })
-        .eq(
-          "id",
-          run.id
-        )
-        .eq(
-          "user_id",
-          user.id
-        );
+        .eq("id", run.id);
 
       if (
         step.step_type !==
@@ -1528,14 +1474,7 @@ export async function POST(
               result_summary:
                 `Workflow is waiting at Step ${step.step_order}: ${step.name ?? "Human Approval"}.`,
             })
-            .eq(
-              "id",
-              run.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", run.id);
 
           return NextResponse.json({
             success: true,
@@ -1658,14 +1597,7 @@ export async function POST(
             total_cost_usd:
               workflowCost,
           })
-          .eq(
-            "id",
-            run.id
-          )
-          .eq(
-            "user_id",
-            user.id
-          );
+          .eq("id", run.id);
 
         await supabase
           .from(
@@ -1680,14 +1612,7 @@ export async function POST(
             updated_at:
               awaitingAt,
           })
-          .eq(
-            "id",
-            automation.id
-          )
-          .eq(
-            "user_id",
-            user.id
-          );
+          .eq("id", automation.id);
 
         return NextResponse.json({
           success: true,
@@ -1937,10 +1862,6 @@ export async function POST(
           .eq(
             "id",
             runStep.id
-          )
-          .eq(
-            "user_id",
-            user.id
           );
 
         const runTaskResponse =
@@ -2134,10 +2055,6 @@ export async function POST(
           .eq(
             "id",
             runStep.id
-          )
-          .eq(
-            "user_id",
-            user.id
           );
 
         completedSteps += 1;
@@ -2350,10 +2267,6 @@ export async function POST(
               .eq(
                 "id",
                 existing.id
-              )
-              .eq(
-                "user_id",
-                user.id
               );
 
           if (
@@ -2496,14 +2409,7 @@ export async function POST(
               result_summary:
                 `Workflow is waiting for approval before Step ${step.step_order}.`,
             })
-            .eq(
-              "id",
-              run.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", run.id);
 
           await supabase
             .from(
@@ -2518,14 +2424,7 @@ export async function POST(
               updated_at:
                 new Date().toISOString(),
             })
-            .eq(
-              "id",
-              automation.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", automation.id);
 
           return NextResponse.json({
             success: true,
@@ -2750,14 +2649,7 @@ export async function POST(
               result_summary:
                 actionResult.resultText,
             })
-            .eq(
-              "id",
-              run.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", run.id);
 
           await supabase
             .from(
@@ -2772,14 +2664,7 @@ export async function POST(
               updated_at:
                 new Date().toISOString(),
             })
-            .eq(
-              "id",
-              automation.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", automation.id);
 
           return NextResponse.json({
             success: true,
@@ -2884,10 +2769,6 @@ export async function POST(
               .eq(
                 "id",
                 existing.id
-              )
-              .eq(
-                "user_id",
-                user.id
               );
 
           if (
@@ -3303,14 +3184,7 @@ export async function POST(
                 completed_at:
                   conditionCompletedAt,
               })
-              .eq(
-                "id",
-                run.id
-              )
-              .eq(
-                "user_id",
-                user.id
-              );
+              .eq("id", run.id);
 
           if (
             stopRunError
@@ -3336,14 +3210,7 @@ export async function POST(
               updated_at:
                 conditionCompletedAt,
             })
-            .eq(
-              "id",
-              automation.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", automation.id);
 
           return NextResponse.json({
             success: true,
@@ -3433,14 +3300,7 @@ export async function POST(
           completed_at:
             completedAt,
         })
-        .eq(
-          "id",
-          run.id
-        )
-        .eq(
-          "user_id",
-          user.id
-        );
+        .eq("id", run.id);
 
     if (
       finishRunError
@@ -3466,14 +3326,7 @@ export async function POST(
         updated_at:
           completedAt,
       })
-      .eq(
-        "id",
-        automation.id
-      )
-      .eq(
-        "user_id",
-        user.id
-      );
+      .eq("id", automation.id);
 
     return NextResponse.json({
       success: true,
@@ -3632,10 +3485,6 @@ export async function POST(
           .eq(
             "id",
             currentRunStepId
-          )
-          .eq(
-            "user_id",
-            user.id
           );
       } else {
         await supabase
@@ -3730,14 +3579,7 @@ export async function POST(
               completed_at:
                 null,
             })
-            .eq(
-              "id",
-              run.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", run.id);
 
         if (
           queueRetryError
@@ -3855,14 +3697,7 @@ export async function POST(
               completed_at:
                 failedAt,
             })
-            .eq(
-              "id",
-              run.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", run.id);
 
           await supabase
             .from(
@@ -3880,14 +3715,7 @@ export async function POST(
               updated_at:
                 failedAt,
             })
-            .eq(
-              "id",
-              automation.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", automation.id);
 
           return NextResponse.json({
             success: true,
@@ -3923,14 +3751,7 @@ export async function POST(
             completed_at:
               null,
           })
-          .eq(
-            "id",
-            run.id
-          )
-          .eq(
-            "user_id",
-            user.id
-          );
+          .eq("id", run.id);
 
         const continueResponse =
           await fetch(
@@ -4130,14 +3951,7 @@ export async function POST(
             completed_at:
               null,
           })
-          .eq(
-            "id",
-            run.id
-          )
-          .eq(
-            "user_id",
-            user.id
-          );
+          .eq("id", run.id);
 
         await supabase
           .from(
@@ -4152,14 +3966,7 @@ export async function POST(
             updated_at:
               failedAt,
           })
-          .eq(
-            "id",
-            automation.id
-          )
-          .eq(
-            "user_id",
-            user.id
-          );
+          .eq("id", automation.id);
 
         return NextResponse.json({
           success: true,
@@ -4219,10 +4026,6 @@ export async function POST(
         .eq(
           "id",
           currentRunStepId
-        )
-        .eq(
-          "user_id",
-          user.id
         );
     }
 
@@ -4243,14 +4046,7 @@ export async function POST(
         completed_at:
           failedAt,
       })
-      .eq(
-        "id",
-        run.id
-      )
-      .eq(
-        "user_id",
-        user.id
-      );
+      .eq("id", run.id);
 
     await supabase
       .from(
@@ -4268,14 +4064,7 @@ export async function POST(
         updated_at:
           failedAt,
       })
-      .eq(
-        "id",
-        automation.id
-      )
-      .eq(
-        "user_id",
-        user.id
-      );
+      .eq("id", automation.id);
 
     return NextResponse.json(
       {

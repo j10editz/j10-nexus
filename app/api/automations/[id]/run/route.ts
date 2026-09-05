@@ -335,14 +335,7 @@ async function getStepAttemptNumber(args: {
         "run_id",
         args.runId
       )
-      .eq(
-        "automation_step_id",
-        args.automationStepId
-      )
-      .eq(
-        "user_id",
-        args.userId
-      )
+      .eq("automation_step_id", args.automationStepId)
       .eq(
         "status",
         "failed"
@@ -458,7 +451,6 @@ async function assertStartVersionIntegrity(args: {
     )
     .eq("automation_version_id", args.automationVersionId)
     .eq("automation_id", args.automationId)
-    .eq("user_id", args.userId)
     .eq("is_enabled", true)
     .order("step_order", {
       ascending: true,
@@ -755,9 +747,9 @@ export async function POST(
         .from(
           "automations"
         )
-        .select(
-          `
+        .select(`
           id,
+          workspace_id,
           user_id,
           name,
           description,
@@ -771,14 +763,7 @@ export async function POST(
           awaiting_approval_executions
           `
         )
-        .eq(
-          "id",
-          id
-        )
-        .eq(
-          "user_id",
-          user.id
-        )
+        .eq("id", id)
         .maybeSingle();
 
     if (automationError) {
@@ -889,7 +874,6 @@ export async function POST(
           )
           .eq("id", publishedVersionId)
           .eq("automation_id", automation.id)
-          .eq("user_id", user.id)
           .eq("status", "published")
           .maybeSingle()
       : {
@@ -982,18 +966,7 @@ export async function POST(
             completed_at
             `
           )
-          .eq(
-            "automation_id",
-            automation.id
-          )
-          .eq(
-            "user_id",
-            user.id
-          )
-          .gte(
-            "started_at",
-            dedupeWindowStart
-          )
+          .eq("automation_id", automation.id).gte("started_at", dedupeWindowStart)
           .contains(
             "trigger_payload",
             {
@@ -1111,18 +1084,7 @@ export async function POST(
           is_enabled
           `
         )
-        .eq(
-          "automation_id",
-          automation.id
-        )
-        .eq(
-          "user_id",
-          user.id
-        )
-        .eq(
-          "is_enabled",
-          true
-        )
+        .eq("automation_id", automation.id).eq("is_enabled", true)
         .order(
           "step_order",
           {
@@ -1183,6 +1145,9 @@ export async function POST(
         .insert({
           automation_id:
             automation.id,
+
+          workspace_id:
+            automation.workspace_id,
 
           user_id:
             user.id,
@@ -1308,14 +1273,7 @@ export async function POST(
           completed_at:
             completedAt,
         })
-        .eq(
-          "id",
-          run.id
-        )
-        .eq(
-          "user_id",
-          user.id
-        );
+        .eq("id", run.id);
 
       await supabase
         .from(
@@ -1340,14 +1298,7 @@ export async function POST(
           updated_at:
             completedAt,
         })
-        .eq(
-          "id",
-          automation.id
-        )
-        .eq(
-          "user_id",
-          user.id
-        );
+        .eq("id", automation.id);
 
       return NextResponse.json({
         success: true,
@@ -1798,14 +1749,7 @@ export async function POST(
           current_step_order:
             step.step_order,
         })
-        .eq(
-          "id",
-          run.id
-        )
-        .eq(
-          "user_id",
-          user.id
-        );
+        .eq("id", run.id);
 
       if (
         step.step_type !==
@@ -1957,14 +1901,7 @@ export async function POST(
               total_cost_usd:
                 workflowCost,
             })
-            .eq(
-              "id",
-              run.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", run.id);
 
         if (
           awaitingRunError
@@ -2001,14 +1938,7 @@ export async function POST(
               updated_at:
                 awaitingAt,
             })
-            .eq(
-              "id",
-              automation.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", automation.id);
 
         if (
           automationUpdateError
@@ -2342,10 +2272,6 @@ export async function POST(
           .eq(
             "id",
             runStep.id
-          )
-          .eq(
-            "user_id",
-            user.id
           );
 
         /*
@@ -2554,10 +2480,6 @@ export async function POST(
             .eq(
               "id",
               runStep.id
-            )
-            .eq(
-              "user_id",
-              user.id
             );
 
         if (
@@ -2774,14 +2696,7 @@ export async function POST(
                 total_cost_usd:
                   workflowCost,
               })
-              .eq(
-                "id",
-                run.id
-              )
-              .eq(
-                "user_id",
-                user.id
-              );
+              .eq("id", run.id);
 
           if (
             awaitingRunError
@@ -2818,14 +2733,7 @@ export async function POST(
                 updated_at:
                   awaitingAt,
               })
-              .eq(
-                "id",
-                automation.id
-              )
-              .eq(
-                "user_id",
-                user.id
-              );
+              .eq("id", automation.id);
 
           if (
             automationUpdateError
@@ -3126,14 +3034,7 @@ export async function POST(
                 total_cost_usd:
                   workflowCost,
               })
-              .eq(
-                "id",
-                run.id
-              )
-              .eq(
-                "user_id",
-                user.id
-              );
+              .eq("id", run.id);
 
           if (
             awaitingRunError
@@ -3170,14 +3071,7 @@ export async function POST(
                 updated_at:
                   awaitingAt,
               })
-              .eq(
-                "id",
-                automation.id
-              )
-              .eq(
-                "user_id",
-                user.id
-              );
+              .eq("id", automation.id);
 
           if (
             automationUpdateError
@@ -3722,14 +3616,7 @@ export async function POST(
                 completed_at:
                   conditionCompletedAt,
               })
-              .eq(
-                "id",
-                run.id
-              )
-              .eq(
-                "user_id",
-                user.id
-              );
+              .eq("id", run.id);
 
           if (
             stopRunError
@@ -3762,14 +3649,7 @@ export async function POST(
               updated_at:
                 conditionCompletedAt,
             })
-            .eq(
-              "id",
-              automation.id
-            )
-            .eq(
-              "user_id",
-              user.id
-            );
+            .eq("id", automation.id);
 
           return NextResponse.json({
             success: true,
@@ -3861,14 +3741,7 @@ export async function POST(
           completed_at:
             completedAt,
         })
-        .eq(
-          "id",
-          run.id
-        )
-        .eq(
-          "user_id",
-          user.id
-        );
+        .eq("id", run.id);
 
     if (
       finishRunError
@@ -3901,14 +3774,7 @@ export async function POST(
         updated_at:
           completedAt,
       })
-      .eq(
-        "id",
-        automation.id
-      )
-      .eq(
-        "user_id",
-        user.id
-      );
+      .eq("id", automation.id);
 
     return NextResponse.json({
       success: true,
@@ -4020,10 +3886,6 @@ export async function POST(
               "id",
               automationId
             )
-            .eq(
-              "user_id",
-              user.id
-            )
             .maybeSingle();
 
         currentAutomation =
@@ -4132,10 +3994,6 @@ export async function POST(
             .eq(
               "id",
               currentRunStepId
-            )
-            .eq(
-              "user_id",
-              user.id
             );
         } else {
           await supabase
@@ -4233,10 +4091,6 @@ export async function POST(
               .eq(
                 "id",
                 runId
-              )
-              .eq(
-                "user_id",
-                user.id
               );
 
           if (
@@ -4270,10 +4124,6 @@ export async function POST(
               .eq(
                 "id",
                 automationId
-              )
-              .eq(
-                "user_id",
-                user.id
               );
           }
 
@@ -4369,10 +4219,6 @@ export async function POST(
               .eq(
                 "id",
                 runId
-              )
-              .eq(
-                "user_id",
-                user.id
               );
 
             if (
@@ -4404,10 +4250,6 @@ export async function POST(
                 .eq(
                   "id",
                   automationId
-                )
-                .eq(
-                  "user_id",
-                  user.id
                 );
             }
 
@@ -4461,10 +4303,6 @@ export async function POST(
             .eq(
               "id",
               runId
-            )
-            .eq(
-              "user_id",
-              user.id
             );
 
           if (
@@ -4490,10 +4328,6 @@ export async function POST(
               .eq(
                 "id",
                 automationId
-              )
-              .eq(
-                "user_id",
-                user.id
               );
           }
 
@@ -4677,10 +4511,6 @@ export async function POST(
             .eq(
               "id",
               runId
-            )
-            .eq(
-              "user_id",
-              user.id
             );
 
           if (
@@ -4712,10 +4542,6 @@ export async function POST(
               .eq(
                 "id",
                 automationId
-              )
-              .eq(
-                "user_id",
-                user.id
               );
           }
 
@@ -4778,10 +4604,6 @@ export async function POST(
           .eq(
             "id",
             currentRunStepId
-          )
-          .eq(
-            "user_id",
-            user.id
           );
       }
 
@@ -4806,10 +4628,6 @@ export async function POST(
           .eq(
             "id",
             runId
-          )
-          .eq(
-            "user_id",
-            user.id
           );
       }
 
@@ -4844,10 +4662,6 @@ export async function POST(
           .eq(
             "id",
             automationId
-          )
-          .eq(
-            "user_id",
-            user.id
           );
       }
     } catch (

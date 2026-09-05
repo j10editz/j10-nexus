@@ -24,13 +24,13 @@ export function estimateTokenCount(text: string): number {
 
 export async function getWorkspaceKnowledgeGrounding(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
 ): Promise<{ groundingPrompt: string; sources: KnowledgeGroundingSource[] }> {
   try {
     const { data, error } = await supabase
       .from("company_knowledge_documents")
-      .select("id, title, category, content, status, is_grounding_active")
-      .eq("user_id", userId)
+      .select("id, title, category, content, status, is_grounding_active, workspace_id")
+      .eq("workspace_id", workspaceId)
       .eq("status", "published")
       .eq("is_grounding_active", true)
       .order("created_at", { ascending: true });

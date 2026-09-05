@@ -160,7 +160,7 @@ describe("Dashboard activation", () => {
     expect(topbar).toContain("onOpenNavigation");
   });
 
-  it("scopes live operations data to the signed-in user", () => {
+  it("scopes live operations data to the active workspace context", () => {
     const activityRoute = readProjectFile(
       "app/api/dashboard/activity/route.ts"
     );
@@ -169,14 +169,14 @@ describe("Dashboard activation", () => {
     );
 
     expect(activityRoute).toContain(
-      '.eq("user_id", user.id)'
+      '.eq("workspace_id", context.workspace.id)'
     );
     expect(activityRoute).toContain(".limit(limit)");
     expect(notificationsRoute).toContain(
       '.from("automation_runs")'
     );
     expect(notificationsRoute).toContain(
-      '.eq("user_id", user.id)'
+      '.eq("workspace_id", context.workspace.id)'
     );
     expect(notificationsRoute).toContain(
       'run.status === "awaiting_approval"'

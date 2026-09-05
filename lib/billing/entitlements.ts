@@ -9,11 +9,14 @@ export type SubscriptionStatus =
   | "grace_period"
   | "none";
 
+export type SubscriptionProvenance = "stripe" | "trial" | "internal_grant" | "none";
+
 export interface WorkspaceSubscription {
   id: string;
   workspaceId: string;
   planId: string;
   status: SubscriptionStatus;
+  provenance: SubscriptionProvenance;
   monthlyMessageLimit: number;
   messagesUsed: number;
   currentPeriodEnd: string;
@@ -47,7 +50,7 @@ export async function getWorkspaceSubscription(
   try {
     const { data, error } = await supabase
       .from("workspace_subscriptions")
-      .select("id,workspace_id,plan_id,status,monthly_message_limit,messages_used_this_period,current_period_end,grace_period_end,stripe_customer_id,stripe_subscription_id")
+      .select("id,workspace_id,plan_id,status,provenance,monthly_message_limit,messages_used_this_period,current_period_end,grace_period_end,stripe_customer_id,stripe_subscription_id")
       .eq("workspace_id", workspaceId)
       .maybeSingle();
 
@@ -58,6 +61,7 @@ export async function getWorkspaceSubscription(
       workspaceId: data.workspace_id,
       planId: data.plan_id,
       status: data.status as SubscriptionStatus,
+      provenance: (data.provenance as SubscriptionProvenance) || "none",
       monthlyMessageLimit: data.monthly_message_limit ?? 1000,
       messagesUsed: data.messages_used_this_period ?? 0,
       currentPeriodEnd: data.current_period_end,

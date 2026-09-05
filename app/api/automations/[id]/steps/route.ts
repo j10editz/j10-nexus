@@ -3,13 +3,8 @@ import {
   NextResponse,
 } from "next/server";
 
-import {
-  cookies,
-} from "next/headers";
-
-import {
-  createServerClient,
-} from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 import {
   validateAutomationStepConfig,
@@ -62,74 +57,10 @@ const allowedStepTypes: StepType[] = [
   "activity",
 ];
 
-async function getSupabase() {
-  const cookieStore =
-    await cookies();
-
-  return createServerClient(
-    process.env
-      .NEXT_PUBLIC_SUPABASE_URL!,
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            /*
-            Cookie mutation may not be available
-            in every route-handler context.
-            */
-          }
-        },
-      },
-    }
-  );
-}
-
-async function getAuthenticatedUser() {
-  const supabase =
-    await getSupabase();
-
-  const {
-    data: {
-      user,
-    },
-
-    error,
-  } =
-    await supabase.auth.getUser();
-
-  return {
-    supabase,
-    user,
-    error,
-  };
-}
-
 async function verifyAutomation(
-  supabase: Awaited<
-    ReturnType<typeof getSupabase>
-  >,
+  supabase: ReturnType<typeof createServerSupabaseClient>,
   automationId: string,
-  userId: string
+  workspaceId: string
 ) {
   const {
     data,
@@ -141,7 +72,8 @@ async function verifyAutomation(
         `
         id,
         name,
-        status
+        status,
+        workspace_id
         `
       )
       .eq(
@@ -149,8 +81,8 @@ async function verifyAutomation(
         automationId
       )
       .eq(
-        "user_id",
-        userId
+        "workspace_id",
+        workspaceId
       )
       .maybeSingle();
 
@@ -177,29 +109,12 @@ export async function GET(
     } =
       await context.params;
 
-    const {
-      supabase,
-      user,
-      error:
-        userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       automation,
@@ -209,7 +124,7 @@ export async function GET(
       await verifyAutomation(
         supabase,
         id,
-        user.id
+        wsContext.workspace.id
       );
 
     if (automationError) {
@@ -283,8 +198,8 @@ export async function GET(
           id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          wsContext.workspace.id
         )
         .order(
           "step_order",
@@ -356,29 +271,12 @@ export async function POST(
     } =
       await context.params;
 
-    const {
-      supabase,
-      user,
-      error:
-        userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       automation,
@@ -388,7 +286,7 @@ export async function POST(
       await verifyAutomation(
         supabase,
         id,
-        user.id
+        wsContext.workspace.id
       );
 
     if (automationError) {
@@ -519,8 +417,8 @@ export async function POST(
             id
           )
           .eq(
-            "user_id",
-            user.id
+            "workspace_id",
+            wsContext.workspace.id
           )
           .order(
             "step_order",
@@ -595,8 +493,8 @@ export async function POST(
             employeeId
           )
           .eq(
-            "user_id",
-            user.id
+            "workspace_id",
+            wsContext.workspace.id
           )
           .maybeSingle();
 
@@ -677,8 +575,11 @@ export async function POST(
           automation_id:
             id,
 
+          workspace_id:
+            wsContext.workspace.id,
+
           user_id:
-            user.id,
+            wsContext.user.id,
 
           step_order:
             stepOrder,
@@ -797,8 +698,11 @@ export async function POST(
           "activity_logs"
         )
         .insert({
+          workspace_id:
+            wsContext.workspace.id,
+
           user_id:
-            user.id,
+            wsContext.user.id,
 
           action:
             "automation_step_created",

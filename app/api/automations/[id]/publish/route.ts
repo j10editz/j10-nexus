@@ -1,15 +1,10 @@
-﻿import {
+import {
   NextRequest,
   NextResponse,
 } from "next/server";
 
-import {
-  cookies,
-} from "next/headers";
-
-import {
-  createServerClient,
-} from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 import type {
   J10FlowGraph,
@@ -55,6 +50,7 @@ type RuntimeSwitchResult = {
 
 type AutomationRow = {
   id: string;
+  workspace_id: string;
   user_id: string;
   name: string;
   description: string | null;
@@ -68,62 +64,6 @@ type EmployeeRow = {
   name: string;
 };
 
-async function getSupabase() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            /*
-            Cookie mutation may be unavailable
-            in some route-handler contexts.
-            */
-          }
-        },
-      },
-    }
-  );
-}
-
-async function getAuthenticatedUser() {
-  const supabase = await getSupabase();
-
-  const {
-    data: {
-      user,
-    },
-    error,
-  } = await supabase.auth.getUser();
-
-  return {
-    supabase,
-    user,
-    error,
-  };
-}
-
 export async function POST(
   request: NextRequest,
   context: RouteContext
@@ -131,27 +71,14 @@ export async function POST(
   let createdVersionId: string | null = null;
 
   try {
-    const {
-      id,
-    } = await context.params;
+    const { id } = await context.params;
 
-    const {
-      supabase,
-      user,
-      error: userError,
-    } = await getAuthenticatedUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data: automation,
@@ -161,6 +88,7 @@ export async function POST(
       .select(
         `
         id,
+        workspace_id,
         user_id,
         name,
         description,
@@ -170,7 +98,7 @@ export async function POST(
         `
       )
       .eq("id", id)
-      .eq("user_id", user.id)
+      .eq("workspace_id", wsContext.workspace.id)
       .maybeSingle();
 
     if (automationError) {
@@ -294,7 +222,7 @@ export async function POST(
     const readiness =
       await validateJ10FlowIntegrationReadiness({
         supabase,
-        userId: user.id,
+        workspaceId: wsContext.workspace.id,
         graph,
       });
 
@@ -323,7 +251,7 @@ export async function POST(
     const employeeNames =
       await loadEmployeeNames(
         supabase,
-        user.id,
+        wsContext.workspace.id,
         compiled.steps
       );
 
@@ -331,7 +259,7 @@ export async function POST(
       await getNextVersionNumber(
         supabase,
         automationRow.id,
-        user.id
+        wsContext.workspace.id
       );
 
     const now = new Date().toISOString();
@@ -343,7 +271,8 @@ export async function POST(
       .from("automation_versions")
       .insert({
         automation_id: automationRow.id,
-        user_id: user.id,
+        workspace_id: wsContext.workspace.id,
+        user_id: wsContext.user.id,
         version_number: versionNumber,
         status: "draft",
         graph_version: graph.version,
@@ -392,7 +321,8 @@ export async function POST(
       compiled.steps.map((step) =>
         toVersionStepRow({
           automationId: automationRow.id,
-          userId: user.id,
+          workspaceId: wsContext.workspace.id,
+          userId: wsContext.user.id,
           versionId: version.id,
           step,
           employeeNames,
@@ -414,7 +344,7 @@ export async function POST(
       await archiveVersion(
         supabase,
         createdVersionId,
-        user.id
+        wsContext.workspace.id
       );
 
       return NextResponse.json(
@@ -439,7 +369,7 @@ export async function POST(
         published_at: now,
       })
       .eq("id", version.id)
-      .eq("user_id", user.id)
+      .eq("workspace_id", wsContext.workspace.id)
       .select(
         `
         id,
@@ -462,7 +392,7 @@ export async function POST(
       await archiveVersion(
         supabase,
         createdVersionId,
-        user.id
+        wsContext.workspace.id
       );
 
       return NextResponse.json(
@@ -506,7 +436,7 @@ export async function POST(
       await archiveVersion(
         supabase,
         createdVersionId,
-        user.id
+        wsContext.workspace.id
       );
 
       return NextResponse.json(
@@ -532,6 +462,7 @@ export async function POST(
       .select(
         `
         id,
+        workspace_id,
         name,
         description,
         status,
@@ -545,7 +476,7 @@ export async function POST(
         `
       )
       .eq("id", automationRow.id)
-      .eq("user_id", user.id)
+      .eq("workspace_id", wsContext.workspace.id)
       .single();
 
     if (
@@ -571,7 +502,8 @@ export async function POST(
 
     await recordPublishActivity({
       supabase,
-      userId: user.id,
+      workspaceId: wsContext.workspace.id,
+      userId: wsContext.user.id,
       automationId: automationRow.id,
       automationName: automationRow.name,
       versionId: publishedVersion.id,
@@ -649,9 +581,9 @@ function resolveGraphForPublish(
 }
 
 async function getNextVersionNumber(
-  supabase: Awaited<ReturnType<typeof getSupabase>>,
+  supabase: ReturnType<typeof createServerSupabaseClient>,
   automationId: string,
-  userId: string
+  workspaceId: string
 ): Promise<number> {
   const {
     data,
@@ -660,7 +592,7 @@ async function getNextVersionNumber(
     .from("automation_versions")
     .select("version_number")
     .eq("automation_id", automationId)
-    .eq("user_id", userId)
+    .eq("workspace_id", workspaceId)
     .order("version_number", {
       ascending: false,
     })
@@ -682,8 +614,8 @@ async function getNextVersionNumber(
 }
 
 async function loadEmployeeNames(
-  supabase: Awaited<ReturnType<typeof getSupabase>>,
-  userId: string,
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  workspaceId: string,
   steps: CompiledAutomationStepInput[]
 ): Promise<Map<string, string>> {
   const employeeIds = Array.from(
@@ -707,7 +639,7 @@ async function loadEmployeeNames(
   } = await supabase
     .from("employees")
     .select("id, name")
-    .eq("user_id", userId)
+    .eq("workspace_id", workspaceId)
     .in("id", employeeIds);
 
   if (error) {
@@ -740,12 +672,14 @@ async function loadEmployeeNames(
 
 function toVersionStepRow({
   automationId,
+  workspaceId,
   userId,
   versionId,
   step,
   employeeNames,
 }: {
   automationId: string;
+  workspaceId: string;
   userId: string;
   versionId: string;
   step: CompiledAutomationStepInput;
@@ -756,6 +690,7 @@ function toVersionStepRow({
   return {
     automation_version_id: versionId,
     automation_id: automationId,
+    workspace_id: workspaceId,
     source_step_id: null,
     user_id: userId,
     graph_node_id: step.sourceNodeId,
@@ -870,9 +805,9 @@ function isRoutingEdge(
 }
 
 async function archiveVersion(
-  supabase: Awaited<ReturnType<typeof getSupabase>>,
+  supabase: ReturnType<typeof createServerSupabaseClient>,
   versionId: string | null,
-  userId: string
+  workspaceId: string
 ) {
   if (!versionId) {
     return;
@@ -887,7 +822,7 @@ async function archiveVersion(
       retired_at: new Date().toISOString(),
     })
     .eq("id", versionId)
-    .eq("user_id", userId);
+    .eq("workspace_id", workspaceId);
 
   if (error) {
     console.error(
@@ -899,6 +834,7 @@ async function archiveVersion(
 
 async function recordPublishActivity({
   supabase,
+  workspaceId,
   userId,
   automationId,
   automationName,
@@ -908,7 +844,8 @@ async function recordPublishActivity({
   stepCount,
   activated,
 }: {
-  supabase: Awaited<ReturnType<typeof getSupabase>>;
+  supabase: ReturnType<typeof createServerSupabaseClient>;
+  workspaceId: string;
   userId: string;
   automationId: string;
   automationName: string;
@@ -923,6 +860,7 @@ async function recordPublishActivity({
   } = await supabase
     .from("activity_logs")
     .insert({
+      workspace_id: workspaceId,
       user_id: userId,
       action: "automation_version_published",
       entity_type: "automation",

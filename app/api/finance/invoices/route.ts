@@ -1,8 +1,6 @@
-﻿import { NextResponse } from "next/server";
-import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-} from "@/lib/integrations/api";
+import { NextResponse } from "next/server";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import {
   calculateLineItemsTotal,
   computeCRMRevenueMetrics,
@@ -13,26 +11,31 @@ import type { FinanceInvoice, InvoiceLineItem } from "@/types/finance";
 
 export async function GET() {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
-    // 1. Fetch Invoices
+    // 1. Fetch Invoices scoped strictly by active workspace
     const { data: rawInvoices, error: invError } = await supabase
       .from("finance_invoices")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("workspace_id", context.workspace.id)
       .order("created_at", { ascending: false });
+
+    if (invError) {
+      console.error("Finance Invoices query error:", invError);
+      return NextResponse.json(
+        { success: false, error: "Failed to load financial records." },
+        { status: 500 }
+      );
+    }
 
     const invoices: FinanceInvoice[] = (rawInvoices || []).map((row: any) => ({
       id: row.id,
-      userId: row.user_id,
+      userId: row.user_id || context.user.id,
       invoiceNumber: row.invoice_number,
       contactId: row.contact_id,
       customerName: row.customer_name,
@@ -51,11 +54,11 @@ export async function GET() {
       updatedAt: row.updated_at,
     }));
 
-    // 2. Fetch CRM Contacts for revenue calculation & contact picker
+    // 2. Fetch CRM Contacts for revenue calculation & contact picker scoped by workspace
     const { data: contactsData } = await supabase
-      .from("crm_contacts")
+      .from("contacts")
       .select("id,first_name,last_name,email,phone,company,type,status,estimated_value")
-      .eq("user_id", user.id);
+      .eq("workspace_id", context.workspace.id);
 
     const contacts = contactsData || [];
     const crmMetrics = computeCRMRevenueMetrics(contacts);
@@ -78,15 +81,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body = await request.json();
     const {
@@ -121,18 +121,19 @@ export async function POST(request: Request) {
       ? calculateLineItemsTotal(parsedItems)
       : Number(body.amount) || 0;
 
-    // Get count for sequence
+    // Get count for sequence within this workspace
     const { count } = await supabase
       .from("finance_invoices")
       .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id);
+      .eq("workspace_id", context.workspace.id);
 
     const invoiceNumber = generateInvoiceNumber(count || 0);
     const issueDate = new Date().toISOString().split("T")[0];
     const finalDueDate = dueDate || new Date(Date.now() + 14 * 86400000).toISOString().split("T")[0];
 
     const invoiceRecord = {
-      user_id: user.id,
+      workspace_id: context.workspace.id,
+      user_id: context.user.id,
       invoice_number: invoiceNumber,
       contact_id: contactId || null,
       customer_name: customerName.trim(),
@@ -153,19 +154,36 @@ export async function POST(request: Request) {
       .select()
       .single();
 
-    if (error) {
+    if (error || !created) {
       console.error("Supabase insert invoice error:", error);
       return NextResponse.json(
-        { success: false, error: "Database error creating invoice." },
+        { success: false, error: error?.message || "Database error creating invoice." },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      invoice: created,
-      message: `Invoice ${invoiceNumber} created successfully.`,
-    });
+    const invoice: FinanceInvoice = {
+      id: created.id,
+      userId: created.user_id || context.user.id,
+      invoiceNumber: created.invoice_number,
+      contactId: created.contact_id,
+      customerName: created.customer_name,
+      customerEmail: created.customer_email,
+      customerPhone: created.customer_phone,
+      amount: Number(created.amount) || 0,
+      currency: created.currency || "USD",
+      status: created.status,
+      issueDate: created.issue_date,
+      dueDate: created.due_date,
+      paidAt: created.paid_at,
+      lineItems: Array.isArray(created.line_items) ? created.line_items : [],
+      notes: created.notes,
+      paymentLink: created.payment_link,
+      createdAt: created.created_at,
+      updatedAt: created.updated_at,
+    };
+
+    return NextResponse.json({ success: true, invoice });
   } catch (error) {
     console.error("Finance Invoices POST error:", error);
     return NextResponse.json(

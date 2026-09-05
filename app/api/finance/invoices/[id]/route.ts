@@ -1,23 +1,18 @@
-﻿import { NextResponse } from "next/server";
-import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-} from "@/lib/integrations/api";
+import { NextResponse } from "next/server";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const { id } = await context.params;
     const body = await request.json();
@@ -45,13 +40,14 @@ export async function PATCH(
       .from("finance_invoices")
       .update(updates)
       .eq("id", id)
-      .eq("user_id", user.id)
+      .eq("workspace_id", wsContext.workspace.id)
       .select()
       .single();
 
-    if (error) {
+    if (error || !updated) {
+      console.error("Finance Invoice update error:", error);
       return NextResponse.json(
-        { success: false, error: "Failed to update invoice." },
+        { success: false, error: error?.message || "Failed to update invoice." },
         { status: 500 }
       );
     }
@@ -75,15 +71,12 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("admin");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const { id } = await context.params;
 
@@ -91,11 +84,12 @@ export async function DELETE(
       .from("finance_invoices")
       .delete()
       .eq("id", id)
-      .eq("user_id", user.id);
+      .eq("workspace_id", wsContext.workspace.id);
 
     if (error) {
+      console.error("Finance Invoice delete error:", error);
       return NextResponse.json(
-        { success: false, error: "Failed to delete invoice." },
+        { success: false, error: error.message || "Failed to delete invoice." },
         { status: 500 }
       );
     }

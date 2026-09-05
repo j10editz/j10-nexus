@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 
 import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
   integrationApiErrorResponse,
 } from "@/lib/integrations/api";
 import { getIntegrationConnectionById } from "@/lib/integrations/database";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -42,14 +42,14 @@ function messagePreview(message: Record<string, unknown>) {
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
-    const connection = await getIntegrationConnectionById(supabase, user.id, id);
+    const connection = await getIntegrationConnectionById(supabase, wsContext.workspace.id, id);
     if (!connection || connection.providerId !== "whatsapp-business") {
       return NextResponse.json(
         { success: false, error: "WhatsApp Business connection was not found." },
@@ -61,17 +61,16 @@ export async function GET(_request: Request, context: RouteContext) {
       .from("integration_webhook_events")
       .select("id,normalized_event,received_at,processing_status")
       .eq("integration_id", id)
-      .eq("user_id", user.id)
       .order("received_at", { ascending: false })
       .limit(100);
 
     if (error) throw error;
 
-    // Look up recent CRM contacts for linking
+    // Look up recent workspace contacts for linking
     const { data: crmRows } = await supabase
-      .from("crm_contacts")
+      .from("contacts")
       .select("id,phone,type,status,company,estimated_value")
-      .eq("user_id", user.id)
+      .eq("workspace_id", wsContext.workspace.id)
       .limit(200);
 
     const contactMap = new Map<string, {
@@ -161,4 +160,3 @@ export async function GET(_request: Request, context: RouteContext) {
     return integrationApiErrorResponse(error, "Could not load WhatsApp conversations.");
   }
 }
-

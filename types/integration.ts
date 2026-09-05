@@ -195,6 +195,7 @@ export interface IntegrationProviderDefinition {
 export interface IntegrationConnection {
   readonly id: string;
   readonly workspaceId: string;
+  readonly userId?: string;
   readonly providerId: IntegrationProviderId;
   readonly name: string;
   readonly status: IntegrationConnectionStatus;

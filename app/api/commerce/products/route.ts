@@ -1,44 +1,34 @@
 import { NextResponse } from "next/server";
-import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-} from "@/lib/integrations/api";
-import { SEED_COMMERCE_PRODUCTS } from "@/lib/commerce/service";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import type { CommerceProduct, ProductStatus } from "@/types/commerce";
 
 export async function GET() {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const { data, error } = await supabase
       .from("commerce_products")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("workspace_id", context.workspace.id)
       .order("created_at", { ascending: false });
 
-    if (error || !data || data.length === 0) {
-      const seeded: CommerceProduct[] = SEED_COMMERCE_PRODUCTS.map((p) => ({
-        ...p,
-        userId: user.id,
-      }));
-      return NextResponse.json({
-        success: true,
-        products: seeded,
-        source: error ? "fallback_seed" : "live_database",
-      });
+    if (error) {
+      console.error("Commerce Products GET error:", error);
+      return NextResponse.json(
+        { success: false, error: "Failed to load commerce products." },
+        { status: 500 }
+      );
     }
 
-    const products: CommerceProduct[] = data.map((row: any) => ({
+    const products: CommerceProduct[] = (data || []).map((row: any) => ({
       id: row.id,
-      userId: row.user_id,
+      userId: row.user_id || context.user.id,
       name: row.name,
       sku: row.sku,
       description: row.description,
@@ -64,15 +54,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body = await request.json();
     const name = String(body.name || "").trim();
@@ -94,7 +81,8 @@ export async function POST(request: Request) {
     const { data, error } = await supabase
       .from("commerce_products")
       .insert({
-        user_id: user.id,
+        workspace_id: context.workspace.id,
+        user_id: context.user.id,
         name,
         sku,
         description,
@@ -109,33 +97,16 @@ export async function POST(request: Request) {
       .single();
 
     if (error || !data) {
-      // Graceful fallback for local development
-      const fallbackProduct: CommerceProduct = {
-        id: `prod_${Date.now()}`,
-        userId: user.id,
-        name,
-        sku,
-        description,
-        price,
-        currency,
-        inventory,
-        category,
-        status,
-        imageUrl: body.imageUrl || null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      return NextResponse.json({
-        success: true,
-        product: fallbackProduct,
-        source: "local_memory",
-      });
+      console.error("Commerce Products insert error:", error);
+      return NextResponse.json(
+        { success: false, error: error?.message || "Failed to create commerce product." },
+        { status: 500 }
+      );
     }
 
     const product: CommerceProduct = {
       id: data.id,
-      userId: data.user_id,
+      userId: data.user_id || context.user.id,
       name: data.name,
       sku: data.sku,
       description: data.description,

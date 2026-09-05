@@ -41,11 +41,13 @@ export type J10FlowReadinessResult = {
 
 export async function validateJ10FlowIntegrationReadiness(args: {
   supabase: SupabaseClient;
-  userId: string;
+  userId?: string;
+  workspaceId?: string;
   graph: J10FlowGraph;
 }): Promise<J10FlowReadinessResult> {
   const errors: J10FlowValidationIssue[] = [];
   const warnings: J10FlowValidationIssue[] = [];
+  const scopeId = args.workspaceId || args.userId || "";
 
   const integrationNodes = args.graph.nodes.filter(
     (node): node is J10FlowActionNode =>
@@ -78,7 +80,7 @@ export async function validateJ10FlowIntegrationReadiness(args: {
 
     const connection = await getIntegrationConnectionById(
       args.supabase,
-      args.userId,
+      scopeId,
       connectionId,
     );
 
@@ -164,7 +166,7 @@ export async function validateJ10FlowIntegrationReadiness(args: {
 
     const connection = await getIntegrationConnectionById(
       args.supabase,
-      args.userId,
+      scopeId,
       integration.connectionId,
     );
 

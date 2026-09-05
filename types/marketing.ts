@@ -11,6 +11,7 @@ export type AudienceSegment = "all" | "leads" | "prospects" | "customers";
 
 export interface MarketingCampaign {
   id: string;
+  workspace_id?: string;
   user_id: string;
   name: string;
   channel: CampaignChannel;

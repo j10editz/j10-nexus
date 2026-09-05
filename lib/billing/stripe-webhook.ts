@@ -133,7 +133,7 @@ export async function processStripeSubscriptionEvent(
       // Check if this subscription already exists by stripe_subscription_id
       const { data: existing } = await supabase
         .from("workspace_subscriptions")
-        .select("id, user_id, messages_used_this_period, current_period_end")
+        .select("id, workspace_id, messages_used_this_period, current_period_end")
         .eq("stripe_subscription_id", stripeSubId)
         .maybeSingle();
 
@@ -148,6 +148,7 @@ export async function processStripeSubscriptionEvent(
           .update({
             status,
             plan_id: planId,
+            provenance: "stripe",
             monthly_message_limit: monthlyMessageLimit,
             current_period_start: currentPeriodStart,
             current_period_end: currentPeriodEnd,
@@ -162,37 +163,48 @@ export async function processStripeSubscriptionEvent(
         return { processed: true, action: "updated", subscriptionId: existing.id };
       }
 
-      // If metadata contains user_id, associate directly
-      const userId = (obj.metadata?.user_id || obj.metadata?.userId) as string | undefined;
-      if (userId) {
-        const { data: created } = await supabase
-          .from("workspace_subscriptions")
-          .upsert(
-            {
-              user_id: userId,
-              stripe_customer_id: stripeCustomerId,
-              stripe_subscription_id: stripeSubId,
-              plan_id: planId,
-              status,
-              monthly_message_limit: monthlyMessageLimit,
-              messages_used_this_period: 0,
-              current_period_start: currentPeriodStart,
-              current_period_end: currentPeriodEnd,
-              grace_period_end: gracePeriodEnd,
-            },
-            { onConflict: "user_id" },
-          )
+      // Resolve workspace association securely
+      const rawWorkspaceId = (obj.metadata?.workspace_id || obj.metadata?.workspaceId) as string | undefined;
+      if (rawWorkspaceId) {
+        const { data: wsRecord } = await supabase
+          .from("workspaces")
           .select("id")
-          .single();
+          .eq("id", rawWorkspaceId)
+          .maybeSingle();
 
-        return {
-          processed: true,
-          action: "created",
-          subscriptionId: created?.id,
-        };
+        if (wsRecord?.id) {
+          const { data: created } = await supabase
+            .from("workspace_subscriptions")
+            .upsert(
+              {
+                workspace_id: wsRecord.id,
+                stripe_customer_id: stripeCustomerId,
+                stripe_subscription_id: stripeSubId,
+                plan_id: planId,
+                status,
+                provenance: "stripe",
+                monthly_message_limit: monthlyMessageLimit,
+                messages_used_this_period: 0,
+                current_period_start: currentPeriodStart,
+                current_period_end: currentPeriodEnd,
+                grace_period_end: gracePeriodEnd,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "workspace_id" },
+            )
+            .select("id")
+            .single();
+
+          return {
+            processed: true,
+            action: "created",
+            subscriptionId: created?.id,
+          };
+        }
       }
 
-      return { processed: true, action: "unmatched_user" };
+      // Unknown or unmatched subscription events are quarantined/ignored without mutating tenant state
+      return { processed: true, action: "unmatched_workspace" };
     }
 
     case "customer.subscription.deleted": {

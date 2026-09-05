@@ -3,13 +3,8 @@ import {
   NextResponse,
 } from "next/server";
 
-import {
-  cookies,
-} from "next/headers";
-
-import {
-  createServerClient,
-} from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 import {
   getNextScheduledRun,
@@ -36,6 +31,7 @@ Responsibilities:
 
 type ScheduledAutomation = {
   id: string;
+  workspace_id?: string;
   user_id: string;
   name: string;
   status: string;
@@ -95,56 +91,6 @@ type SchedulerResult = {
 
 /*
 ============================================================
-SUPABASE
-============================================================
-*/
-
-async function getSupabase() {
-  const cookieStore =
-    await cookies();
-
-  return createServerClient(
-    process.env
-      .NEXT_PUBLIC_SUPABASE_URL!,
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(
-          cookiesToSet
-        ) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            /*
-            Cookie mutation may not be available
-            in every route-handler context.
-            */
-          }
-        },
-      },
-    }
-  );
-}
-
-/*
-============================================================
 JSON HELPER
 ============================================================
 */
@@ -181,34 +127,12 @@ export async function POST(
   request: NextRequest
 ) {
   try {
-    const supabase =
-      await getSupabase();
-
-    const {
-      data: {
-        user,
-      },
-
-      error:
-        userError,
-    } =
-      await supabase.auth.getUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const schedulerStartedAt =
       new Date();
@@ -236,6 +160,7 @@ export async function POST(
         .select(
           `
           id,
+          workspace_id,
           user_id,
           name,
           status,
@@ -247,8 +172,8 @@ export async function POST(
           `
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          wsContext.workspace.id
         )
         .eq(
           "status",
@@ -474,8 +399,8 @@ export async function POST(
                 automation.id
               )
               .eq(
-                "user_id",
-                user.id
+                "workspace_id",
+                wsContext.workspace.id
               )
               .eq(
                 "status",
@@ -676,8 +601,8 @@ export async function POST(
             automation.id
           )
           .eq(
-            "user_id",
-            user.id
+            "workspace_id",
+            wsContext.workspace.id
           )
           .eq(
             "status",

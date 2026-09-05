@@ -2,8 +2,8 @@ import {
   NextRequest,
   NextResponse,
 } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 type AutomationRunRow = {
   id: string;
@@ -98,53 +98,12 @@ function getNotificationCopy(
 
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env
-        .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(
-                ({ name, value, options }) => {
-                  cookieStore.set(
-                    name,
-                    value,
-                    options
-                  );
-                }
-              );
-            } catch {
-              // Cookie writes can be unavailable in read-only contexts.
-            }
-          },
-        },
-      }
-    );
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const limit = getLimit(request);
 
@@ -165,7 +124,7 @@ export async function GET(request: NextRequest) {
         completed_at
         `
       )
-      .eq("user_id", user.id)
+      .eq("workspace_id", context.workspace.id)
       .order("started_at", {
         ascending: false,
         nullsFirst: false,
@@ -207,7 +166,7 @@ export async function GET(request: NextRequest) {
       } = await supabase
         .from("automations")
         .select("id, name")
-        .eq("user_id", user.id)
+        .eq("workspace_id", context.workspace.id)
         .in("id", automationIds);
 
       if (automationsError) {

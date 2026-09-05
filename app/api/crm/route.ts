@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 import {
   dispatchAutomationEvent,
@@ -35,7 +35,8 @@ type CreateContactRequest = {
 
 type CRMContact = {
   id: string;
-  user_id: string;
+  workspace_id?: string;
+  user_id?: string;
   first_name: string;
   last_name: string | null;
   email: string | null;
@@ -67,43 +68,6 @@ const VALID_STATUSES: ContactStatus[] = [
   "Lost",
 ];
 
-async function getSupabase() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            // Cookie writes may not be
-            // available in every server context.
-          }
-        },
-      },
-    }
-  );
-}
 
 /*
 ============================================================
@@ -115,29 +79,12 @@ export async function GET(
   request: Request
 ) {
   try {
-    const supabase =
-      await getSupabase();
-
-    const {
-      data: { user },
-      error: userError,
-    } =
-      await supabase.auth.getUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data,
@@ -147,6 +94,7 @@ export async function GET(
       .select(
         `
         id,
+        workspace_id,
         user_id,
         first_name,
         last_name,
@@ -165,8 +113,8 @@ export async function GET(
         `
       )
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        context.workspace.id
       )
       .order(
         "created_at",
@@ -522,29 +470,12 @@ export async function POST(
       );
     }
 
-    const supabase =
-      await getSupabase();
-
-    const {
-      data: { user },
-      error: userError,
-    } =
-      await supabase.auth.getUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     /*
     ============================================================
@@ -552,14 +483,22 @@ export async function POST(
     ============================================================
     */
 
+    const fullName = [firstName, lastName].filter(Boolean).join(" ");
+
     const {
       data: contact,
       error: createError,
     } = await supabase
-      .from("crm_contacts")
+      .from("contacts")
       .insert({
-        user_id:
-          user.id,
+        workspace_id:
+          context.workspace.id,
+
+        assigned_user_id:
+          context.user.id,
+
+        name:
+          fullName,
 
         first_name:
           firstName,
@@ -624,21 +563,16 @@ export async function POST(
     ============================================================
     */
 
-    const fullName =
-      [
-        contact.first_name,
-        contact.last_name,
-      ]
-        .filter(Boolean)
-        .join(" ");
-
     const {
       error: activityError,
     } = await supabase
       .from("activity_logs")
       .insert({
+        workspace_id:
+          context.workspace.id,
+
         user_id:
-          user.id,
+          context.user.id,
 
         action:
           "crm_contact_created",
@@ -694,7 +628,7 @@ export async function POST(
         supabase,
 
         userId:
-          user.id,
+          context.user.id,
 
         origin:
           new URL(

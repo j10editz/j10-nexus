@@ -129,19 +129,25 @@ export async function POST(request: Request) {
       targetAudience = "Founders and executive leaders",
     } = body;
 
-    // 2. Meter usage atomically against the active workspace
+    // 2. Meter usage atomically against the active workspace (fail-closed in production)
     const supabase = createServerSupabaseClient();
     try {
       await recordWorkspaceMessageUsage(supabase, context.workspace.id, 1);
     } catch (billingErr: any) {
-      // If billing error is quota or inactive, fail closed
       if (billingErr?.code === "BILLING_REQUIRED") {
         return NextResponse.json(
           { success: false, error: billingErr.message, code: billingErr.code },
           { status: 402 }
         );
       }
-      // If DB migration is pending or table uninitialized, allow in dev/staging
+      if (process.env.NODE_ENV === "production") {
+        console.error("AI Generation metering failure in production:", billingErr);
+        return NextResponse.json(
+          { success: false, error: "Usage quota check failed. Generation halted for workspace safety." },
+          { status: 500 }
+        );
+      }
+      console.warn("Metering bypassed in non-production environment:", billingErr?.message);
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
