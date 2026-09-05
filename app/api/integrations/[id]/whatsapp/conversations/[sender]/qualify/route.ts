@@ -1,28 +1,24 @@
 import { NextResponse } from "next/server";
-
-import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-  integrationApiErrorResponse,
-  parseRequestObject,
-} from "@/lib/integrations/api";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+import { createServerSupabaseClient } from "@/lib/auth";
 import { getIntegrationConnectionById } from "@/lib/integrations/database";
-import { getWhatsAppMessageThread } from "@/lib/whatsapp/inbox-service";
+import { getWhatsAppMessageThread, type WhatsAppMessageThreadItem } from "@/lib/whatsapp/inbox-service";
 import { qualifyAndSyncWhatsAppLead } from "@/lib/whatsapp/lead-qualification";
+import { integrationApiErrorResponse, parseRequestObject } from "@/lib/integrations/api";
 
 type RouteContext = { params: Promise<{ id: string; sender: string }> };
 
-export async function POST(request: Request, context: RouteContext) {
+export async function POST(request: Request, routeContext: RouteContext) {
   try {
-    const { id, sender } = await context.params;
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    const { id, sender } = await routeContext.params;
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
-    const connection = await getIntegrationConnectionById(supabase, user.id, id);
+    const connection = await getIntegrationConnectionById(supabase, context.workspace.id, id);
     if (!connection || connection.providerId !== "whatsapp-business") {
       return NextResponse.json(
         { success: false, error: "WhatsApp Business connection was not found." },
@@ -35,11 +31,12 @@ export async function POST(request: Request, context: RouteContext) {
     const customerName = typeof body.customerName === "string" ? body.customerName.trim() : undefined;
 
     let messageTexts: string[] = [];
-    if (Array.isArray(body.messages) && body.messages.length > 0) {
-      messageTexts = body.messages.filter((m): m is string => typeof m === "string");
+    const incomingMessages = Array.isArray(body.messages) ? (body.messages as unknown[]) : [];
+    if (incomingMessages.length > 0) {
+      messageTexts = incomingMessages.filter((m: unknown): m is string => typeof m === "string");
     } else {
-      const thread = await getWhatsAppMessageThread(supabase, user.id, id, decodedSender);
-      messageTexts = thread.filter((m) => m.direction === "inbound").map((m) => m.body);
+      const thread = await getWhatsAppMessageThread(supabase, context.user.id, id, decodedSender);
+      messageTexts = thread.filter((m: WhatsAppMessageThreadItem) => m.direction === "inbound").map((m: WhatsAppMessageThreadItem) => m.body);
     }
 
     if (messageTexts.length === 0) {
@@ -49,13 +46,14 @@ export async function POST(request: Request, context: RouteContext) {
     const origin = new URL(request.url).origin;
     const result = await qualifyAndSyncWhatsAppLead(
       supabase,
-      user.id,
+      context.user.id,
       {
         senderPhone: decodedSender,
         customerName,
         messages: messageTexts,
       },
       origin,
+      context.workspace.id,
     );
 
     return NextResponse.json(

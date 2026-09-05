@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getJ10AIMode } from "@/lib/ai/runtime";
 
@@ -20,6 +21,7 @@ type ManageTaskRequest = {
 
 type WorkforceTaskRow = {
   id: string;
+  workspace_id?: string;
   user_id: string;
   employee_id: string;
   employee_name: string;
@@ -33,54 +35,18 @@ type WorkforceTaskRow = {
     | "cancelled";
 };
 
-async function getSupabase() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            // Ignore cookie write errors here.
-          }
-        },
-      },
-    }
-  );
-}
-
 async function recordTaskActivity({
   supabase,
   userId,
+  workspaceId,
   task,
   action,
   title,
   description,
 }: {
-  supabase: Awaited<
-    ReturnType<typeof getSupabase>
-  >;
+  supabase: SupabaseClient;
   userId: string;
+  workspaceId: string;
   task: WorkforceTaskRow;
   action: string;
   title: string;
@@ -89,6 +55,7 @@ async function recordTaskActivity({
   const { error } = await supabase
     .from("activity_logs")
     .insert({
+      workspace_id: task.workspace_id || workspaceId,
       user_id: userId,
       action,
       entity_type: "ai_employee",
@@ -132,11 +99,11 @@ async function recordTaskActivity({
 
 export async function POST(
   request: Request,
-  context: RouteContext
+  routeContext: RouteContext
 ) {
   try {
     const { id } =
-      await context.params;
+      await routeContext.params;
 
     const taskId =
       id?.trim();
@@ -176,30 +143,14 @@ export async function POST(
       );
     }
 
-    const supabase =
-      await getSupabase();
-
-    const {
-      data: { user },
-      error: userError,
-    } =
-      await supabase.auth.getUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
+    const user = context.user;
+    const workspaceId = context.workspace.id;
 
     const {
       data: taskData,
@@ -210,6 +161,7 @@ export async function POST(
         .select(
           `
           id,
+          workspace_id,
           user_id,
           employee_id,
           employee_name,
@@ -223,8 +175,8 @@ export async function POST(
           taskId
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          workspaceId
         )
         .maybeSingle();
 
@@ -265,8 +217,8 @@ export async function POST(
           task.employee_id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          workspaceId
         )
         .maybeSingle();
 
@@ -326,8 +278,8 @@ export async function POST(
             task.id
           )
           .eq(
-            "user_id",
-            user.id
+            "workspace_id",
+            workspaceId
           )
           .eq(
             "status",
@@ -356,6 +308,7 @@ export async function POST(
         supabase,
         userId:
           user.id,
+        workspaceId,
         task,
         action:
           "ai_task_cancelled",
@@ -440,8 +393,8 @@ export async function POST(
           task.id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          workspaceId
         )
         .eq(
           "status",
@@ -470,6 +423,7 @@ export async function POST(
       supabase,
       userId:
         user.id,
+      workspaceId,
       task,
       action:
         "ai_task_retry_queued",

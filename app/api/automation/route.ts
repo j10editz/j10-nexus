@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 type CreateWorkflowRequest = {
   name?: string;
@@ -10,66 +10,22 @@ type CreateWorkflowRequest = {
   actions?: unknown[];
 };
 
-async function getSupabase() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({ name, value, options }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            // Cookie writes may not be available
-            // in every server context.
-          }
-        },
-      },
-    }
-  );
-}
-
 export async function GET() {
   try {
-    const supabase = await getSupabase();
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
-      data: workflows,
+      data: automations,
       error,
     } = await supabase
-      .from("workflows")
+      .from("automations")
       .select("*")
+      .eq("workspace_id", context.workspace.id)
       .order("created_at", {
         ascending: false,
       });
@@ -94,7 +50,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      workflows: workflows ?? [],
+      workflows: automations ?? [],
     });
   } catch (error) {
     console.error(
@@ -119,6 +75,13 @@ export async function POST(
   request: Request
 ) {
   try {
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
+    }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
+
     const body =
       (await request.json()) as CreateWorkflowRequest;
 
@@ -132,22 +95,30 @@ export async function POST(
         ? body.description.trim()
         : "";
 
-    const triggerType =
+    const triggerTypeRaw =
       typeof body.triggerType === "string"
-        ? body.triggerType.trim()
-        : "Manual";
+        ? body.triggerType.trim().toLowerCase()
+        : "manual";
+
+    const allowedTriggerTypes = [
+      "manual",
+      "new_crm_contact",
+      "crm_status_changed",
+      "new_ai_task",
+      "ai_task_completed",
+      "schedule",
+      "integration_event",
+    ];
+
+    const triggerType = allowedTriggerTypes.includes(triggerTypeRaw)
+      ? triggerTypeRaw
+      : "manual";
 
     const triggerConfig =
       body.triggerConfig &&
       typeof body.triggerConfig === "object"
         ? body.triggerConfig
         : {};
-
-    const actions = Array.isArray(
-      body.actions
-    )
-      ? body.actions
-      : [];
 
     if (!name) {
       return NextResponse.json(
@@ -162,39 +133,19 @@ export async function POST(
       );
     }
 
-    const supabase = await getSupabase();
-
     const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
-    }
-
-    const {
-      data: workflow,
+      data: automation,
       error,
     } = await supabase
-      .from("workflows")
+      .from("automations")
       .insert({
-        user_id: user.id,
+        workspace_id: context.workspace.id,
+        user_id: context.user.id,
         name,
         description,
-        status: "Draft",
+        status: "draft",
         trigger_type: triggerType,
         trigger_config: triggerConfig,
-        actions,
-        runs_count: 0,
       })
       .select("*")
       .single();
@@ -222,7 +173,7 @@ export async function POST(
         success: true,
         message:
           "Workflow created successfully.",
-        workflow,
+        workflow: automation,
       },
       {
         status: 201,

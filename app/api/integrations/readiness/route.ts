@@ -2,9 +2,10 @@ import {
   NextResponse,
 } from "next/server";
 
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+
 import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
   integrationApiErrorResponse,
 } from "../../../../lib/integrations/api";
 
@@ -18,26 +19,16 @@ import {
 
 export async function GET() {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(
-      supabase,
-    );
-
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        },
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const connections = await listIntegrationConnections(
       supabase,
-      user.id,
+      context.workspace.id,
     );
     const reports = connections.map(
       evaluateIntegrationReadiness,

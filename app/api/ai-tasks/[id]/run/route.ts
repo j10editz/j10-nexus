@@ -34,6 +34,8 @@ TYPES
 type AITaskRecord = {
   id: string;
 
+  workspace_id?: string | null;
+
   user_id: string;
 
   employee_id: string;
@@ -502,6 +504,29 @@ export async function POST(
   const task =
     taskData as AITaskRecord;
 
+  if (task.workspace_id) {
+    const { data: membership, error: membershipError } = await supabase
+      .from("workspace_memberships")
+      .select("id, status")
+      .eq("workspace_id", task.workspace_id)
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (membershipError || !membership) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Forbidden. User is not an active member of this workspace.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+  }
+
   const workflowScope =
     extractWorkflowCollaborationMetadata(
       task.input_text
@@ -589,36 +614,43 @@ export async function POST(
   ============================================================
   */
 
+  let employeeQuery = supabase
+    .from("employees")
+    .select(
+      `
+      id,
+      name,
+      role,
+      department,
+      status,
+      model,
+      tasks_completed,
+      last_active
+      `
+    )
+    .eq(
+      "id",
+      task.employee_id
+    )
+    .eq(
+      "user_id",
+      user.id
+    );
+
+  if (task.workspace_id) {
+    employeeQuery = employeeQuery.eq(
+      "workspace_id",
+      task.workspace_id
+    );
+  }
+
   const {
     data:
       employeeData,
 
     error:
       employeeError,
-  } =
-    await supabase
-      .from("employees")
-      .select(
-        `
-        id,
-        name,
-        role,
-        department,
-        status,
-        model,
-        tasks_completed,
-        last_active
-        `
-      )
-      .eq(
-        "id",
-        task.employee_id
-      )
-      .eq(
-        "user_id",
-        user.id
-      )
-      .maybeSingle();
+  } = await employeeQuery.maybeSingle();
 
   if (employeeError) {
     console.error(
@@ -807,6 +839,10 @@ export async function POST(
         "activity_logs"
       )
       .insert({
+        ...(task.workspace_id
+          ? { workspace_id: task.workspace_id }
+          : {}),
+
         user_id:
           user.id,
 
@@ -1111,6 +1147,10 @@ actually executed them.
           "activity_logs"
         )
         .insert({
+          ...(task.workspace_id
+            ? { workspace_id: task.workspace_id }
+            : {}),
+
           user_id:
             user.id,
 
@@ -1528,6 +1568,10 @@ actually executed them.
           "activity_logs"
         )
         .insert({
+          ...(task.workspace_id
+            ? { workspace_id: task.workspace_id }
+            : {}),
+
           user_id:
             user.id,
 

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+import { createServerSupabaseClient } from "@/lib/auth";
 
 type ContactType =
   | "Lead"
@@ -17,7 +19,9 @@ type ContactStatus =
 
 type CRMContact = {
   id: string;
-  user_id: string;
+  user_id?: string | null;
+  workspace_id?: string | null;
+  name?: string | null;
 
   first_name: string;
   last_name: string | null;
@@ -163,38 +167,23 @@ GET CRM INTELLIGENCE
 
 export async function GET() {
   try {
-    const {
-      supabase,
-      user,
-      error: userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data,
       error,
     } = await supabase
-      .from("crm_contacts")
+      .from("contacts")
       .select(
         `
         id,
-        user_id,
+        workspace_id,
+        name,
         first_name,
         last_name,
         email,
@@ -212,8 +201,8 @@ export async function GET() {
         `
       )
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        context.workspace.id
       )
       .order(
         "created_at",
@@ -241,7 +230,7 @@ export async function GET() {
     }
 
     const contacts =
-      (data ?? []) as CRMContact[];
+      (data ?? []) as unknown as CRMContact[];
 
     const intelligence =
       contacts.map(
@@ -438,42 +427,26 @@ export async function POST(
       );
     }
 
-    const {
-      supabase,
-      user,
-      error: userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const {
       data,
       error,
     } = await supabase
-      .from("crm_contacts")
+      .from("contacts")
       .select("*")
       .eq(
         "id",
         contactId
       )
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        context.workspace.id
       )
       .maybeSingle();
 

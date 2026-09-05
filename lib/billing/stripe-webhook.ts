@@ -103,11 +103,17 @@ export async function processStripeSubscriptionEvent(
       const currentPeriodEndSec = obj.current_period_end as number;
       const currentPeriodStartSec = obj.current_period_start as number;
 
-      let status: SubscriptionStatus = "active";
-      if (statusRaw === "past_due") status = "past_due";
-      else if (statusRaw === "canceled") status = "canceled";
-      else if (statusRaw === "unpaid") status = "unpaid";
-      else if (statusRaw === "trialing") status = "trialing";
+      const allowedStatuses: Record<string, SubscriptionStatus> = {
+        active: "active",
+        trialing: "trialing",
+        past_due: "past_due",
+        canceled: "canceled",
+        unpaid: "unpaid",
+      };
+      const status: SubscriptionStatus | undefined = allowedStatuses[statusRaw];
+      if (!status) {
+        return { processed: false, action: "unknown_subscription_status" };
+      }
 
       const currentPeriodEnd = currentPeriodEndSec
         ? new Date(currentPeriodEndSec * 1000).toISOString()
@@ -131,11 +137,13 @@ export async function processStripeSubscriptionEvent(
           : null;
 
       // Check if this subscription already exists by stripe_subscription_id
-      const { data: existing } = await supabase
+      const { data: existing, error: existingErr } = await supabase
         .from("workspace_subscriptions")
         .select("id, workspace_id, messages_used_this_period, current_period_end")
         .eq("stripe_subscription_id", stripeSubId)
         .maybeSingle();
+
+      if (existingErr) throw existingErr;
 
       if (existing) {
         // If billing period rolled over, reset usage
@@ -143,7 +151,7 @@ export async function processStripeSubscriptionEvent(
           new Date(currentPeriodEnd).getTime() >
           new Date(existing.current_period_end).getTime();
 
-        await supabase
+        const { error: updateErr } = await supabase
           .from("workspace_subscriptions")
           .update({
             status,
@@ -160,46 +168,72 @@ export async function processStripeSubscriptionEvent(
           })
           .eq("id", existing.id);
 
+        if (updateErr) throw updateErr;
+
         return { processed: true, action: "updated", subscriptionId: existing.id };
       }
 
       // Resolve workspace association securely
       const rawWorkspaceId = (obj.metadata?.workspace_id || obj.metadata?.workspaceId) as string | undefined;
       if (rawWorkspaceId) {
-        const { data: wsRecord } = await supabase
+        const { data: wsRecord, error: wsErr } = await supabase
           .from("workspaces")
           .select("id")
           .eq("id", rawWorkspaceId)
           .maybeSingle();
 
-        if (wsRecord?.id) {
-          const { data: created } = await supabase
-            .from("workspace_subscriptions")
-            .upsert(
-              {
-                workspace_id: wsRecord.id,
-                stripe_customer_id: stripeCustomerId,
-                stripe_subscription_id: stripeSubId,
-                plan_id: planId,
-                status,
-                provenance: "stripe",
-                monthly_message_limit: monthlyMessageLimit,
-                messages_used_this_period: 0,
-                current_period_start: currentPeriodStart,
-                current_period_end: currentPeriodEnd,
-                grace_period_end: gracePeriodEnd,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "workspace_id" },
-            )
-            .select("id")
-            .single();
+        if (wsErr) throw wsErr;
 
-          return {
-            processed: true,
-            action: "created",
-            subscriptionId: created?.id,
-          };
+        if (wsRecord?.id) {
+          // Validate workspace association against an internal billing or checkout record
+          const { data: checkoutRecord, error: coErr } = await supabase
+            .from("payment_checkouts")
+            .select("id")
+            .eq("workspace_id", wsRecord.id)
+            .limit(1)
+            .maybeSingle();
+          if (coErr) throw coErr;
+
+          const { data: subRecord, error: subErr } = await supabase
+            .from("workspace_subscriptions")
+            .select("id")
+            .eq("workspace_id", wsRecord.id)
+            .limit(1)
+            .maybeSingle();
+          if (subErr) throw subErr;
+
+          const isVerified = Boolean(checkoutRecord || subRecord || obj.metadata?.internal_checkout_id);
+          if (isVerified) {
+            const { data: created, error: createErr } = await supabase
+              .from("workspace_subscriptions")
+              .upsert(
+                {
+                  workspace_id: wsRecord.id,
+                  stripe_customer_id: stripeCustomerId,
+                  stripe_subscription_id: stripeSubId,
+                  plan_id: planId,
+                  status,
+                  provenance: "stripe",
+                  monthly_message_limit: monthlyMessageLimit,
+                  messages_used_this_period: 0,
+                  current_period_start: currentPeriodStart,
+                  current_period_end: currentPeriodEnd,
+                  grace_period_end: gracePeriodEnd,
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: "workspace_id" },
+              )
+              .select("id")
+              .single();
+
+            if (createErr) throw createErr;
+
+            return {
+              processed: true,
+              action: "created",
+              subscriptionId: created?.id,
+            };
+          }
         }
       }
 
@@ -209,7 +243,7 @@ export async function processStripeSubscriptionEvent(
 
     case "customer.subscription.deleted": {
       const stripeSubId = obj.id as string;
-      await supabase
+      const { error: delErr } = await supabase
         .from("workspace_subscriptions")
         .update({
           status: "canceled",
@@ -217,13 +251,15 @@ export async function processStripeSubscriptionEvent(
         })
         .eq("stripe_subscription_id", stripeSubId);
 
+      if (delErr) throw delErr;
+
       return { processed: true, action: "canceled" };
     }
 
     case "invoice.payment_failed": {
       const stripeSubId = (obj.subscription || obj.lines?.data?.[0]?.subscription) as string | undefined;
       if (stripeSubId) {
-        await supabase
+        const { error: failErr } = await supabase
           .from("workspace_subscriptions")
           .update({
             status: "past_due",
@@ -231,6 +267,8 @@ export async function processStripeSubscriptionEvent(
             updated_at: new Date().toISOString(),
           })
           .eq("stripe_subscription_id", stripeSubId);
+
+        if (failErr) throw failErr;
       }
       return { processed: true, action: "marked_past_due" };
     }
@@ -238,7 +276,7 @@ export async function processStripeSubscriptionEvent(
     case "invoice.payment_succeeded": {
       const stripeSubId = (obj.subscription || obj.lines?.data?.[0]?.subscription) as string | undefined;
       if (stripeSubId) {
-        await supabase
+        const { error: succErr } = await supabase
           .from("workspace_subscriptions")
           .update({
             status: "active",
@@ -246,6 +284,8 @@ export async function processStripeSubscriptionEvent(
             updated_at: new Date().toISOString(),
           })
           .eq("stripe_subscription_id", stripeSubId);
+
+        if (succErr) throw succErr;
       }
       return { processed: true, action: "cleared_past_due" };
     }
@@ -395,7 +435,7 @@ export async function processStripeWebhookEvent(
           workspace_id: resolvedWsId,
           checkout_id: checkout.id,
           provider: "stripe",
-          provider_event_id: eventId || `evt_local_${Date.now()}`,
+          provider_event_id: eventId,
           event_type: "checkout.session.completed",
           amount: amountTotal,
           currency,

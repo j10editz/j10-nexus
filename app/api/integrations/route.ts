@@ -2,6 +2,9 @@ import {
   NextResponse,
 } from "next/server";
 
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+
 import {
   createIntegrationApiClient,
   getAuthenticatedIntegrationUser,
@@ -37,35 +40,17 @@ GET INTEGRATION REGISTRY + CONNECTION STATUS
 
 export async function GET() {
   try {
-    const supabase =
-      await createIntegrationApiClient();
-
-    const user =
-      await getAuthenticatedIntegrationUser(
-        supabase,
-      );
-
-    if (!user) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            "Unauthorized.",
-        },
-
-        {
-          status:
-            401,
-        },
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const connections =
       await listIntegrationConnections(
         supabase,
-        user.id,
+        context.workspace.id,
       );
 
     const connectionByProvider =
@@ -323,34 +308,15 @@ POST — REGISTER INTEGRATION
 */
 
 export async function POST(
-  request:
-    Request,
+  request: Request,
 ) {
   try {
-    const supabase =
-      await createIntegrationApiClient();
-
-    const user =
-      await getAuthenticatedIntegrationUser(
-        supabase,
-      );
-
-    if (!user) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            "Unauthorized.",
-        },
-
-        {
-          status:
-            401,
-        },
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body =
       parseRequestObject(
@@ -439,7 +405,7 @@ export async function POST(
     const connection =
       await createIntegrationConnection(
         supabase,
-        user.id,
+        context.workspace.id,
         {
           providerId,
 
@@ -459,7 +425,7 @@ export async function POST(
       supabase,
       {
         userId:
-          user.id,
+          context.user.id,
 
         action:
           "integration_registered",
@@ -527,30 +493,12 @@ export async function DELETE(
     Request,
 ) {
   try {
-    const supabase =
-      await createIntegrationApiClient();
-
-    const user =
-      await getAuthenticatedIntegrationUser(
-        supabase,
-      );
-
-    if (!user) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            "Unauthorized.",
-        },
-
-        {
-          status:
-            401,
-        },
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
     const url =
       new URL(
@@ -577,13 +525,13 @@ export async function DELETE(
       connectionId
         ? await getIntegrationConnectionById(
             supabase,
-            user.id,
+            context.workspace.id,
             connectionId,
           )
         : providerId
           ? await getIntegrationConnectionByProvider(
               supabase,
-              user.id,
+              context.workspace.id,
               providerId,
             )
           : null;
@@ -605,7 +553,7 @@ export async function DELETE(
 
     await deleteIntegrationConnection(
       supabase,
-      user.id,
+      context.workspace.id,
       connection.id,
     );
 
@@ -613,7 +561,7 @@ export async function DELETE(
       supabase,
       {
         userId:
-          user.id,
+          context.user.id,
 
         action:
           "integration_removed",

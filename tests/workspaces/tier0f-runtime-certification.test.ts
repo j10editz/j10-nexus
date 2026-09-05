@@ -26,7 +26,7 @@ describe("Tier 0F Runtime Tenant Certification & Integrity", () => {
       expect(migration).toContain("ADD COLUMN IF NOT EXISTS provenance TEXT NOT NULL DEFAULT 'none'");
       expect(migration).toContain("CHECK (provenance IN ('stripe', 'trial', 'internal_grant', 'none'))");
       expect(migration).toContain("provenance = 'internal_grant'");
-      expect(migration).toContain("ce593364-2aaf-47e4-a1d2-2272775747c4");
+      expect(migration).toContain("platform_founder");
     });
 
     it("verifies hardened increment_workspace_usage RPC with row lock and quota enforcement", () => {

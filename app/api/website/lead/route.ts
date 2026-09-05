@@ -56,14 +56,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // 4. Atomic Database Persistence via create_website_lead RPC
+    // 4. Atomic Database Persistence via secure create_website_lead RPC
+    const idempotencyKey =
+      String(body.idempotencyKey || body.idempotency_key || request.headers.get("x-idempotency-key") || "").trim().slice(0, 128) ||
+      `lead_${funnel.id}_${cleanPhone || rawEmail}_${Date.now()}`;
+
     const { data: rpcResult, error: rpcError } = await admin.rpc("create_website_lead", {
-      p_slug: funnel.slug,
+      p_funnel_id: funnel.id,
       p_name: name,
       p_email: rawEmail || null,
       p_phone: cleanPhone ? `+${cleanPhone}` : null,
       p_message: userMessage,
       p_notes: `Lead intake via /site/${funnel.slug}`,
+      p_idempotency_key: idempotencyKey,
       p_metadata: {
         source_url: String(body.sourceUrl || "").slice(0, 500) || null,
         submitted_at: new Date().toISOString(),

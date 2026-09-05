@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+
 import {
   INTEGRATION_CONNECTION_STATUSES,
 } from "../../../../types/integration";
@@ -51,30 +54,17 @@ export async function GET(
     const { id } =
       await context.params;
 
-    const supabase =
-      await createIntegrationApiClient();
-
-    const user =
-      await getAuthenticatedIntegrationUser(
-        supabase,
-      );
-
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        },
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const connection =
       await getIntegrationConnectionById(
         supabase,
-        user.id,
+        wsContext.workspace.id,
         id,
       );
 
@@ -94,7 +84,7 @@ export async function GET(
     const statusHistory =
       await listIntegrationStatusHistory(
         supabase,
-        user.id,
+        wsContext.workspace.id,
         connection.id,
       );
 
@@ -124,25 +114,12 @@ export async function PATCH(
     const { id } =
       await context.params;
 
-    const supabase =
-      await createIntegrationApiClient();
-
-    const user =
-      await getAuthenticatedIntegrationUser(
-        supabase,
-      );
-
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        },
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body =
       parseRequestObject(
@@ -201,7 +178,7 @@ export async function PATCH(
     const previousConnection =
       await getIntegrationConnectionById(
         supabase,
-        user.id,
+        wsContext.workspace.id,
         id,
       );
 
@@ -221,7 +198,7 @@ export async function PATCH(
     const connection =
       await updateIntegrationConnectionStatus(
         supabase,
-        user.id,
+        wsContext.workspace.id,
         id,
         {
           status:
@@ -243,7 +220,7 @@ export async function PATCH(
     await writeIntegrationActivity(
       supabase,
       {
-        userId: user.id,
+        userId: wsContext.user.id,
 
         action:
           "integration_status_changed",
@@ -302,25 +279,12 @@ export async function PUT(
     const { id } =
       await context.params;
 
-    const supabase =
-      await createIntegrationApiClient();
-
-    const user =
-      await getAuthenticatedIntegrationUser(
-        supabase,
-      );
-
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        },
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body =
       parseRequestObject(
@@ -330,7 +294,7 @@ export async function PUT(
     const previousConnection =
       await getIntegrationConnectionById(
         supabase,
-        user.id,
+        wsContext.workspace.id,
         id,
       );
 
@@ -370,11 +334,11 @@ export async function PUT(
     let connection =
       await updateIntegrationConnectionConfiguration(
         supabase,
-        user.id,
+        wsContext.workspace.id,
         id,
         {
-          publicConfiguration,
           enabledCapabilities,
+          publicConfiguration,
         },
       );
 
@@ -386,7 +350,7 @@ export async function PUT(
       connection =
         await updateIntegrationConnectionStatus(
           supabase,
-          user.id,
+          wsContext.workspace.id,
           id,
           {
             status: "disconnected",
@@ -408,7 +372,7 @@ export async function PUT(
     await writeIntegrationActivity(
       supabase,
       {
-        userId: user.id,
+        userId: wsContext.user.id,
         action:
           "integration_configuration_updated",
         entityId:
@@ -455,30 +419,17 @@ export async function DELETE(
     const { id } =
       await context.params;
 
-    const supabase =
-      await createIntegrationApiClient();
-
-    const user =
-      await getAuthenticatedIntegrationUser(
-        supabase,
-      );
-
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        },
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const connection =
       await getIntegrationConnectionById(
         supabase,
-        user.id,
+        wsContext.workspace.id,
         id,
       );
 
@@ -497,14 +448,14 @@ export async function DELETE(
 
     await deleteIntegrationConnection(
       supabase,
-      user.id,
+      wsContext.workspace.id,
       connection.id,
     );
 
     await writeIntegrationActivity(
       supabase,
       {
-        userId: user.id,
+        userId: wsContext.user.id,
 
         action:
           "integration_removed",

@@ -140,14 +140,17 @@ export async function POST(request: Request) {
           { status: 402 }
         );
       }
-      if (process.env.NODE_ENV === "production") {
-        console.error("AI Generation metering failure in production:", billingErr);
+      const isDevBypass =
+        process.env.NODE_ENV === "development" &&
+        process.env.ALLOW_METERING_BYPASS === "true";
+      if (!isDevBypass || process.env.NODE_ENV === "production") {
+        console.error("AI Generation metering failure:", billingErr);
         return NextResponse.json(
           { success: false, error: "Usage quota check failed. Generation halted for workspace safety." },
           { status: 500 }
         );
       }
-      console.warn("Metering bypassed in non-production environment:", billingErr?.message);
+      console.warn("Metering bypassed in development sandbox via ALLOW_METERING_BYPASS:", billingErr?.message);
     }
 
     const apiKey = process.env.OPENAI_API_KEY;

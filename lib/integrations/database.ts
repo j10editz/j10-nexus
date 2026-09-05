@@ -406,7 +406,7 @@ function validateEnabledCapabilities(
 
 export async function listIntegrationConnections(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
 ): Promise<IntegrationConnection[]> {
   const { data, error } =
     await supabase
@@ -414,7 +414,7 @@ export async function listIntegrationConnections(
       .select(
         INTEGRATION_DATABASE_SELECT,
       )
-      .or(`workspace_id.eq.${userId},user_id.eq.${userId}`)
+      .eq("workspace_id", workspaceId)
       .order("created_at", {
         ascending: true,
       });
@@ -442,7 +442,7 @@ export async function listIntegrationConnections(
 
 export async function getIntegrationConnectionById(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
   connectionId: string,
 ): Promise<IntegrationConnection | null> {
   const { data, error } =
@@ -452,7 +452,7 @@ export async function getIntegrationConnectionById(
         INTEGRATION_DATABASE_SELECT,
       )
       .eq("id", connectionId)
-      .or(`workspace_id.eq.${userId},user_id.eq.${userId}`)
+      .eq("workspace_id", workspaceId)
       .maybeSingle();
 
   if (error) {
@@ -473,7 +473,7 @@ export async function getIntegrationConnectionById(
 
 export async function getIntegrationConnectionByProvider(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
   providerId: IntegrationProviderId,
 ): Promise<IntegrationConnection | null> {
   const aliases =
@@ -487,7 +487,7 @@ export async function getIntegrationConnectionByProvider(
       .select(
         INTEGRATION_DATABASE_SELECT,
       )
-      .or(`workspace_id.eq.${userId},user_id.eq.${userId}`)
+      .eq("workspace_id", workspaceId)
       .in(
         "provider",
         [...aliases],
@@ -523,8 +523,9 @@ export async function getIntegrationConnectionByProvider(
 
 export async function createIntegrationConnection(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
   input: CreateIntegrationConnectionInput,
+  actorUserId?: string,
 ): Promise<IntegrationConnection> {
   const provider =
     getIntegrationProvider(
@@ -534,7 +535,7 @@ export async function createIntegrationConnection(
   const existing =
     await getIntegrationConnectionByProvider(
       supabase,
-      userId,
+      workspaceId,
       input.providerId,
     );
 
@@ -557,7 +558,8 @@ export async function createIntegrationConnection(
     await supabase
       .from("integrations")
       .insert({
-        user_id: userId,
+        workspace_id: workspaceId,
+        user_id: actorUserId || workspaceId,
         provider:
           input.providerId,
         status: "pending",
@@ -633,14 +635,14 @@ export async function createIntegrationConnection(
 
 export async function updateIntegrationConnectionStatus(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
   connectionId: string,
   input: UpdateIntegrationStatusInput,
 ): Promise<IntegrationConnection> {
   const currentConnection =
     await getIntegrationConnectionById(
       supabase,
-      userId,
+      workspaceId,
       connectionId,
     );
 
@@ -742,7 +744,7 @@ export async function updateIntegrationConnectionStatus(
         updatePayload,
       )
       .eq("id", connectionId)
-      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .select(
         INTEGRATION_DATABASE_SELECT,
       )
@@ -765,14 +767,14 @@ export async function updateIntegrationConnectionStatus(
 
 export async function updateIntegrationConnectionConfiguration(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
   connectionId: string,
   input: UpdateIntegrationConfigurationInput,
 ): Promise<IntegrationConnection> {
   const currentConnection =
     await getIntegrationConnectionById(
       supabase,
-      userId,
+      workspaceId,
       connectionId,
     );
 
@@ -805,7 +807,7 @@ export async function updateIntegrationConnectionConfiguration(
         last_health_check_at: null,
       })
       .eq("id", connectionId)
-      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .select(
         INTEGRATION_DATABASE_SELECT,
       )
@@ -825,7 +827,7 @@ export async function updateIntegrationConnectionConfiguration(
 
 export async function deleteIntegrationConnection(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
   connectionId: string,
 ): Promise<void> {
   const { error } =
@@ -833,7 +835,7 @@ export async function deleteIntegrationConnection(
       .from("integrations")
       .delete()
       .eq("id", connectionId)
-      .eq("user_id", userId);
+      .eq("workspace_id", workspaceId);
 
   if (error) {
     throw createDatabaseError(
@@ -845,7 +847,7 @@ export async function deleteIntegrationConnection(
 
 export async function listIntegrationStatusHistory(
   supabase: SupabaseClient,
-  userId: string,
+  _workspaceId: string,
   connectionId: string,
 ): Promise<IntegrationStatusHistoryEntry[]> {
   const { data, error } =
@@ -867,7 +869,6 @@ export async function listIntegrationStatusHistory(
         "integration_id",
         connectionId,
       )
-      .eq("user_id", userId)
       .order("created_at", {
         ascending: false,
       });

@@ -25,7 +25,7 @@ describe("Inbound WhatsApp webhook processing", () => {
     );
 
     expect(route).toContain(
-      '?.trim() || "meta"',
+      "resolveExactTenantWhatsAppBinding",
     );
     expect(route).toContain(
       'url.searchParams.get("hub.mode")',
@@ -47,18 +47,14 @@ describe("Inbound WhatsApp webhook processing", () => {
       "return processIntegrationWebhook",
     );
     expect(route).toContain(
-      "resolvePipelineEndpointKey",
+      "resolveExactTenantWhatsAppBinding",
     );
     expect(route).toContain(
-      '"integration_id",\n        integrationId',
+      "endpoint.endpointKey",
     );
     expect(route).toContain(
-      '"user_id",\n        userId',
+      "connection.workspaceId",
     );
-    expect(route.indexOf("await loadWhatsAppConnection()"))
-      .toBeLessThan(
-        route.indexOf("await findActivePipelineEndpointKey("),
-      );
   });
 
   it("normalizes inbound Meta messages into the canonical workflow event", () => {

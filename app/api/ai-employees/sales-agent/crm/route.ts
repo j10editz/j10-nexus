@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   getJ10AIMode,
@@ -44,6 +45,7 @@ type SalesAgentAction =
 type CRMContact = {
   id: string;
   user_id: string;
+  workspace_id?: string;
 
   first_name: string;
   last_name: string | null;
@@ -89,6 +91,8 @@ type SalesAgent = {
   last_active:
     | string
     | null;
+
+  workspace_id?: string;
 };
 
 type SalesAgentRequest = {
@@ -164,79 +168,6 @@ type J10SalesRecommendation = {
 
 /*
 ============================================================
-SUPABASE
-============================================================
-*/
-
-async function getSupabase() {
-  const cookieStore =
-    await cookies();
-
-  return createServerClient(
-    process.env
-      .NEXT_PUBLIC_SUPABASE_URL!,
-
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            /*
-            Cookie writes may not be available
-            in every server context.
-            */
-          }
-        },
-      },
-    }
-  );
-}
-
-/*
-============================================================
-AUTH
-============================================================
-*/
-
-async function getAuthenticatedUser() {
-  const supabase =
-    await getSupabase();
-
-  const {
-    data: { user },
-    error,
-  } =
-    await supabase.auth.getUser();
-
-  return {
-    supabase,
-    user,
-    error,
-  };
-}
-
-/*
-============================================================
 IS SALES EMPLOYEE
 ============================================================
 */
@@ -261,15 +192,10 @@ FIND EXACT AI SALES AGENT
 */
 
 async function findSalesAgentById(
-  supabase: Awaited<
-    ReturnType<
-      typeof getSupabase
-    >
-  >,
-
+  supabase: SupabaseClient,
   userId: string,
-
-  employeeId: string
+  employeeId: string,
+  workspaceId: string
 ) {
   const {
     data,
@@ -285,7 +211,8 @@ async function findSalesAgentById(
       status,
       model,
       tasks_completed,
-      last_active
+      last_active,
+      workspace_id
       `
     )
     .eq(
@@ -293,8 +220,8 @@ async function findSalesAgentById(
       employeeId
     )
     .eq(
-      "user_id",
-      userId
+      "workspace_id",
+      workspaceId
     )
     .maybeSingle();
 
@@ -405,32 +332,14 @@ export async function GET(
     ============================================================
     */
 
-    const {
-      supabase,
-      user,
-      error:
-        userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            "Unauthorized.",
-        },
-        {
-          status:
-            401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
+    const user = context.user;
+    const workspaceId = context.workspace.id;
 
     /*
     ============================================================
@@ -447,7 +356,8 @@ export async function GET(
       await findSalesAgentById(
         supabase,
         user.id,
-        employeeId
+        employeeId,
+        workspaceId
       );
 
     if (agentError) {
@@ -510,7 +420,7 @@ export async function GET(
         crmError,
     } = await supabase
       .from(
-        "crm_contacts"
+        "contacts"
       )
       .select(
         `
@@ -533,8 +443,8 @@ export async function GET(
         `
       )
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        workspaceId
       )
       .order(
         "created_at",
@@ -896,32 +806,14 @@ export async function POST(
     ============================================================
     */
 
-    const {
-      supabase,
-      user,
-      error:
-        userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success:
-            false,
-
-          error:
-            "Unauthorized.",
-        },
-        {
-          status:
-            401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
+    const user = context.user;
+    const workspaceId = context.workspace.id;
 
     /*
     ============================================================
@@ -938,7 +830,8 @@ export async function POST(
       await findSalesAgentById(
         supabase,
         user.id,
-        employeeId
+        employeeId,
+        workspaceId
       );
 
     if (agentError) {
@@ -1034,7 +927,7 @@ export async function POST(
         contactError,
     } = await supabase
       .from(
-        "crm_contacts"
+        "contacts"
       )
       .select("*")
       .eq(
@@ -1042,8 +935,8 @@ export async function POST(
         contactId
       )
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        workspaceId
       )
       .maybeSingle();
 
@@ -1104,6 +997,8 @@ export async function POST(
 
         userId:
           user.id,
+
+        workspaceId,
 
         agent,
 
@@ -1171,7 +1066,8 @@ export async function POST(
       await incrementAgentTasks(
         supabase,
         user.id,
-        agent
+        agent,
+        workspaceId
       );
 
       return NextResponse.json({
@@ -1596,7 +1492,7 @@ export async function POST(
         updateError,
     } = await supabase
       .from(
-        "crm_contacts"
+        "contacts"
       )
       .update(
         updateData
@@ -1606,8 +1502,8 @@ export async function POST(
         contact.id
       )
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        workspaceId
       )
       .select("*")
       .single();
@@ -1655,6 +1551,8 @@ export async function POST(
 
       userId:
         user.id,
+
+      workspaceId,
 
       agent,
 
@@ -1719,6 +1617,8 @@ export async function POST(
         userId:
           user.id,
 
+        workspaceId,
+
         userEmail:
           user.email ??
           null,
@@ -1753,7 +1653,8 @@ export async function POST(
     await incrementAgentTasks(
       supabase,
       user.id,
-      agent
+      agent,
+      workspaceId
     );
 
     /*
@@ -2553,6 +2454,8 @@ async function recordActivity({
 
   userId,
 
+  workspaceId,
+
   agent,
 
   contact,
@@ -2565,13 +2468,11 @@ async function recordActivity({
 
   metadata,
 }: {
-  supabase: Awaited<
-    ReturnType<
-      typeof getSupabase
-    >
-  >;
+  supabase: SupabaseClient;
 
   userId: string;
+
+  workspaceId: string;
 
   agent: SalesAgent;
 
@@ -2595,6 +2496,9 @@ async function recordActivity({
       "activity_logs"
     )
     .insert({
+      workspace_id:
+        agent.workspace_id || workspaceId,
+
       user_id:
         userId,
 
@@ -2650,15 +2554,13 @@ INCREMENT EXACT AGENT TASKS
 */
 
 async function incrementAgentTasks(
-  supabase: Awaited<
-    ReturnType<
-      typeof getSupabase
-    >
-  >,
+  supabase: SupabaseClient,
 
   userId: string,
 
-  agent: SalesAgent
+  agent: SalesAgent,
+
+  workspaceId: string
 ) {
   const {
     error,
@@ -2681,8 +2583,8 @@ async function incrementAgentTasks(
       agent.id
     )
     .eq(
-      "user_id",
-      userId
+      "workspace_id",
+      workspaceId
     );
 
   if (error) {
@@ -2704,6 +2606,8 @@ async function recordHumanApproval({
 
   userId,
 
+  workspaceId,
+
   userEmail,
 
   agent,
@@ -2720,13 +2624,11 @@ async function recordHumanApproval({
 
   newType,
 }: {
-  supabase: Awaited<
-    ReturnType<
-      typeof getSupabase
-    >
-  >;
+  supabase: SupabaseClient;
 
   userId: string;
+
+  workspaceId: string;
 
   userEmail:
     | string
@@ -2766,6 +2668,9 @@ async function recordHumanApproval({
       "activity_logs"
     )
     .insert({
+      workspace_id:
+        agent.workspace_id || workspaceId,
+
       user_id:
         userId,
 

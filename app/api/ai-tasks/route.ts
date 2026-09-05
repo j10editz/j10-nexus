@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 import {
   getJ10AIMode,
@@ -36,80 +36,8 @@ type Employee = {
   department: string;
   status: string;
   model: string;
+  workspace_id?: string;
 };
-
-/*
-============================================================
-SUPABASE
-============================================================
-*/
-
-async function getSupabase() {
-  const cookieStore =
-    await cookies();
-
-  return createServerClient(
-    process.env
-      .NEXT_PUBLIC_SUPABASE_URL!,
-
-    process.env
-      .NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            /*
-            Cookie writes may not be available
-            in every server context.
-            */
-          }
-        },
-      },
-    }
-  );
-}
-
-/*
-============================================================
-AUTH
-============================================================
-*/
-
-async function getAuthenticatedUser() {
-  const supabase =
-    await getSupabase();
-
-  const {
-    data: { user },
-    error,
-  } =
-    await supabase.auth.getUser();
-
-  return {
-    supabase,
-    user,
-    error,
-  };
-}
 
 /*
 ============================================================
@@ -121,28 +49,13 @@ export async function GET(
   request: Request
 ) {
   try {
-    const {
-      supabase,
-      user,
-      error:
-        userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
+    const workspaceId = context.workspace.id;
 
     const url =
       new URL(
@@ -160,6 +73,7 @@ export async function GET(
         .select(
           `
           id,
+          workspace_id,
           user_id,
           employee_id,
           employee_name,
@@ -182,8 +96,8 @@ export async function GET(
           `
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          workspaceId
         )
         .order(
           "created_at",
@@ -379,28 +293,14 @@ export async function POST(
     ============================================================
     */
 
-    const {
-      supabase,
-      user,
-      error:
-        userError,
-    } =
-      await getAuthenticatedUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
+    const user = context.user;
+    const workspaceId = context.workspace.id;
 
     /*
     ============================================================
@@ -424,7 +324,8 @@ export async function POST(
           role,
           department,
           status,
-          model
+          model,
+          workspace_id
           `
         )
         .eq(
@@ -432,8 +333,8 @@ export async function POST(
           employeeId
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          workspaceId
         )
         .maybeSingle();
 
@@ -490,6 +391,9 @@ export async function POST(
       await supabase
         .from("ai_tasks")
         .insert({
+          workspace_id:
+            workspaceId,
+
           user_id:
             user.id,
 
@@ -561,6 +465,9 @@ export async function POST(
           "activity_logs"
         )
         .insert({
+          workspace_id:
+            workspaceId,
+
           user_id:
             user.id,
 

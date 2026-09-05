@@ -24,6 +24,7 @@ type ExecuteApprovedCrmMutationInput = {
 
   userId: string;
   userEmail?: string | null;
+  workspaceId?: string;
 
   workflowId: string;
   workflowName: string;
@@ -331,6 +332,7 @@ export async function executeApprovedCrmMutation({
   triggerPayload,
   origin,
   cookieHeader,
+  workspaceId,
 }: ExecuteApprovedCrmMutationInput): Promise<ApprovedCrmMutationResult> {
   const contactId =
     extractContactId(
@@ -343,26 +345,21 @@ export async function executeApprovedCrmMutation({
   ============================================================
   */
 
+  let contactQuery = supabase
+    .from("contacts")
+    .select("*")
+    .eq("id", contactId);
+
+  if (workspaceId) {
+    contactQuery = contactQuery.eq("workspace_id", workspaceId);
+  }
+
   const {
     data:
       contactData,
     error:
       contactError,
-  } =
-    await supabase
-      .from(
-        "crm_contacts"
-      )
-      .select("*")
-      .eq(
-        "id",
-        contactId
-      )
-      .eq(
-        "user_id",
-        userId
-      )
-      .maybeSingle();
+  } = await contactQuery.maybeSingle();
 
   if (
     contactError ||
@@ -428,29 +425,28 @@ export async function executeApprovedCrmMutation({
         ? `${existingNotes}\n\n${note}`
         : note;
 
+    let noteQuery = supabase
+      .from("contacts")
+      .update({
+        notes:
+          combinedNotes,
+
+        updated_at:
+          new Date().toISOString(),
+      })
+      .eq(
+        "id",
+        contactId
+      );
+
+    if (workspaceId) {
+      noteQuery = noteQuery.eq("workspace_id", workspaceId);
+    }
+
     const {
       error:
         noteError,
-    } =
-      await supabase
-        .from(
-          "crm_contacts"
-        )
-        .update({
-          notes:
-            combinedNotes,
-
-          updated_at:
-            new Date().toISOString(),
-        })
-        .eq(
-          "id",
-          contactId
-        )
-        .eq(
-          "user_id",
-          userId
-        );
+    } = await noteQuery;
 
     if (noteError) {
       throw new Error(
@@ -549,29 +545,28 @@ export async function executeApprovedCrmMutation({
         "Customer";
     }
 
+    let statusQuery = supabase
+      .from("contacts")
+      .update(
+        updateData
+      )
+      .eq(
+        "id",
+        contactId
+      );
+
+    if (workspaceId) {
+      statusQuery = statusQuery.eq("workspace_id", workspaceId);
+    }
+
     const {
       data:
         updatedContactData,
       error:
         statusError,
-    } =
-      await supabase
-        .from(
-          "crm_contacts"
-        )
-        .update(
-          updateData
-        )
-        .eq(
-          "id",
-          contactId
-        )
-        .eq(
-          "user_id",
-          userId
-        )
-        .select("*")
-        .single();
+    } = await statusQuery
+      .select("*")
+      .single();
 
     if (
       statusError ||

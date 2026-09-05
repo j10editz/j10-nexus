@@ -76,20 +76,35 @@ export async function qualifyAndSyncWhatsAppLead(
   userId: string,
   input: QualifyLeadInput,
   origin = "http://localhost:3000",
+  workspaceId?: string,
 ): Promise<LeadQualificationResult> {
   const cleanPhone = input.senderPhone.replace(/[\s()+.-]/g, "");
   const fallbackName = input.customerName?.trim() || `WhatsApp ••••${cleanPhone.slice(-4)}`;
 
+  let resolvedWorkspaceId = workspaceId;
+  if (!resolvedWorkspaceId) {
+    const { data: member } = await supabase
+      .from("workspace_memberships")
+      .select("workspace_id")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
+    resolvedWorkspaceId = member?.workspace_id || userId;
+  }
+
   const scoring = scoreCustomerIntent(input.messages);
 
-  // 1. Look for existing contact with this phone number
-  const { data: existingContacts } = await supabase
-    .from("crm_contacts")
-    .select("id,first_name,last_name,type,status,estimated_value,notes")
-    .eq("user_id", userId)
-    .ilike("phone", `%${cleanPhone.slice(-8)}%`)
-    .limit(1);
+  // 1. Look for existing contact in canonical contacts table
+  let contactQuery = supabase
+    .from("contacts")
+    .select("id,name,first_name,last_name,type,status,estimated_value,notes,workspace_id")
+    .ilike("phone", `%${cleanPhone.slice(-8)}%`);
 
+  if (resolvedWorkspaceId) {
+    contactQuery = contactQuery.eq("workspace_id", resolvedWorkspaceId);
+  }
+
+  const { data: existingContacts } = await contactQuery.limit(1);
   const existing = existingContacts?.[0];
 
   if (existing) {
@@ -103,8 +118,8 @@ export async function qualifyAndSyncWhatsAppLead(
       .filter(Boolean)
       .join("\n\n");
 
-    const { error: updateError } = await supabase
-      .from("crm_contacts")
+    let updateQuery = supabase
+      .from("contacts")
       .update({
         status: updatedStatus,
         estimated_value: updatedValue,
@@ -112,9 +127,13 @@ export async function qualifyAndSyncWhatsAppLead(
         last_contacted_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", existing.id)
-      .eq("user_id", userId);
+      .eq("id", existing.id);
 
+    if (resolvedWorkspaceId) {
+      updateQuery = updateQuery.eq("workspace_id", resolvedWorkspaceId);
+    }
+
+    const { error: updateError } = await updateQuery;
     if (updateError) {
       console.warn("Could not update CRM contact from WhatsApp lead:", updateError);
     }
@@ -123,10 +142,10 @@ export async function qualifyAndSyncWhatsAppLead(
       success: true,
       contactId: existing.id,
       isNew: false,
-      firstName: existing.first_name,
+      firstName: existing.first_name || existing.name || fallbackName,
       phone: cleanPhone,
-      type: existing.type as "Lead" | "Prospect" | "Customer",
-      status: updatedStatus as "New" | "Contacted" | "Qualified" | "Interested" | "Won" | "Lost",
+      type: (existing.type as "Lead" | "Prospect" | "Customer") || "Lead",
+      status: (updatedStatus as "New" | "Contacted" | "Qualified" | "Interested" | "Won" | "Lost") || "Qualified",
       estimatedValue: updatedValue,
       qualificationScore: scoring.score,
       intentSummary: scoring.intentSummary,
@@ -134,11 +153,13 @@ export async function qualifyAndSyncWhatsAppLead(
     };
   }
 
-  // 2. Create new contact
+  // 2. Create new contact in canonical contacts table
   const { data: newContact, error: insertError } = await supabase
-    .from("crm_contacts")
+    .from("contacts")
     .insert({
-      user_id: userId,
+      workspace_id: resolvedWorkspaceId,
+      assigned_user_id: userId,
+      name: fallbackName,
       first_name: fallbackName,
       last_name: null,
       phone: cleanPhone,
@@ -146,11 +167,12 @@ export async function qualifyAndSyncWhatsAppLead(
       type: "Lead",
       status: scoring.status,
       source: "WhatsApp",
+      deal_stage: "lead",
       estimated_value: scoring.estimatedValue,
       notes: `[WhatsApp AI Lead Capture]: ${scoring.intentSummary} (Score: ${scoring.score}/100)\nNext step: ${scoring.suggestedNextStep}`,
       last_contacted_at: new Date().toISOString(),
     })
-    .select("id,first_name,phone,type,status,estimated_value")
+    .select("id,name,first_name,phone,type,status,estimated_value")
     .single();
 
   if (insertError || !newContact) {

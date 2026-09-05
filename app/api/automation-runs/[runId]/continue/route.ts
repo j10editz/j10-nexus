@@ -579,6 +579,7 @@ export async function POST(
       .select(
         `
         id,
+        workspace_id,
         name,
         status,
         successful_executions,
