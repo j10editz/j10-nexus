@@ -112,20 +112,12 @@ export default function CommerceDashboardPage() {
       const prodData = await prodRes.json();
       const ordData = await ordRes.json();
 
-      if (prodData.success && prodData.products?.length > 0) {
-        setProducts(prodData.products);
-      } else {
-        setProducts(SEED_COMMERCE_PRODUCTS as CommerceProduct[]);
-      }
-
-      if (ordData.success && ordData.orders?.length > 0) {
-        setOrders(ordData.orders);
-      } else {
-        setOrders(SEED_COMMERCE_ORDERS);
-      }
-    } catch {
-      setProducts(SEED_COMMERCE_PRODUCTS as CommerceProduct[]);
-      setOrders(SEED_COMMERCE_ORDERS);
+      setProducts(prodData.success && Array.isArray(prodData.products) ? prodData.products : []);
+      setOrders(ordData.success && Array.isArray(ordData.orders) ? ordData.orders : []);
+    } catch (err: any) {
+      setError(err.message || "Failed to load commerce data.");
+      setProducts([]);
+      setOrders([]);
     } finally {
       setLoading(false);
       setRefreshing(false);

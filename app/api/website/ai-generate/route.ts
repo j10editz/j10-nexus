@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { recordWorkspaceMessageUsage } from "@/lib/billing/entitlements";
 import { stripEmojis } from "@/lib/website/service";
 
 const INDUSTRY_PRESETS: Record<
@@ -36,15 +39,15 @@ const INDUSTRY_PRESETS: Record<
     ],
     testimonials: [
       {
-        name: "Marcus Vance",
-        company: "Apex Media Group",
-        quote: "Our close rate on outbound pipeline jumped 34% within thirty days. Inbound leads are qualified and ready before our first call.",
+        name: "[Client Reference 1]",
+        company: "[Enterprise Partner]",
+        quote: "Insert verified client quotation here detailing specific operations improvements.",
         rating: 5,
       },
       {
-        name: "Devon Reed",
-        company: "Northstar Growth Partners",
-        quote: "Eliminated two hours of daily manual CRM data entry across our entire account team. The systems run around the clock.",
+        name: "[Client Reference 2]",
+        company: "[Growth Agency]",
+        quote: "Insert verified client quotation here detailing conversion and pipeline efficiency.",
         rating: 5,
       },
     ],
@@ -59,130 +62,38 @@ const INDUSTRY_PRESETS: Record<
       },
     ],
   },
-  saas: {
-    heroHeadline: "Transform Software Signups into Enterprise Contracts",
-    heroSubheadline: "Deliver instantaneous onboarding support, resolve technical product questions, and identify high-value account expansion opportunities.",
-    primaryCtaText: "Start Product Walkthrough",
+  ecommerce: {
+    heroHeadline: "Convert WhatsApp Inquiries into Verified Stripe Checkouts",
+    heroSubheadline: "Provide 24/7 conversational customer service, personalized product recommendations, and instant payment links that recover abandoned carts.",
+    primaryCtaText: "Explore WhatsApp Commerce",
     features: [
       {
-        title: "Grounded Knowledge Retrieval",
-        description: "Provide verified technical documentation and architecture answers without hallucination.",
-        icon: "Brain",
+        title: "Conversational Catalog Browsing",
+        description: "Guide shoppers to their ideal product with intelligent recommendation cards delivered directly in WhatsApp chat.",
+        icon: "DollarSign",
       },
       {
-        title: "Automated Trial Conversion",
-        description: "Guide self-serve trial users through key activation milestones via intelligent conversational reminders.",
-        icon: "Bot",
+        title: "One-Click Stripe Checkout Links",
+        description: "Send pre-populated Stripe-verified payment links directly in chat for frictionless, PCI-compliant mobile purchases.",
+        icon: "ShieldCheck",
       },
       {
-        title: "Usage & Telemetry Triggers",
-        description: "Trigger automated outreach when accounts hit high consumption thresholds to offer enterprise upgrades.",
+        title: "Automated Cart Recovery",
+        description: "Deliver timed, personalized follow-ups that address buyer objections and recover lost revenue on high-ticket items.",
         icon: "TrendingUp",
       },
     ],
     testimonials: [
       {
-        name: "Sophia Lin",
-        company: "CloudScale Systems",
-        quote: "Trial-to-paid conversions increased 28%. Prospects get instant answers to security and compliance questions on WhatsApp.",
+        name: "[Client Reference 1]",
+        company: "[Retail Brand]",
+        quote: "Insert verified customer quotation here describing checkout experience and customer retention.",
         rating: 5,
       },
       {
-        name: "Liam O'Connor",
-        company: "Hyperion Data",
-        quote: "Our support tickets dropped by half while customer satisfaction scores rose to 98%. An indispensable operational layer.",
-        rating: 5,
-      },
-    ],
-    faqs: [
-      {
-        question: "Is our proprietary technical data secure?",
-        answer: "Yes. Data is isolated within your dedicated workspace partition and is never shared across external models.",
-      },
-      {
-        question: "Can the AI integrate with existing webhook infrastructure?",
-        answer: "Yes. Full bi-directional webhooks and API endpoints allow synchronization with your core application backend.",
-      },
-    ],
-  },
-  realestate: {
-    heroHeadline: "Instant Property Inquiries and Qualified Buyer Triage",
-    heroSubheadline: "Never miss a high-net-worth real estate inquiry. Schedule private viewings, qualify financing capacity, and capture buyer requirements 24/7.",
-    primaryCtaText: "Schedule Private Viewing",
-    features: [
-      {
-        title: "Instant Listing Details",
-        description: "Deliver high-resolution brochures, floor plans, and property specifications immediately upon request.",
-        icon: "Globe",
-      },
-      {
-        title: "Purchaser Readiness Verification",
-        description: "Confirm buyer timeframe, pre-approval status, and desired locations before scheduling showings.",
-        icon: "ShieldCheck",
-      },
-      {
-        title: "Automated Agent Dispatch",
-        description: "Notify listing brokers immediately when high-priority buyers request private consultations.",
-        icon: "MessageSquare",
-      },
-    ],
-    testimonials: [
-      {
-        name: "Julian Thorne",
-        company: "Thorne Luxury Properties",
-        quote: "We captured three luxury property contracts in a single weekend from buyers who inquired after normal business hours.",
-        rating: 5,
-      },
-      {
-        name: "Camilla Morales",
-        company: "Metropolitan Realty Advisors",
-        quote: "Buyers love the immediate responsiveness. It sets an elite first impression that separates our brokerage from competitors.",
-        rating: 5,
-      },
-    ],
-    faqs: [
-      {
-        question: "Can the bot send listing documents and brochures?",
-        answer: "Yes. PDF specification sheets, virtual tours, and photo galleries can be delivered directly in the conversation.",
-      },
-      {
-        question: "Does this connect to our existing MLS feed?",
-        answer: "Yes. Active property listings and price updates can be synchronized continuously into the knowledge hub.",
-      },
-    ],
-  },
-  ecommerce: {
-    heroHeadline: "Conversational Commerce That Converts Browsers to Buyers",
-    heroSubheadline: "Deliver personalized product recommendations, answer sizing and shipping questions, and recover abandoned carts directly over WhatsApp.",
-    primaryCtaText: "Shop Verified Catalog",
-    features: [
-      {
-        title: "One-Click Stripe Checkout",
-        description: "Generate authenticated payment links and invoice balances without forcing shoppers through clunky web carts.",
-        icon: "DollarSign",
-      },
-      {
-        title: "Real-Time Order Tracking",
-        description: "Provide instantaneous tracking numbers, delivery updates, and carrier status via automated message flows.",
-        icon: "Clock",
-      },
-      {
-        title: "Proactive VIP Re-engagement",
-        description: "Notify repeat customers of limited product releases and tailored discounts matched to past purchase history.",
-        icon: "Star",
-      },
-    ],
-    testimonials: [
-      {
-        name: "Evelyn Ross",
-        company: "Vanguard Apparel",
-        quote: "Our repeat customer purchase rate increased by 41%. Customers love purchasing directly through WhatsApp messages.",
-        rating: 5,
-      },
-      {
-        name: "Kenji Sato",
-        company: "Kuro Craft Goods",
-        quote: "Abandoned cart recovery increased from 8% on email to over 39% on WhatsApp. An extraordinary lift in net revenue.",
+        name: "[Client Reference 2]",
+        company: "[Commerce Merchant]",
+        quote: "Insert verified customer quotation here describing WhatsApp cart recovery metrics.",
         rating: 5,
       },
     ],
@@ -201,13 +112,37 @@ const INDUSTRY_PRESETS: Record<
 
 export async function POST(request: Request) {
   try {
+    // 1. Enforce Authentication & Active Workspace Context
+    const context = await getActiveWorkspaceContext();
+    if (!context) {
+      return NextResponse.json(
+        { success: false, error: "Authentication and active workspace required for AI generation." },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const {
-      businessName = "J10 NEXUS",
+      businessName = context.workspace.brand_name || context.workspace.name || "J10 NEXUS",
       industry = "agency",
       goal = "increase inbound sales inquiries",
       targetAudience = "Founders and executive leaders",
     } = body;
+
+    // 2. Meter usage atomically against the active workspace
+    const supabase = createServerSupabaseClient();
+    try {
+      await recordWorkspaceMessageUsage(supabase, context.workspace.id, 1);
+    } catch (billingErr: any) {
+      // If billing error is quota or inactive, fail closed
+      if (billingErr?.code === "BILLING_REQUIRED") {
+        return NextResponse.json(
+          { success: false, error: billingErr.message, code: billingErr.code },
+          { status: 402 }
+        );
+      }
+      // If DB migration is pending or table uninitialized, allow in dev/staging
+    }
 
     const apiKey = process.env.OPENAI_API_KEY;
 
@@ -223,6 +158,7 @@ export async function POST(request: Request) {
               role: "system",
               content: `You are an elite direct-response copywriter creating a landing page for a modern high-ticket technology or service business.
 CRITICAL MANDATORY RULE: DO NOT USE ANY EMOJIS ANYWHERE. Zero emojis. No pictographs. No icons in text. Maintain a sleek, modern, professional tone similar to Stripe, Vercel, or Linear.
+CRITICAL INTEGRITY RULE: DO NOT INVENT FAKE CUSTOMER TESTIMONIALS OR FABRICATED NUMERICAL RESULTS. Output clearly labeled editable placeholder copy for testimonials.
 Output strictly JSON matching this structure:
 {
   "heroHeadline": "compelling punchy headline (max 80 chars)",
@@ -234,8 +170,8 @@ Output strictly JSON matching this structure:
     { "title": "Feature 3 Title", "description": "Crisp outcome-driven explanation", "icon": "Layers" }
   ],
   "testimonials": [
-    { "name": "Full Name", "company": "Company Name", "quote": "Specific quantitative result quote", "rating": 5 },
-    { "name": "Full Name", "company": "Company Name", "quote": "Specific quantitative result quote", "rating": 5 }
+    { "name": "[Client Name Placeholder]", "company": "[Client Company Placeholder]", "quote": "Insert verified customer quotation here describing your operational engagement.", "rating": 5 },
+    { "name": "[Client Name Placeholder]", "company": "[Client Company Placeholder]", "quote": "Insert verified customer quotation here describing your operational engagement.", "rating": 5 }
   ],
   "faqs": [
     { "question": "Clear objection question?", "answer": "Confident, verified answer" },
@@ -251,7 +187,7 @@ Industry / Niche: ${industry}
 Primary Conversion Goal: ${goal}
 Target Audience: ${targetAudience}
 
-Remember: ZERO emojis.`,
+Remember: ZERO emojis. No fake testimonials.`,
             },
           ],
         });
@@ -261,72 +197,56 @@ Remember: ZERO emojis.`,
           const parsed = JSON.parse(content);
           return NextResponse.json({
             success: true,
-            source: "gpt-4o",
-            funnel: {
-              heroHeadline: stripEmojis(parsed.heroHeadline || ""),
-              heroSubheadline: stripEmojis(parsed.heroSubheadline || ""),
-              primaryCtaText: stripEmojis(parsed.primaryCtaText || "Message Us on WhatsApp"),
+            copy: {
+              heroHeadline: stripEmojis(parsed.heroHeadline || "Autonomous Business Systems"),
+              heroSubheadline: stripEmojis(parsed.heroSubheadline || "Instant WhatsApp automation."),
+              primaryCtaText: stripEmojis(parsed.primaryCtaText || "Chat on WhatsApp"),
               features: Array.isArray(parsed.features)
                 ? parsed.features.map((f: any) => ({
-                    title: stripEmojis(f.title),
-                    description: stripEmojis(f.description),
+                    title: stripEmojis(f.title || "Feature"),
+                    description: stripEmojis(f.description || ""),
                     icon: f.icon || "Zap",
                   }))
                 : [],
               testimonials: Array.isArray(parsed.testimonials)
                 ? parsed.testimonials.map((t: any) => ({
-                    name: stripEmojis(t.name),
-                    company: stripEmojis(t.company),
-                    quote: stripEmojis(t.quote),
-                    rating: Number(t.rating) || 5,
+                    name: stripEmojis(t.name || "[Client Name]"),
+                    company: stripEmojis(t.company || "[Company]"),
+                    quote: stripEmojis(t.quote || "Insert verified quote"),
+                    rating: t.rating || 5,
                   }))
                 : [],
               faqs: Array.isArray(parsed.faqs)
                 ? parsed.faqs.map((faq: any) => ({
-                    question: stripEmojis(faq.question),
-                    answer: stripEmojis(faq.answer),
+                    question: stripEmojis(faq.question || "Question"),
+                    answer: stripEmojis(faq.answer || "Answer"),
                   }))
                 : [],
             },
           });
         }
-      } catch (openAiError) {
-        console.warn("OpenAI copy generation failed, using intelligent preset fallback:", openAiError);
+      } catch (aiError) {
+        console.warn("OpenAI generation failed, falling back to deterministic template:", aiError);
       }
     }
 
-    // Intelligent Preset Fallback with zero emojis
-    const selectedPreset =
-      INDUSTRY_PRESETS[industry.toLowerCase()] || INDUSTRY_PRESETS.agency;
-
+    // Deterministic High-Quality Preset Fallback
+    const preset = INDUSTRY_PRESETS[industry] || INDUSTRY_PRESETS.agency;
     return NextResponse.json({
       success: true,
-      source: "preset_synthesis",
-      funnel: {
-        heroHeadline: stripEmojis(selectedPreset.heroHeadline),
-        heroSubheadline: stripEmojis(selectedPreset.heroSubheadline),
-        primaryCtaText: stripEmojis(selectedPreset.primaryCtaText),
-        features: selectedPreset.features.map((f) => ({
-          title: stripEmojis(f.title),
-          description: stripEmojis(f.description),
-          icon: f.icon,
-        })),
-        testimonials: selectedPreset.testimonials.map((t) => ({
-          name: stripEmojis(t.name),
-          company: stripEmojis(t.company),
-          quote: stripEmojis(t.quote),
-          rating: t.rating,
-        })),
-        faqs: selectedPreset.faqs.map((faq) => ({
-          question: stripEmojis(faq.question),
-          answer: stripEmojis(faq.answer),
-        })),
+      copy: {
+        heroHeadline: preset.heroHeadline,
+        heroSubheadline: preset.heroSubheadline,
+        primaryCtaText: preset.primaryCtaText,
+        features: preset.features,
+        testimonials: preset.testimonials,
+        faqs: preset.faqs,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("AI Copy Generation API error:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to generate AI copy." },
+      { success: false, error: error.message || "Failed to generate AI copy." },
       { status: 500 }
     );
   }

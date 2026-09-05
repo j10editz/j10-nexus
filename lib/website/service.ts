@@ -37,7 +37,7 @@ export function getDefaultWebsiteFunnel(brandName: string = "J10 NEXUS"): Omit<W
       },
       {
         title: "Company Knowledge Grounding",
-        description: "Zero hallucination answers backed by your live product documentation and verified pricing.",
+        description: "Verified answers backed by your live product documentation and company business rules.",
         icon: "Brain",
       },
       {
@@ -48,15 +48,15 @@ export function getDefaultWebsiteFunnel(brandName: string = "J10 NEXUS"): Omit<W
     ],
     testimonials: [
       {
-        name: "David Chen",
-        company: "Apex Global Ventures",
-        quote: "Our lead response time dropped from 4 hours to 8 seconds. We closed $45,000 in additional sales in our first month.",
+        name: "[Client Reference 1]",
+        company: "[Partner Organization]",
+        quote: "Insert your verified customer quotation here describing your operational engagement and lead response improvements.",
         rating: 5,
       },
       {
-        name: "Elena Rostova",
-        company: "Kinetix Growth Studio",
-        quote: "The hybrid team model is unmatched. One human operator manages 4 autonomous agents effortlessly.",
+        name: "[Client Reference 2]",
+        company: "[Growth Agency]",
+        quote: "Insert your verified customer quotation here describing autonomous agent workflows and CRM productivity.",
         rating: 5,
       },
     ],
@@ -66,8 +66,8 @@ export function getDefaultWebsiteFunnel(brandName: string = "J10 NEXUS"): Omit<W
         answer: "You can connect your WhatsApp number and upload your company documentation in under 10 minutes.",
       },
       {
-        question: "Does the AI ever hallucinate or make up false pricing?",
-        answer: "No. All agent replies are strictly grounded in your verified Company Knowledge Hub articles.",
+        question: "How are agent responses grounded in company truth?",
+        answer: "All agent replies are grounded in your verified Company Knowledge Hub documents and pricing tables.",
       },
     ],
     seoTitle: `${brandName} - Autonomous Business Operating System`,

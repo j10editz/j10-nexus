@@ -138,26 +138,24 @@ export default function MarketingPage() {
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not load marketing data.");
       }
-      const loadedCampaigns = data.campaigns && data.campaigns.length > 0 ? data.campaigns : SEED_MARKETING_CAMPAIGNS;
+      const loadedCampaigns = Array.isArray(data.campaigns) ? data.campaigns : [];
       setCampaigns(loadedCampaigns);
-      if (data.summary && data.campaigns && data.campaigns.length > 0) {
+      if (data.summary) {
         setSummary(data.summary);
       } else {
-        const seedSummary = computeMarketingSummary(loadedCampaigns, { all: 24, leads: 10, prospects: 8, customers: 6 });
-        setSummary(seedSummary);
+        setSummary(computeMarketingSummary(loadedCampaigns, { all: 0, leads: 0, prospects: 0, customers: 0 }));
       }
       if (loadedCampaigns.length >= 2) {
         setSelectedVariantAId(loadedCampaigns[0].id);
         setSelectedVariantBId(loadedCampaigns[1].id);
+      } else {
+        setSelectedVariantAId("");
+        setSelectedVariantBId("");
       }
-    } catch {
-      setCampaigns(SEED_MARKETING_CAMPAIGNS);
-      const seedSummary = computeMarketingSummary(SEED_MARKETING_CAMPAIGNS, { all: 24, leads: 10, prospects: 8, customers: 6 });
-      setSummary(seedSummary);
-      if (SEED_MARKETING_CAMPAIGNS.length >= 2) {
-        setSelectedVariantAId(SEED_MARKETING_CAMPAIGNS[0].id);
-        setSelectedVariantBId(SEED_MARKETING_CAMPAIGNS[1].id);
-      }
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to load marketing campaigns.");
+      setCampaigns([]);
+      setSummary(computeMarketingSummary([], { all: 0, leads: 0, prospects: 0, customers: 0 }));
     } finally {
       setLoading(false);
     }

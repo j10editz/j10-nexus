@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import crypto from "node:crypto";
 import { getCurrentUser, createAdminSupabaseClient } from "@/lib/auth";
-import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
+import { getActiveWorkspaceContext, ACTIVE_WORKSPACE_COOKIE } from "@/lib/workspaces/server";
 
 function hashToken(rawToken: string): string {
   return crypto.createHash("sha256").update(rawToken).digest("hex");
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
     const context = await getActiveWorkspaceContext();
     if (!context) {
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Generate high-entropy raw invitation token
+    // Generate high-entropy raw invitation token (never stored in plaintext)
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashToken(rawToken);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
@@ -97,8 +98,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Failed to create invitation." }, { status: 500 });
     }
 
-    // Construct secure invitation URL
-    const appUrl = process.env.J10_APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://j10nexus.com";
+    // Canonical production origin rather than invented domain
+    const appUrl =
+      process.env.J10_APP_URL ||
+      process.env.NEXT_PUBLIC_APP_URL ||
+      "https://j10-nexus.vercel.app";
     const inviteUrl = `${appUrl}/login?invitation=${rawToken}`;
 
     return NextResponse.json({
@@ -115,8 +119,11 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   try {
     const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Authentication required to accept invitation." }, { status: 401 });
+    if (!user || !user.email) {
+      return NextResponse.json(
+        { success: false, error: "Authentication required to accept invitation." },
+        { status: 401 }
+      );
     }
 
     const body = await req.json();
@@ -129,59 +136,92 @@ export async function PUT(req: Request) {
     const tokenHash = hashToken(token.trim());
     const admin = createAdminSupabaseClient();
 
-    // 1. Fetch invitation record
-    const { data: invitation, error: inviteError } = await admin
-      .from("workspace_invitations")
-      .select("*")
-      .eq("token_hash", tokenHash)
-      .maybeSingle();
+    // Call atomic, email-bound accept_workspace_invitation RPC in PostgreSQL
+    const { data: rpcResult, error: rpcError } = await admin.rpc("accept_workspace_invitation", {
+      p_token_hash: tokenHash,
+      p_user_id: user.id,
+      p_user_email: user.email,
+    });
 
-    if (inviteError || !invitation) {
-      return NextResponse.json({ success: false, error: "Invalid invitation token." }, { status: 404 });
+    if (rpcError) {
+      const errMsg = rpcError.message;
+      let status = 400;
+      if (errMsg.includes("expired")) status = 410;
+      else if (errMsg.includes("already been accepted")) status = 409;
+      else if (errMsg.includes("Access denied")) status = 403;
+      else if (errMsg.includes("Invalid invitation")) status = 404;
+
+      return NextResponse.json({ success: false, error: errMsg }, { status });
     }
 
-    if (invitation.accepted_at) {
-      return NextResponse.json({ success: false, error: "This invitation has already been accepted." }, { status: 409 });
+    const membership = rpcResult?.membership;
+    const workspaceId = rpcResult?.workspace_id;
+
+    // Switch active workspace to the newly joined workspace
+    if (workspaceId) {
+      const cookieStore = await cookies();
+      cookieStore.set(ACTIVE_WORKSPACE_COOKIE, workspaceId, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 30,
+      });
     }
-
-    if (invitation.revoked_at) {
-      return NextResponse.json({ success: false, error: "This invitation has been revoked." }, { status: 410 });
-    }
-
-    if (new Date(invitation.expires_at) < new Date()) {
-      return NextResponse.json({ success: false, error: "This invitation has expired." }, { status: 410 });
-    }
-
-    // 2. Transactionally add membership
-    const { data: newMem, error: memError } = await admin
-      .from("workspace_memberships")
-      .upsert({
-        workspace_id: invitation.workspace_id,
-        user_id: user.id,
-        role: invitation.role,
-        status: "active",
-      })
-      .select("*")
-      .single();
-
-    if (memError) {
-      console.error("Error creating accepted membership:", memError);
-      return NextResponse.json({ success: false, error: "Failed to join workspace." }, { status: 500 });
-    }
-
-    // 3. Mark invitation accepted
-    await admin
-      .from("workspace_invitations")
-      .update({ accepted_at: new Date().toISOString() })
-      .eq("id", invitation.id);
 
     return NextResponse.json({
       success: true,
-      membership: newMem,
+      membership,
+      workspaceId,
       message: "Invitation accepted. You now have access to this workspace.",
     });
   } catch (error: any) {
     console.error("PUT /api/workspaces/invitations error:", error);
+    return NextResponse.json({ success: false, error: error.message || "Internal server error." }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const context = await getActiveWorkspaceContext();
+    if (!context) {
+      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    }
+
+    if (!["owner", "admin"].includes(context.membership.role)) {
+      return NextResponse.json(
+        { success: false, error: "Only owners and admins can revoke invitations." },
+        { status: 403 }
+      );
+    }
+
+    const { searchParams } = new URL(req.url);
+    const invitationId = searchParams.get("id");
+
+    if (!invitationId) {
+      return NextResponse.json({ success: false, error: "Invitation ID is required." }, { status: 400 });
+    }
+
+    const admin = createAdminSupabaseClient();
+    const { data, error } = await admin
+      .from("workspace_invitations")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("id", invitationId)
+      .eq("workspace_id", context.workspace.id)
+      .select()
+      .maybeSingle();
+
+    if (error || !data) {
+      return NextResponse.json({ success: false, error: "Failed to revoke invitation or invitation not found." }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Invitation revoked successfully.",
+      invitation: data,
+    });
+  } catch (error: any) {
+    console.error("DELETE /api/workspaces/invitations error:", error);
     return NextResponse.json({ success: false, error: "Internal server error." }, { status: 500 });
   }
 }

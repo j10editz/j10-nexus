@@ -448,7 +448,7 @@ export default function AIEmployeesPage() {
       } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        setEmployeeList(DEFAULT_SPECIALISTS);
+        setEmployeeList([]);
         setLoading(false);
         return;
       }
@@ -471,13 +471,13 @@ export default function AIEmployeesPage() {
         )
         .order("created_at", { ascending: false });
 
-      if (error || !data || data.length === 0) {
-        setEmployeeList(DEFAULT_SPECIALISTS);
+      if (error || !data) {
+        setEmployeeList([]);
       } else {
         setEmployeeList((data as EmployeeRow[]).map(mapEmployee));
       }
     } catch {
-      setEmployeeList(DEFAULT_SPECIALISTS);
+      setEmployeeList([]);
     } finally {
       setLoading(false);
     }

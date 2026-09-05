@@ -1,8 +1,6 @@
-﻿import { NextResponse } from "next/server";
-import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-} from "@/lib/integrations/api";
+import { NextResponse } from "next/server";
+import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
+import { createServerSupabaseClient } from "@/lib/auth";
 import {
   computeWorkforceMetrics,
   KNOWN_AI_AGENTS,
@@ -11,45 +9,30 @@ import type { WorkforceMember } from "@/types/workforce";
 
 export async function GET() {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
+    const context = await getActiveWorkspaceContext();
+    if (!context) {
       return NextResponse.json(
-        { success: false, error: "Unauthorized." },
+        { success: false, error: "Authentication and active workspace required." },
         { status: 401 }
       );
     }
 
-    let { data: rows, error } = await supabase
+    const supabase = createServerSupabaseClient();
+    const workspaceId = context.workspace.id;
+
+    // 1. Fetch workforce members scoped strictly to workspace_id
+    const { data: rows, error } = await supabase
       .from("workforce_members")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: true });
 
-    // If no members exist yet, seed initial founder/leadership profile
-    if (!rows || rows.length === 0) {
-      const initialMember = {
-        user_id: user.id,
-        name: user.email?.split("@")[0] || "J10 Founder & CEO",
-        role: "Chief Executive Officer & Head of AI Ops",
-        department: "Leadership",
-        email: user.email || "ceo@j10nexus.com",
-        phone: "+1 (555) 019-2834",
-        status: "active",
-        assigned_agents: ["sales-agent", "support-agent", "marketing-agent", "finance-agent"],
-      };
-
-      const { data: created } = await supabase
-        .from("workforce_members")
-        .insert([initialMember])
-        .select();
-
-      rows = created || [initialMember];
+    if (error) {
+      console.error("Error fetching workforce members:", error);
     }
 
     const members: WorkforceMember[] = (rows || []).map((row: any) => ({
-      id: row.id || "founder-1",
+      id: row.id,
       userId: row.user_id,
       name: row.name,
       role: row.role,
@@ -63,25 +46,41 @@ export async function GET() {
       updatedAt: row.updated_at || new Date().toISOString(),
     }));
 
-    // Fetch active AI Employees count
+    // 2. Fetch active AI Employees count for this workspace
     const { count: aiCount } = await supabase
-      .from("ai_employees")
+      .from("employees")
       .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id);
+      .eq("workspace_id", workspaceId)
+      .eq("status", "Running");
 
-    const activeAIs = Math.max(4, aiCount || 4);
-    const summary = computeWorkforceMetrics(members, activeAIs);
+    // 3. Fetch automated tasks completed this month for this workspace
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const { count: taskCount } = await supabase
+      .from("automation_runs")
+      .select("*", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .eq("status", "completed")
+      .gte("created_at", startOfMonth.toISOString());
+
+    const summary = computeWorkforceMetrics(
+      members,
+      aiCount || 0,
+      taskCount || 0
+    );
 
     return NextResponse.json({
       success: true,
       members,
-      aiAgents: KNOWN_AI_AGENTS,
       summary,
+      knownAgents: KNOWN_AI_AGENTS,
     });
-  } catch (error) {
-    console.error("Workforce GET error:", error);
+  } catch (error: any) {
+    console.error("GET /api/workforce error:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to load workforce directory." },
+      { success: false, error: error.message || "Failed to load workforce." },
       { status: 500 }
     );
   }
@@ -89,13 +88,18 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
+    const context = await getActiveWorkspaceContext();
+    if (!context) {
       return NextResponse.json(
-        { success: false, error: "Unauthorized." },
+        { success: false, error: "Authentication and active workspace required." },
         { status: 401 }
+      );
+    }
+
+    if (!["owner", "admin", "manager"].includes(context.membership.role)) {
+      return NextResponse.json(
+        { success: false, error: "Insufficient permissions to manage workforce." },
+        { status: 403 }
       );
     }
 
@@ -107,25 +111,30 @@ export async function POST(request: Request) {
       email,
       phone,
       assignedAgents = [],
-      status = "active",
+      monthlySalary = 0,
     } = body;
 
-    if (!name?.trim() || !role?.trim() || !email?.trim()) {
+    if (!name || !role || !email) {
       return NextResponse.json(
         { success: false, error: "Name, role, and email are required." },
         { status: 400 }
       );
     }
 
+    const supabase = createServerSupabaseClient();
     const newMember = {
-      user_id: user.id,
+      workspace_id: context.workspace.id,
+      user_id: context.user.id,
       name: name.trim(),
       role: role.trim(),
       department: department.trim(),
-      email: email.trim(),
+      email: email.trim().toLowerCase(),
       phone: phone?.trim() || null,
-      assigned_agents: Array.isArray(assignedAgents) ? assignedAgents : [],
-      status,
+      status: "active",
+      assigned_agents: assignedAgents,
+      monthly_salary: Number(monthlySalary) || 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
     const { data: created, error } = await supabase
@@ -134,22 +143,23 @@ export async function POST(request: Request) {
       .select()
       .single();
 
-    if (error) {
+    if (error || !created) {
+      console.error("POST /api/workforce insert error:", error);
       return NextResponse.json(
-        { success: false, error: "Database error adding team member." },
+        { success: false, error: "Failed to create team member." },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
       success: true,
+      message: "Team member added successfully.",
       member: created,
-      message: `${name} has been added to the hybrid workforce directory.`,
     });
-  } catch (error) {
-    console.error("Workforce POST error:", error);
+  } catch (error: any) {
+    console.error("POST /api/workforce error:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to create team member." },
+      { success: false, error: error.message || "Failed to create team member." },
       { status: 500 }
     );
   }

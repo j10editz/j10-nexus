@@ -1,4 +1,4 @@
-﻿import type { WorkforceMember, WorkforceSummary } from "@/types/workforce";
+import type { WorkforceMember, WorkforceSummary } from "@/types/workforce";
 
 export const DEFAULT_DEPARTMENTS = [
   "Leadership",
@@ -18,8 +18,8 @@ export const KNOWN_AI_AGENTS = [
 
 export function computeWorkforceMetrics(
   members: WorkforceMember[],
-  activeAIAgentCount: number = 4,
-  tasksAutomatedThisMonth: number = 2400
+  activeAIAgentCount: number = 0,
+  tasksAutomatedThisMonth: number = 0
 ): WorkforceSummary {
   const departmentCounts: Record<string, number> = {};
 

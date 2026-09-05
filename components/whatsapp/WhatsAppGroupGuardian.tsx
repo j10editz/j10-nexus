@@ -325,6 +325,9 @@ export function WhatsAppGroupGuardian({
             <code className="text-violet-300">!announce</code>, <code className="text-violet-300">!warn</code>, and{" "}
             <code className="text-violet-300">!poll</code>.
           </p>
+          <div className="mt-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[11px] text-zinc-400">
+            <span className="font-semibold text-zinc-300">Meta Groups API Eligibility:</span> Official Meta Cloud API Groups integration requires a dedicated WABA number with Cloud Groups access enabled. Standard consumer WhatsApp Business numbers and Multi-solution Conversations numbers are excluded by Meta.
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

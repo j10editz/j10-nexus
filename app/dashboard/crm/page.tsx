@@ -140,17 +140,18 @@ export default function CRMPage() {
         throw new Error(data.error || "Could not load CRM.");
       }
 
-      const liveContacts = data.contacts && data.contacts.length > 0 ? data.contacts : SEED_CRM_CONTACTS;
+      const liveContacts = Array.isArray(data.contacts) ? data.contacts : [];
       setContacts(liveContacts);
 
-      if (data.summary && data.contacts && data.contacts.length > 0) {
+      if (data.summary) {
         setSummary(data.summary);
       } else {
         setSummary(computeCRMSummary(liveContacts));
       }
-    } catch {
-      setContacts(SEED_CRM_CONTACTS);
-      setSummary(computeCRMSummary(SEED_CRM_CONTACTS));
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to load CRM data.");
+      setContacts([]);
+      setSummary(emptySummary);
     } finally {
       setLoading(false);
     }

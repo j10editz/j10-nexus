@@ -1,19 +1,13 @@
 import Overview from "@/components/dashboard/Overview";
-import { getCurrentUser } from "@/lib/auth";
+import { requireWorkspaceContext } from "@/lib/workspaces/server";
 
 export default async function DashboardPage() {
-  let user = null;
-  try {
-    user = await getCurrentUser();
-  } catch {
-    user = null;
-  }
+  const context = await requireWorkspaceContext();
 
   const displayName =
-    user?.user_metadata?.full_name ||
-    user?.user_metadata?.name ||
-    user?.email?.split("@")[0] ||
-    "CEO & Founder";
+    context.profile?.display_name ||
+    context.user?.email?.split("@")[0] ||
+    "Member";
 
   return <Overview userName={displayName} />;
 }

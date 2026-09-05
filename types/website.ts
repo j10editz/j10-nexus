@@ -1,4 +1,4 @@
-﻿export interface WebsiteFeature {
+export interface WebsiteFeature {
   title: string;
   description: string;
   icon: string;
@@ -18,6 +18,7 @@ export interface WebsiteFAQ {
 
 export interface WebsiteFunnel {
   id: string;
+  workspaceId?: string;
   userId?: string;
   title: string;
   slug: string;

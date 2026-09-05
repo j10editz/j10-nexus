@@ -34,11 +34,16 @@ export function createServerSupabaseClient() {
 }
 
 export function createAdminSupabaseClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SECRET_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
+    process.env.SUPABASE_SECRET_KEY;
+
+  if (!url || !key) {
+    throw new Error(
+      "Admin Supabase client unavailable: Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY. Cannot fall back to publishable key."
+    );
+  }
 
   return createSupabaseAdmin(url, key, {
     auth: {
@@ -63,11 +68,12 @@ export async function getCurrentUser() {
   return user;
 }
 
-export async function requireUser() {
+export async function requireUser(returnUrl?: string) {
   const user = await getCurrentUser();
 
   if (!user) {
-    redirect("/login");
+    const loginUrl = returnUrl ? `/login?next=${encodeURIComponent(returnUrl)}` : "/login";
+    redirect(loginUrl);
   }
 
   return user;

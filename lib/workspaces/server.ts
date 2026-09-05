@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { createServerSupabaseClient, getCurrentUser, createAdminSupabaseClient } from "@/lib/auth";
 import type { PlatformRoleType, UserProfileRecord } from "@/types/identity";
 
@@ -222,3 +223,85 @@ export async function getUserWorkspaces(userId: string): Promise<Array<Workspace
       role: item.role as WorkspaceRole,
     }));
 }
+
+/**
+ * Server Component / Page authorization helper.
+ * 1. Requires authenticated user (redirects to /login?next=... if anonymous).
+ * 2. Requires active workspace context (redirects to /onboarding if user has no workspace).
+ * 3. Enforces optional minimum workspace role (redirects to /dashboard if unauthorized).
+ */
+export async function requireWorkspaceContext(
+  minRole?: WorkspaceRole,
+  returnUrl?: string
+): Promise<ActiveWorkspaceContext> {
+  const user = await getCurrentUser();
+
+  if (!user) {
+    const loginUrl = returnUrl ? `/login?next=${encodeURIComponent(returnUrl)}` : "/login";
+    redirect(loginUrl);
+  }
+
+  const context = await getActiveWorkspaceContext();
+  if (!context) {
+    redirect("/onboarding");
+  }
+
+  if (minRole && !hasMinimumRole(context.membership.role, minRole)) {
+    redirect("/dashboard");
+  }
+
+  return context;
+}
+
+/**
+ * API Route Handler authorization helper.
+ * 1. Checks authenticated user (returns 401 if unauthenticated).
+ * 2. Checks active workspace context (returns 403 if no active workspace).
+ * 3. Enforces optional minimum role (returns 403 if role insufficient).
+ */
+export async function requireApiWorkspaceContext(
+  minRole?: WorkspaceRole
+): Promise<
+  | { context: ActiveWorkspaceContext; error: null }
+  | { context: null; error: import("next/server").NextResponse }
+> {
+  const { NextResponse } = await import("next/server");
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return {
+      context: null,
+      error: NextResponse.json(
+        { error: "Authentication required" },
+        { status: 401 }
+      ),
+    };
+  }
+
+  const context = await getActiveWorkspaceContext();
+  if (!context) {
+    return {
+      context: null,
+      error: NextResponse.json(
+        { error: "Active workspace required" },
+        { status: 403 }
+      ),
+    };
+  }
+
+  if (minRole && !hasMinimumRole(context.membership.role, minRole)) {
+    return {
+      context: null,
+      error: NextResponse.json(
+        {
+          error: "Forbidden",
+          details: `Requires minimum role '${minRole}'. Current role is '${context.membership.role}'.`,
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { context, error: null };
+}
+

@@ -138,78 +138,51 @@ export default function WorkspaceSwitcher() {
     e.preventDefault();
     if (!clientName.trim() || !contactEmail.trim()) return;
 
-    if (isLivePersisted) {
-      try {
-        const res = await fetch("/api/workspaces", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: clientName.trim(),
-            brandName: brandName.trim() || clientName.trim(),
-            plan,
-            workspaceType: "client",
-          }),
-        });
-        const data = await res.json();
-        if (data.success && data.workspace) {
-          const w = data.workspace;
-          const newWs: Workspace = {
-            id: w.id,
-            name: w.name,
-            slug: w.slug,
-            type: "client",
-            plan: w.plan || plan,
-            monthlySubscriptionPrice: PLAN_PRICING[plan],
-            status: "active",
-            brandName: w.brand_name || w.name,
-            accentColor: w.accent_color || "#3B82F6",
-            clientContactName: contactName.trim() || "Account Lead",
-            clientContactEmail: contactEmail.trim(),
-            createdAt: w.created_at || new Date().toISOString(),
-          };
-          setWorkspaces((prev) => [...prev, newWs]);
-          setActiveWorkspaceId(newWs.id);
-          setAddModalOpen(false);
-          setMenuOpen(false);
-          setClientName("");
-          setBrandName("");
-          setContactName("");
-          setContactEmail("");
-          setNotice(`New client provisioned in database: ${newWs.name}`);
-          setTimeout(() => setNotice(""), 4500);
-          return;
-        }
-      } catch (err) {
-        console.warn("Failed to create workspace on server, falling back:", err);
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: clientName.trim(),
+          brandName: brandName.trim() || clientName.trim(),
+          plan,
+          workspaceType: "client",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success || !data.workspace) {
+        throw new Error(data.error || "Failed to provision workspace on server.");
       }
-    }
 
-    const newWs = createClientWorkspace(
-      {
-        name: clientName.trim(),
-        brandName: brandName.trim() || clientName.trim(),
-        plan,
-        monthlySubscriptionPrice: PLAN_PRICING[plan],
+      const w = data.workspace;
+      const newWs: Workspace = {
+        id: w.id,
+        name: w.name,
+        slug: w.slug,
+        type: "client",
+        plan: w.plan || plan,
+        monthlySubscriptionPrice: 0, // Unverified until Stripe payment exists
+        status: "active",
+        brandName: w.brand_name || w.name,
+        accentColor: w.accent_color || "#3B82F6",
         clientContactName: contactName.trim() || "Account Lead",
         clientContactEmail: contactEmail.trim(),
-      },
-      workspaces,
-    );
-
-    setWorkspaces((prev) => [...prev, newWs]);
-    setActiveWorkspaceId(newWs.id);
-    setAddModalOpen(false);
-    setMenuOpen(false);
-
-    // Reset form
-    setClientName("");
-    setBrandName("");
-    setContactName("");
-    setContactEmail("");
-    setNotice(
-      `New client onboarded: ${newWs.name} ($${newWs.monthlySubscriptionPrice}/mo MRR)`,
-    );
-    setTimeout(() => setNotice(""), 4500);
+        createdAt: w.created_at || new Date().toISOString(),
+      };
+      setWorkspaces((prev) => [...prev, newWs]);
+      setActiveWorkspaceId(newWs.id);
+      setAddModalOpen(false);
+      setMenuOpen(false);
+      setClientName("");
+      setBrandName("");
+      setContactName("");
+      setContactEmail("");
+      setNotice(`New client provisioned in database: ${newWs.name}`);
+      setTimeout(() => setNotice(""), 4500);
+    } catch (err: any) {
+      setNotice(`Provisioning failed: ${err.message || "Server error."}`);
+      setTimeout(() => setNotice(""), 5000);
+    }
   }
 
   if (isLoading) {
@@ -327,7 +300,9 @@ export default function WorkspaceSwitcher() {
                   ${agencyStats.totalMonthlyRevenue.toLocaleString()} / mo
                 </p>
                 <p className="text-[10px] text-white/40">
-                  Avg ${agencyStats.averageRevenuePerClient.toLocaleString()}/client monthly
+                  {agencyStats.totalMonthlyRevenue > 0
+                    ? `Verified subscription MRR`
+                    : "Billing not configured (Stripe verification pending)"}
                 </p>
               </div>
 

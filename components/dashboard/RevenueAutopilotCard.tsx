@@ -40,6 +40,23 @@ export default function RevenueAutopilotCard({
   const [executingActionId, setExecutingActionId] = useState<string | null>(null);
   const [actionSuccessNotice, setActionSuccessNotice] = useState("");
 
+  useState(() => {
+    async function loadDigest() {
+      try {
+        const res = await fetch("/api/dashboard/autopilot");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.digest) {
+            setDigest(data.digest);
+          }
+        }
+      } catch {
+        // Fall back gracefully
+      }
+    }
+    void loadDigest();
+  });
+
   async function handleRunAction(action: AutopilotAction) {
     setExecutingActionId(action.id);
     try {
@@ -50,14 +67,15 @@ export default function RevenueAutopilotCard({
       });
 
       if (res.ok) {
+        const data = await res.json();
         setDigest((prev) => ({
           ...prev,
           autonomousActions: prev.autonomousActions.map((a) =>
             a.id === action.id ? { ...a, executed: true } : a,
           ),
         }));
-        setActionSuccessNotice(`Autopilot executed: "${action.title}"`);
-        setTimeout(() => setActionSuccessNotice(""), 4000);
+        setActionSuccessNotice(data.message || `Autopilot recommendation staged: "${action.title}"`);
+        setTimeout(() => setActionSuccessNotice(""), 4500);
       }
     } catch {
       setActionSuccessNotice("Failed to execute autopilot action");

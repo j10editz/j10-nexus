@@ -55,32 +55,25 @@ export default function PublicFunnelPage({
   const [leadSuccess, setLeadSuccess] = useState(false);
   const [leadError, setLeadError] = useState<string | null>(null);
 
+  const [notFound, setNotFound] = useState(false);
+
   useEffect(() => {
     async function fetchFunnel() {
       try {
         setLoading(true);
-        const res = await fetch("/api/website/funnel");
+        setNotFound(false);
+        const res = await fetch(`/api/website/funnel?slug=${encodeURIComponent(resolvedParams.slug)}`);
         const data = await res.json();
-        if (data.success && data.funnel) {
+        if (res.ok && data.success && data.funnel) {
           setFunnel(data.funnel);
         } else {
-          setFunnel({
-            id: "default-funnel",
-            userId: "demo-user",
-            ...getDefaultWebsiteFunnel(),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
+          setNotFound(true);
+          setFunnel(null);
         }
       } catch (err) {
         console.error("Failed to load public funnel:", err);
-        setFunnel({
-          id: "default-funnel",
-          userId: "demo-user",
-          ...getDefaultWebsiteFunnel(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
+        setNotFound(true);
+        setFunnel(null);
       } finally {
         setLoading(false);
       }
@@ -104,7 +97,7 @@ export default function PublicFunnelPage({
           email: leadEmail,
           message: leadMessage || `Inquiry from ${funnel?.title || "landing page"}`,
           sourceFunnel: resolvedParams.slug,
-          targetWhatsAppPhone: "+15550192834",
+          honeypot: "",
         }),
       });
 
@@ -112,7 +105,6 @@ export default function PublicFunnelPage({
       if (data.success) {
         setLeadSuccess(true);
         if (data.whatsappLink) {
-          // Open WhatsApp in a new tab
           window.open(data.whatsappLink, "_blank");
         }
       } else {
@@ -134,6 +126,30 @@ export default function PublicFunnelPage({
           <p className="text-xs text-zinc-500 tracking-wider uppercase font-semibold">
             Loading Landing Experience...
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (notFound || !funnel) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#08090C] px-4 text-center text-white">
+        <div className="max-w-md rounded-2xl border border-white/[0.08] bg-[#111216] p-8 shadow-2xl">
+          <div className="flex h-12 w-12 mx-auto items-center justify-center rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 mb-4">
+            <Globe size={24} />
+          </div>
+          <h1 className="text-xl font-bold tracking-tight">Landing Page Not Found</h1>
+          <p className="mt-2 text-xs text-zinc-400 leading-relaxed">
+            The page <span className="text-violet-400 font-mono">/site/{resolvedParams.slug}</span> is unpublished or does not exist.
+          </p>
+          <div className="mt-6">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 rounded-xl bg-white/[0.08] px-4 py-2.5 text-xs font-semibold text-white hover:bg-white/[0.12] transition"
+            >
+              Return to J10 NEXUS Home
+            </Link>
+          </div>
         </div>
       </div>
     );

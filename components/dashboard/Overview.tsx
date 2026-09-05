@@ -715,15 +715,15 @@ export default function Overview({
                 />
               </div>
 
-              <div>
-                <p className="text-sm font-medium">
+              <Link href="/status" className="group">
+                <p className="text-sm font-medium group-hover:text-white transition">
                   System Status
                 </p>
 
-                <p className="text-xs text-emerald-400">
-                  All systems operational
+                <p className="text-xs text-emerald-400 group-hover:underline">
+                  Core services operational
                 </p>
-              </div>
+              </Link>
             </div>
           </div>
 

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -385,7 +385,7 @@ export default function BillingPage() {
               </div>
               <div>
                 <h3 className="font-semibold">
-                  Secured by Stripe & Meta Certified Graph API
+                  Secured by Stripe & Official Meta Cloud API
                 </h3>
                 <p className="mt-1 text-xs text-white/50 max-w-xl">
                   J10 NEXUS processes payments through PCI DSS Level 1 certified Stripe infrastructure. Automated rate-limiting enforces zero-overage surprise charges.

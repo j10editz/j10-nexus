@@ -18,7 +18,7 @@ export default function EmployeeCard({
   const statusBadge = isRunning ? (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-emerald-300">
       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-      Running 24/7
+      Active Runtime
     </span>
   ) : isPaused ? (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-amber-300">

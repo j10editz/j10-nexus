@@ -11,13 +11,15 @@ export type SubscriptionStatus =
 
 export interface WorkspaceSubscription {
   id: string;
-  userId: string;
+  workspaceId: string;
   planId: string;
   status: SubscriptionStatus;
   monthlyMessageLimit: number;
   messagesUsed: number;
   currentPeriodEnd: string;
   gracePeriodEnd: string | null;
+  stripeCustomerId?: string | null;
+  stripeSubscriptionId?: string | null;
 }
 
 export class BillingRequiredError extends Error {
@@ -34,66 +36,69 @@ export class BillingRequiredError extends Error {
   }
 }
 
+/**
+ * Retrieves workspace subscription scoped strictly to workspace_id.
+ * Returns null if no subscription has been provisioned.
+ */
 export async function getWorkspaceSubscription(
   supabase: SupabaseClient,
-  userId: string
+  workspaceId: string
 ): Promise<WorkspaceSubscription | null> {
   try {
     const { data, error } = await supabase
       .from("workspace_subscriptions")
-      .select("id,user_id,plan_id,status,monthly_message_limit,messages_used_this_period,current_period_end,grace_period_end")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(1)
+      .select("id,workspace_id,plan_id,status,monthly_message_limit,messages_used_this_period,current_period_end,grace_period_end,stripe_customer_id,stripe_subscription_id")
+      .eq("workspace_id", workspaceId)
       .maybeSingle();
 
     if (error || !data) return null;
 
     return {
       id: data.id,
-      userId: data.user_id,
+      workspaceId: data.workspace_id,
       planId: data.plan_id,
       status: data.status as SubscriptionStatus,
       monthlyMessageLimit: data.monthly_message_limit ?? 1000,
       messagesUsed: data.messages_used_this_period ?? 0,
       currentPeriodEnd: data.current_period_end,
       gracePeriodEnd: data.grace_period_end ?? null,
+      stripeCustomerId: data.stripe_customer_id ?? null,
+      stripeSubscriptionId: data.stripe_subscription_id ?? null,
     };
   } catch {
     return null;
   }
 }
 
+/**
+ * Verifies that the workspace has an active, legitimate entitlement before billable actions.
+ * Missing subscriptions fail closed with an honest error instead of inventing synthetic trials.
+ */
 export async function assertWorkspaceEntitlement(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
   options?: {
     feature?: string;
     requiredMessages?: number;
   }
 ): Promise<WorkspaceSubscription> {
-  const sub = await getWorkspaceSubscription(supabase, userId);
+  const sub = await getWorkspaceSubscription(supabase, workspaceId);
 
-  // If no subscription record exists yet, provide onboarding trial tier
+  // Missing subscription fails closed
   if (!sub) {
-    return {
-      id: "onboarding-trial",
-      userId,
-      planId: "starter-trial",
-      status: "active",
-      monthlyMessageLimit: 1000,
-      messagesUsed: 0,
-      currentPeriodEnd: new Date(Date.now() + 30 * 86400000).toISOString(),
-      gracePeriodEnd: null,
-    };
+    throw new BillingRequiredError(
+      "No active subscription provisioned for this workspace. An active plan is required to perform billable operations.",
+      "SUBSCRIPTION_NOT_CONFIGURED",
+      null
+    );
   }
 
   const now = new Date();
 
-  // 1. Canceled subscription
-  if (sub.status === "canceled" || sub.status === "unpaid") {
+  // 1. Canceled or unpaid subscription
+  if (sub.status === "canceled" || sub.status === "unpaid" || sub.status === "none") {
     throw new BillingRequiredError(
-      "Your J10 NEXUS subscription is inactive. Reactivate your plan in Billing Settings to resume automated actions.",
+      "Your workspace subscription is inactive. Activate a plan in Billing Settings to resume automated actions.",
       "SUBSCRIPTION_INACTIVE",
       sub
     );
@@ -105,14 +110,14 @@ export async function assertWorkspaceEntitlement(
       const graceEnd = new Date(sub.gracePeriodEnd);
       if (now > graceEnd) {
         throw new BillingRequiredError(
-          "Payment is past due and the billing grace period has expired. Please update payment method to restore live sending.",
+          "Payment is past due and the billing grace period has expired. Update your payment method in Billing Settings.",
           "GRACE_PERIOD_EXPIRED",
           sub
         );
       }
     } else {
       throw new BillingRequiredError(
-        "Payment is past due. Update your billing information to continue sending live messages.",
+        "Payment is past due. Please update payment method to restore live sending.",
         "PAYMENT_PAST_DUE",
         sub
       );
@@ -132,23 +137,45 @@ export async function assertWorkspaceEntitlement(
   return sub;
 }
 
+/**
+ * Records billable usage atomically in PostgreSQL using increment_workspace_usage RPC.
+ * Fails closed if the database operation fails or the quota is exceeded.
+ */
 export async function recordWorkspaceMessageUsage(
   supabase: SupabaseClient,
-  userId: string,
+  workspaceId: string,
   count = 1
-): Promise<void> {
-  try {
-    const sub = await getWorkspaceSubscription(supabase, userId);
-    if (!sub || sub.id === "onboarding-trial") return;
+): Promise<{ success: boolean; newUsage: number; limit: number; isExceeded: boolean }> {
+  const { data, error } = await supabase.rpc("increment_workspace_usage", {
+    p_workspace_id: workspaceId,
+    p_count: count,
+  });
 
-    await supabase
-      .from("workspace_subscriptions")
-      .update({
-        messages_used_this_period: sub.messagesUsed + count,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", sub.id);
-  } catch {
-    // Non-blocking usage recording failure
+  if (error) {
+    throw new Error(`Failed to atomically record usage for workspace ${workspaceId}: ${error.message}`);
   }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || row.success === false) {
+    throw new Error(row?.error || `Failed to record usage for workspace ${workspaceId}`);
+  }
+
+  const limit = row.monthly_message_limit ?? row.message_limit ?? 1000;
+  const newUsage = row.messages_used_this_period ?? row.new_usage ?? 0;
+  const isExceeded = Boolean(row.is_exceeded || (limit > 0 && newUsage > limit));
+
+  if (isExceeded) {
+    throw new BillingRequiredError(
+      `Monthly limit of ${limit} messages reached. Upgrade plan to increase capacity.`,
+      "USAGE_LIMIT_REACHED"
+    );
+  }
+
+  return {
+    success: true,
+    newUsage,
+    limit,
+    isExceeded,
+  };
 }
+

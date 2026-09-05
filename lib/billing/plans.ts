@@ -1,4 +1,4 @@
-﻿export interface PlanDefinition {
+export interface PlanDefinition {
   id: "starter" | "growth" | "enterprise";
   name: string;
   price: number;
@@ -42,7 +42,7 @@ export const PLANS: PlanDefinition[] = [
       "10 active AI Employees",
       "WhatsApp & Marketing Broadcasts",
       "Full Knowledge Hub grounding (unlimited)",
-      "Zero-hallucination AI reply suggestions",
+      "SOP-grounded AI reply suggestions",
       "Stripe payment webhooks & finance sync",
       "Priority latency routing",
     ],

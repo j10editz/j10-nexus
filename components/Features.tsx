@@ -228,13 +228,13 @@ export const modules: Module[] = [
     category: "intelligence",
     eyebrow: "UNIFIED TRUTH LAYER",
     description:
-      "Upload company SOPs, product documentation, pricing tables, and guidelines once. The Company Brain anchors every AI employee and WhatsApp reply in verified business facts—preventing hallucinations.",
+      "Upload company SOPs, product documentation, pricing tables, and guidelines once. The Company Brain anchors every AI employee and WhatsApp reply in verified business facts—preventing ungrounded responses.",
     icon: FileText,
     gradient: "from-amber-500/25 via-amber-600/10 to-transparent",
     accentColor: "text-amber-400 border-amber-500/30 bg-amber-500/10",
     statusBadge: "SINGLE SOURCE OF TRUTH",
     specs: [
-      { label: "Grounding", value: "Zero-Hallucination" },
+      { label: "Grounding", value: "Verified SOPs" },
       { label: "Sync", value: "Cross-Platform" },
       { label: "Format Support", value: "Markdown / PDF / Text" },
       { label: "Access Control", value: "Tenant-Isolated" },
@@ -248,7 +248,7 @@ export const modules: Module[] = [
     capabilities: [
       "Centralized Company Knowledge Hub",
       "Verified Business Facts Injection",
-      "Zero-Hallucination Policy Enforcement",
+      "Fact-Checking Policy Enforcement",
       "SOP & Operating Procedure Builder",
       "Product Catalog & Pricing Grounding",
       "Brand Voice & Tone Customization",
@@ -266,7 +266,7 @@ export const modules: Module[] = [
     icon: CircleDollarSign,
     gradient: "from-emerald-500/25 via-teal-600/10 to-transparent",
     accentColor: "text-teal-400 border-teal-500/30 bg-teal-500/10",
-    statusBadge: "LEDGER SYNCED",
+    statusBadge: "APPEND-ONLY LEDGER",
     specs: [
       { label: "Currencies", value: "Multi-Currency" },
       { label: "Reminders", value: "WhatsApp / Email" },

@@ -101,22 +101,24 @@ export default function Footer() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-white">Security & Status</p>
             <ul className="mt-4 space-y-2.5 text-xs text-zinc-500">
-              <li className="flex items-center gap-1.5 text-emerald-400 font-medium">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                <span>All Systems Operational</span>
+              <li>
+                <Link href="/status" className="flex items-center gap-1.5 text-emerald-400 font-medium hover:underline">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  <span>Core Services Operational</span>
+                </Link>
               </li>
               <li>
-                <a href="mailto:contact@j10-nexus.com" className="transition hover:text-white">
-                  Enterprise Inquiries
-                </a>
+                <Link href="/security" className="transition hover:text-white">
+                  Security Architecture
+                </Link>
               </li>
               <li>
-                <Link href="/login" className="transition hover:text-white">
+                <Link href="/privacy" className="transition hover:text-white">
                   Privacy Policy
                 </Link>
               </li>
               <li>
-                <Link href="/login" className="transition hover:text-white">
+                <Link href="/terms" className="transition hover:text-white">
                   Terms of Service
                 </Link>
               </li>

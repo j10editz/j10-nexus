@@ -11,6 +11,7 @@ function mockSupabase(subscriptionRow: Record<string, unknown> | null): Supabase
     from: () => ({
       select: () => ({
         eq: () => ({
+          maybeSingle: async () => ({ data: subscriptionRow, error: null }),
           order: () => ({
             limit: () => ({
               maybeSingle: async () => ({ data: subscriptionRow, error: null }),
@@ -23,19 +24,20 @@ function mockSupabase(subscriptionRow: Record<string, unknown> | null): Supabase
 }
 
 describe("J10 NEXUS Subscription & Entitlement Enforcement", () => {
-  it("defaults to active onboarding trial when no subscription record exists", async () => {
+  it("fails closed when no subscription record exists for workspace", async () => {
     const supabase = mockSupabase(null);
-    const sub = await assertWorkspaceEntitlement(supabase, "user-123");
-
-    expect(sub.id).toBe("onboarding-trial");
-    expect(sub.status).toBe("active");
-    expect(sub.monthlyMessageLimit).toBe(1000);
+    await expect(assertWorkspaceEntitlement(supabase, "ws-123")).rejects.toThrowError(
+      BillingRequiredError
+    );
+    await expect(assertWorkspaceEntitlement(supabase, "ws-123")).rejects.toThrow(
+      "No active subscription provisioned for this workspace"
+    );
   });
 
   it("blocks live execution when subscription is canceled", async () => {
     const supabase = mockSupabase({
       id: "sub-canceled",
-      user_id: "user-123",
+      workspace_id: "ws-123",
       plan_id: "starter",
       status: "canceled",
       monthly_message_limit: 1000,
@@ -44,7 +46,7 @@ describe("J10 NEXUS Subscription & Entitlement Enforcement", () => {
       grace_period_end: null,
     });
 
-    await expect(assertWorkspaceEntitlement(supabase, "user-123")).rejects.toThrowError(
+    await expect(assertWorkspaceEntitlement(supabase, "ws-123")).rejects.toThrowError(
       BillingRequiredError
     );
   });
@@ -52,7 +54,7 @@ describe("J10 NEXUS Subscription & Entitlement Enforcement", () => {
   it("blocks live execution when payment is past due and grace period has expired", async () => {
     const supabase = mockSupabase({
       id: "sub-past-due-expired",
-      user_id: "user-123",
+      workspace_id: "ws-123",
       plan_id: "professional",
       status: "past_due",
       monthly_message_limit: 5000,
@@ -61,7 +63,7 @@ describe("J10 NEXUS Subscription & Entitlement Enforcement", () => {
       grace_period_end: new Date(Date.now() - 3600000).toISOString(), // Expired 1 hour ago
     });
 
-    await expect(assertWorkspaceEntitlement(supabase, "user-123")).rejects.toThrow(
+    await expect(assertWorkspaceEntitlement(supabase, "ws-123")).rejects.toThrow(
       "Payment is past due and the billing grace period has expired"
     );
   });
@@ -69,7 +71,7 @@ describe("J10 NEXUS Subscription & Entitlement Enforcement", () => {
   it("permits live execution when payment is past due but still inside grace period", async () => {
     const supabase = mockSupabase({
       id: "sub-past-due-grace",
-      user_id: "user-123",
+      workspace_id: "ws-123",
       plan_id: "professional",
       status: "past_due",
       monthly_message_limit: 5000,
@@ -78,7 +80,7 @@ describe("J10 NEXUS Subscription & Entitlement Enforcement", () => {
       grace_period_end: new Date(Date.now() + 86400000 * 2).toISOString(), // 2 days left
     });
 
-    const sub = await assertWorkspaceEntitlement(supabase, "user-123");
+    const sub = await assertWorkspaceEntitlement(supabase, "ws-123");
     expect(sub.status).toBe("past_due");
     expect(sub.id).toBe("sub-past-due-grace");
   });
@@ -86,7 +88,7 @@ describe("J10 NEXUS Subscription & Entitlement Enforcement", () => {
   it("blocks execution when monthly quota limit is exceeded", async () => {
     const supabase = mockSupabase({
       id: "sub-quota-full",
-      user_id: "user-123",
+      workspace_id: "ws-123",
       plan_id: "starter",
       status: "active",
       monthly_message_limit: 500,
@@ -96,14 +98,14 @@ describe("J10 NEXUS Subscription & Entitlement Enforcement", () => {
     });
 
     await expect(
-      assertWorkspaceEntitlement(supabase, "user-123", { requiredMessages: 1 })
+      assertWorkspaceEntitlement(supabase, "ws-123", { requiredMessages: 1 })
     ).rejects.toThrow("Monthly limit of 500 messages reached");
   });
 
   it("allows execution when active subscription is within quota", async () => {
     const supabase = mockSupabase({
       id: "sub-active",
-      user_id: "user-123",
+      workspace_id: "ws-123",
       plan_id: "enterprise",
       status: "active",
       monthly_message_limit: 50000,
@@ -112,7 +114,7 @@ describe("J10 NEXUS Subscription & Entitlement Enforcement", () => {
       grace_period_end: null,
     });
 
-    const sub = await assertWorkspaceEntitlement(supabase, "user-123");
+    const sub = await assertWorkspaceEntitlement(supabase, "ws-123");
     expect(sub.status).toBe("active");
     expect(sub.planId).toBe("enterprise");
   });
