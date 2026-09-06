@@ -144,6 +144,8 @@ export async function recordSpend(
     .eq("agent_id", agentId);
 }
 
+export const recordAgentExecutionSpend = recordSpend;
+
 async function checkAndResetSpend(budget: AgentBudget): Promise<AgentBudget> {
   const today = new Date().toISOString().split("T")[0];
   const lastReset = budget.lastResetDate;

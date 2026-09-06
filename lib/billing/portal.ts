@@ -58,20 +58,29 @@ export async function createBillingPortalSession(
       });
 
       const data = await res.json();
-      if (res.ok && data.url) {
-        return {
-          url: data.url,
-          customerId,
-          mode: "live",
-        };
+      if (!res.ok || !data.url) {
+        throw new Error(
+          `Stripe Billing Portal session creation failed: ${data?.error?.message || res.statusText || "Unknown error"}`
+        );
       }
+
+      return {
+        url: data.url,
+        customerId,
+        mode: "live",
+      };
     } catch (err) {
-      console.warn("Stripe Billing Portal API call failed, falling back to simulated session:", err);
+      if (err instanceof Error) throw err;
+      throw new Error(`Stripe portal session creation failed: ${String(err)}`);
     }
   }
 
-  // Simulated portal URL
-  const portalSessionId = `bps_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Stripe billing portal is not configured in production environment.");
+  }
+
+  // Offline Testing Sandbox only
+  const portalSessionId = `bps_test_offline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const url = `https://billing.stripe.com/p/session/${portalSessionId}`;
 
   return {

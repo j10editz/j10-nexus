@@ -25,12 +25,37 @@ export async function recordRoiAttribution(
 ): Promise<AgentRoiAttribution> {
   const supabase = createServerSupabaseClient();
 
-  const dealValue = input.dealValueUsd || 0.0;
-  const hours = input.hoursSaved || 0.25; // 15 mins default per task
+  // Preserve explicit zero values without invented defaults
+  const dealValue =
+    typeof input.dealValueUsd === "number" ? Math.max(0, input.dealValueUsd) : 0.0;
+  const hours =
+    typeof input.hoursSaved === "number" ? Math.max(0, input.hoursSaved) : 0.0;
   const laborSavings = Number((hours * BLENDED_HOURLY_WAGE_USD).toFixed(2));
-  const modelCost = input.modelCostUsd || 0.005;
+  const modelCost =
+    typeof input.modelCostUsd === "number" ? Math.max(0, input.modelCostUsd) : 0.0;
 
-  const grossValue = dealValue + laborSavings;
+  // Deduplicate won deal revenue attribution across identical contact or trace
+  let effectiveDealValue = dealValue;
+  if (effectiveDealValue > 0 && (input.contactId || input.traceId)) {
+    let dupQuery = supabase
+      .from("ai_agent_roi_attributions")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .gt("deal_value_usd", 0);
+
+    if (input.traceId) {
+      dupQuery = dupQuery.eq("trace_id", input.traceId);
+    } else if (input.contactId) {
+      dupQuery = dupQuery.eq("contact_id", input.contactId);
+    }
+
+    const { data: existingDup } = await dupQuery.maybeSingle();
+    if (existingDup) {
+      effectiveDealValue = 0.0; // Prevent duplicate revenue attribution
+    }
+  }
+
+  const grossValue = Number((effectiveDealValue + laborSavings).toFixed(2));
   const netRoi = Number((grossValue - modelCost).toFixed(2));
   const multiplier = modelCost > 0 ? Number((grossValue / modelCost).toFixed(2)) : 0;
 
@@ -42,13 +67,14 @@ export async function recordRoiAttribution(
       trace_id: input.traceId || null,
       task_id: input.taskId || null,
       contact_id: input.contactId || null,
-      deal_value_usd: dealValue,
+      deal_value_usd: effectiveDealValue,
       hours_saved: hours,
       labor_savings_usd: laborSavings,
       model_cost_usd: modelCost,
       net_roi_usd: netRoi,
       roi_multiplier: multiplier,
-      attribution_type: input.attributionType || (dealValue > 0 ? "won_deal" : "labor_saved"),
+      attribution_type:
+        input.attributionType || (effectiveDealValue > 0 ? "won_deal" : "labor_saved"),
       created_at: new Date().toISOString(),
     })
     .select()

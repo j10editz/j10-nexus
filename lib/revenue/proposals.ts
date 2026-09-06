@@ -120,8 +120,71 @@ export async function createWorkspaceProposal(
 
   // 2. Generate linked payment checkout session
   const origin = input.origin || "https://app.j10nexus.com";
-  const simulatedSessionId = `cs_proposal_${proposal.id.slice(0, 8)}_${randomUUID().slice(0, 8)}`;
-  const checkoutUrl = `${origin}/checkout/${simulatedSessionId}`;
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  let checkoutSessionId: string;
+  let checkoutUrl: string;
+  let providerMode: "live" | "sandbox" = "sandbox";
+
+  if (secretKey && secretKey.startsWith("sk_")) {
+    try {
+      const params = new URLSearchParams({
+        "payment_method_types[0]": "card",
+        mode: "payment",
+        client_reference_id: input.workspaceId,
+        success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}&proposal_id=${proposal.id}`,
+        cancel_url: `${origin}/checkout/cancel?proposal_id=${proposal.id}`,
+        "metadata[workspace_id]": input.workspaceId,
+        "metadata[proposal_id]": proposal.id,
+        "metadata[proposal_number]": proposalNumber,
+        "metadata[checkout_type]": "proposal_checkout",
+      });
+
+      if (input.contactId) params.append("metadata[contact_id]", input.contactId);
+      if (input.threadId) params.append("metadata[thread_id]", input.threadId);
+      if (input.actorUserId) params.append("metadata[actor_user_id]", input.actorUserId);
+
+      normalizedItems.forEach((item, idx) => {
+        params.append(`line_items[${idx}][price_data][currency]`, currency.toLowerCase());
+        params.append(
+          `line_items[${idx}][price_data][product_data][name]`,
+          item.description || `Proposal ${proposalNumber}`
+        );
+        params.append(`line_items[${idx}][price_data][unit_amount]`, String(Math.round(item.unitPrice * 100)));
+        params.append(`line_items[${idx}][quantity]`, String(item.quantity));
+      });
+
+      const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: params.toString(),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        throw new Error(
+          `Stripe Checkout Session creation failed: ${data?.error?.message || res.statusText || "Unknown error"}`
+        );
+      }
+
+      checkoutSessionId = data.id;
+      checkoutUrl = data.url;
+      providerMode = "live";
+    } catch (err) {
+      if (err instanceof Error) throw err;
+      throw new Error(`Stripe proposal checkout failed: ${String(err)}`);
+    }
+  } else {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Stripe checkout is not configured in production environment.");
+    }
+    // Offline development / test sandbox fixture
+    checkoutSessionId = `cs_test_proposal_${proposal.id.slice(0, 8)}_${randomUUID().slice(0, 8)}`;
+    checkoutUrl = `${origin}/checkout/${checkoutSessionId}`;
+    providerMode = "sandbox";
+  }
 
   const { data: checkout, error: checkoutError } = await supabase
     .from("payment_checkouts")
@@ -129,12 +192,13 @@ export async function createWorkspaceProposal(
       workspace_id: input.workspaceId,
       contact_id: input.contactId || null,
       thread_id: input.threadId || null,
-      stripe_checkout_session_id: simulatedSessionId,
+      stripe_checkout_session_id: checkoutSessionId,
       amount: computedAmount,
       currency,
       description: `Proposal ${proposalNumber}: ${input.title}`,
       status: "pending",
       checkout_url: checkoutUrl,
+      provider_mode: providerMode,
       metadata: {
         proposal_id: proposal.id,
         proposal_number: proposalNumber,

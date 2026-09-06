@@ -349,11 +349,32 @@ export async function reconcileRevenueLoopPayment(
     throw new Error(`Checkout ${input.checkoutId} not found in workspace: ${checkoutErr?.message}`);
   }
 
-  const amount = input.amount !== undefined ? input.amount : Number(checkout.amount);
-  const currency = (input.currency || checkout.currency || "USD").toUpperCase();
+  // 2. Check for existing ledger entry to guarantee idempotency on retries without duplicate records
+  const { data: existingLedger } = await supabase
+    .from("payment_ledger")
+    .select("id, amount, currency, status")
+    .eq("checkout_id", checkout.id)
+    .eq("workspace_id", input.workspaceId)
+    .maybeSingle();
+
+  if (existingLedger) {
+    return {
+      success: true,
+      ledgerId: existingLedger.id,
+      checkoutId: checkout.id,
+      proposalId: checkout.metadata?.proposal_id,
+      contactId: checkout.contact_id,
+      threadId: checkout.thread_id,
+      dealStage: "won",
+    };
+  }
+
+  // Authoritative amount comes from checkout record if not specified or to prevent client tampering
+  const amount = Number(checkout.amount);
+  const currency = (checkout.currency || input.currency || "USD").toUpperCase();
   const eventId = input.providerEventId || `evt_rev_loop_${randomUUID().slice(0, 12)}`;
 
-  // 2. Insert immutable record into payment_ledger
+  // 3. Insert immutable record into payment_ledger
   const { data: ledgerEntry, error: ledgerErr } = await supabase
     .from("payment_ledger")
     .insert({

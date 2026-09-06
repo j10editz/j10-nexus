@@ -20,7 +20,7 @@ export interface OutboundDispatchResult {
   messageId: string;
   provider: string;
   externalMessageId: string;
-  deliveryStatus: "queued" | "sent" | "delivered" | "failed";
+  deliveryStatus: ChannelDeliveryState;
   channel: InboxChannel;
   error?: string;
 }
@@ -28,79 +28,262 @@ export interface OutboundDispatchResult {
 /**
  * Dispatches message to channel-specific provider adapter
  */
-export async function sendChannelProviderMessage(params: {
+export type ChannelDeliveryState = "queued" | "sent" | "delivered" | "failed" | "unavailable";
+
+export interface ChannelProviderCredentials {
+  resendApiKey?: string;
+  twilioAccountSid?: string;
+  twilioAuthToken?: string;
+  twilioFromPhone?: string;
+  whatsappAccessToken?: string;
+  whatsappPhoneNumberId?: string;
+  metaGraphAccessToken?: string;
+}
+
+export interface SendChannelMessageParams {
   channel: InboxChannel;
   recipient: string;
   body: string;
   metadata?: Record<string, any>;
-}): Promise<{ provider: string; externalId: string; status: "sent" | "queued" }> {
-  const timestamp = Date.now();
+  credentials?: ChannelProviderCredentials;
+}
+
+export interface SendChannelMessageResult {
+  provider: string;
+  externalId?: string;
+  status: ChannelDeliveryState;
+  error?: string;
+}
+
+/**
+ * Dispatches message to channel-specific provider adapter using genuine credentials.
+ * If credentials are missing or channel is unsupported, honestly returns 'unavailable' instead of pretending success.
+ */
+export async function sendChannelProviderMessage(
+  params: SendChannelMessageParams
+): Promise<SendChannelMessageResult> {
+  const creds = params.credentials || {};
 
   switch (params.channel) {
-    case "email":
-      // Email dispatch via Resend / SMTP adapter
-      return {
-        provider: "resend",
-        externalId: `email_msg_${timestamp}_${Math.random().toString(36).slice(2, 8)}`,
-        status: "sent",
-      };
+    case "email": {
+      const apiKey = creds.resendApiKey || process.env.RESEND_API_KEY;
+      if (!apiKey) {
+        return {
+          provider: "resend",
+          status: "unavailable",
+          error: "Email channel unconfigured: missing Resend API key.",
+        };
+      }
+      try {
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: params.metadata?.from || "notifications@j10nexus.com",
+            to: [params.recipient],
+            subject: params.metadata?.subject || "New Message from J10 NEXUS",
+            text: params.body,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.id) {
+          return {
+            provider: "resend",
+            status: "failed",
+            error: data?.message || res.statusText || "Resend email dispatch failed",
+          };
+        }
+        return {
+          provider: "resend",
+          externalId: data.id,
+          status: "sent",
+        };
+      } catch (err) {
+        return {
+          provider: "resend",
+          status: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
 
-    case "sms":
-      // SMS dispatch via Twilio adapter
-      return {
-        provider: "twilio",
-        externalId: `SM_${timestamp}_${Math.random().toString(36).slice(2, 10)}`,
-        status: "sent",
-      };
+    case "sms": {
+      const accountSid = creds.twilioAccountSid || process.env.TWILIO_ACCOUNT_SID;
+      const authToken = creds.twilioAuthToken || process.env.TWILIO_AUTH_TOKEN;
+      const fromPhone = creds.twilioFromPhone || process.env.TWILIO_FROM_PHONE;
+      if (!accountSid || !authToken) {
+        return {
+          provider: "twilio",
+          status: "unavailable",
+          error: "SMS channel unconfigured: missing Twilio Account SID or Auth Token.",
+        };
+      }
+      try {
+        const form = new URLSearchParams({
+          To: params.recipient,
+          From: fromPhone || "+15005550006",
+          Body: params.body,
+        });
+        const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+        const res = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Basic ${auth}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: form.toString(),
+          }
+        );
+        const data = await res.json();
+        if (!res.ok || !data?.sid) {
+          return {
+            provider: "twilio",
+            status: "failed",
+            error: data?.message || res.statusText || "Twilio SMS dispatch failed",
+          };
+        }
+        return {
+          provider: "twilio",
+          externalId: data.sid,
+          status: data.status === "queued" ? "queued" : "sent",
+        };
+      } catch (err) {
+        return {
+          provider: "twilio",
+          status: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
 
-    case "webchat":
-      // Live webchat via WebSocket / SSE broker
+    case "whatsapp":
+    case "whatsapp_group": {
+      const provider =
+        params.channel === "whatsapp_group" ? "whatsapp_cloud_group" : "whatsapp_cloud";
+      const token = creds.whatsappAccessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+      const phoneId = creds.whatsappPhoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+      if (!token || !phoneId) {
+        return {
+          provider,
+          status: "unavailable",
+          error: "WhatsApp Cloud API unconfigured: missing access token or phone number ID.",
+        };
+      }
+      try {
+        const res = await fetch(`https://graph.facebook.com/v18.0/${phoneId}/messages`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: params.recipient,
+            type: "text",
+            text: { body: params.body },
+          }),
+        });
+        const data = await res.json();
+        const msgId = data?.messages?.[0]?.id;
+        if (!res.ok || !msgId) {
+          return {
+            provider,
+            status: "failed",
+            error: data?.error?.message || res.statusText || "WhatsApp message dispatch failed",
+          };
+        }
+        return {
+          provider,
+          externalId: msgId,
+          status: "sent",
+        };
+      } catch (err) {
+        return {
+          provider,
+          status: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
+    case "instagram":
+    case "messenger": {
+      const provider =
+        params.channel === "instagram" ? "meta_graph_instagram" : "meta_graph_messenger";
+      const token = creds.metaGraphAccessToken || process.env.META_PAGE_ACCESS_TOKEN;
+      if (!token) {
+        return {
+          provider,
+          status: "unavailable",
+          error: `Meta Graph API unconfigured for ${params.channel}: missing page access token.`,
+        };
+      }
+      try {
+        const res = await fetch("https://graph.facebook.com/v18.0/me/messages", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            recipient: { id: params.recipient },
+            message: { text: params.body },
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.message_id) {
+          return {
+            provider,
+            status: "failed",
+            error: data?.error?.message || res.statusText || `${params.channel} dispatch failed`,
+          };
+        }
+        return {
+          provider,
+          externalId: data.message_id,
+          status: "sent",
+        };
+      } catch (err) {
+        return {
+          provider,
+          status: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
+    case "webchat": {
+      // In-app webchat WebSocket broker: live delivery
+      const timestamp = Date.now();
       return {
         provider: "internal_websocket",
         externalId: `wc_${timestamp}_${Math.random().toString(36).slice(2, 8)}`,
-        status: "delivered" as any,
+        status: "delivered",
       };
-
-    case "instagram":
-      // Instagram Direct via Meta Graph API
-      return {
-        provider: "meta_graph_instagram",
-        externalId: `ig_mid_${timestamp}_${Math.random().toString(36).slice(2, 10)}`,
-        status: "sent",
-      };
-
-    case "messenger":
-      // Facebook Messenger via Meta Graph API
-      return {
-        provider: "meta_graph_messenger",
-        externalId: `fb_mid_${timestamp}_${Math.random().toString(36).slice(2, 10)}`,
-        status: "sent",
-      };
-
-    case "whatsapp_group":
-      // WhatsApp Group Chat message via Cloud API
-      return {
-        provider: "whatsapp_cloud_group",
-        externalId: `wamid.HBgL${timestamp}GRP`,
-        status: "sent",
-      };
-
-    case "whatsapp":
-      // 1-on-1 WhatsApp Business Cloud API
-      return {
-        provider: "whatsapp_cloud",
-        externalId: `wamid.HBgL${timestamp}DIRECT`,
-        status: "sent",
-      };
+    }
 
     case "website":
-    case "crm":
-    default:
+    case "crm": {
+      const timestamp = Date.now();
       return {
         provider: "j10_internal",
         externalId: `j10_desk_${timestamp}`,
-        status: "sent",
+        status: "delivered",
       };
+    }
+
+    default: {
+      return {
+        provider: "unsupported",
+        status: "unavailable",
+        error: `Channel '${params.channel}' is not supported.`,
+      };
+    }
   }
 }
 
@@ -195,7 +378,7 @@ export async function dispatchOmnichannelMessage(
       success: false,
       messageId: "",
       provider: dispatchResult.provider,
-      externalMessageId: dispatchResult.externalId,
+      externalMessageId: dispatchResult.externalId || "",
       deliveryStatus: "failed",
       channel: input.channel,
       error: `Failed to persist outbound message: ${msgErr.message}`,
@@ -242,7 +425,7 @@ export async function dispatchOmnichannelMessage(
     success: true,
     messageId: insertedMessage.id,
     provider: dispatchResult.provider,
-    externalMessageId: dispatchResult.externalId,
+    externalMessageId: dispatchResult.externalId || "",
     deliveryStatus: dispatchResult.status,
     channel: input.channel,
   };

@@ -118,11 +118,20 @@ export async function registerCustomDomain(
 
 /**
  * Verifies DNS ownership and issues active SSL status.
+ * Requires genuine DNS TXT ownership challenge and CNAME target verification.
+ * If DNS records are missing or incorrect, retains pending status honestly.
  */
 export async function verifyCustomDomainDns(
   supabase: SupabaseClient,
   workspaceId: string,
-  domainId: string
+  domainId: string,
+  options?: {
+    dnsChecker?: (
+      domain: string,
+      token: string,
+      cname: string
+    ) => Promise<{ txtVerified: boolean; cnameVerified: boolean }>;
+  }
 ): Promise<DomainRecord> {
   const { data: existing, error: fetchError } = await supabase
     .from("workspace_domains")
@@ -135,16 +144,83 @@ export async function verifyCustomDomainDns(
     throw new Error(`Custom domain record not found in workspace.`);
   }
 
-  const verifiedAt = new Date().toISOString();
+  let isTxtValid = false;
+  let isCnameValid = false;
 
-  // 1. Advance workspace_domains status to active and SSL to issued
+  if (options?.dnsChecker) {
+    const res = await options.dnsChecker(
+      existing.domain,
+      existing.verification_token,
+      existing.dns_cname_target
+    );
+    isTxtValid = res.txtVerified;
+    isCnameValid = res.cnameVerified;
+  } else {
+    try {
+      const { resolveTxt, resolveCname } = await import("node:dns/promises");
+
+      try {
+        const txtRecords = await resolveTxt(`_j10-challenge.${existing.domain}`);
+        const flattened = txtRecords.flat().join(" ");
+        if (flattened.includes(existing.verification_token)) {
+          isTxtValid = true;
+        }
+      } catch {
+        isTxtValid = false;
+      }
+
+      try {
+        const cnameRecords = await resolveCname(existing.domain);
+        if (
+          cnameRecords.some(
+            (c) => c.toLowerCase() === existing.dns_cname_target.toLowerCase()
+          )
+        ) {
+          isCnameValid = true;
+        }
+      } catch {
+        isCnameValid = false;
+      }
+    } catch {
+      isTxtValid = false;
+      isCnameValid = false;
+    }
+  }
+
+  const now = new Date().toISOString();
+
+  // If DNS verification fails, retain pending status honestly
+  if (!isTxtValid || !isCnameValid) {
+    const { data: updatedPending } = await supabase
+      .from("workspace_domains")
+      .update({
+        status: "pending",
+        ssl_status: "pending",
+        updated_at: now,
+      })
+      .eq("id", domainId)
+      .select("*")
+      .single();
+
+    await supabase
+      .from("workspaces")
+      .update({
+        custom_domain_status: "pending_verification",
+        updated_at: now,
+      })
+      .eq("id", workspaceId);
+
+    return (updatedPending || existing) as DomainRecord;
+  }
+
+  // Both TXT and CNAME verified: advance to active and SSL to issued
   const { data: updated, error: updateError } = await supabase
     .from("workspace_domains")
     .update({
       status: "active",
       ssl_status: "issued",
-      verified_at: verifiedAt,
-      updated_at: verifiedAt,
+      verified_at: now,
+      updated_at: now,
     })
     .eq("id", domainId)
     .select("*")
@@ -154,12 +230,11 @@ export async function verifyCustomDomainDns(
     throw new Error(`Failed to verify custom domain: ${updateError?.message}`);
   }
 
-  // 2. Advance workspace custom_domain_status to verified
   await supabase
     .from("workspaces")
     .update({
       custom_domain_status: "verified",
-      updated_at: verifiedAt,
+      updated_at: now,
     })
     .eq("id", workspaceId);
 

@@ -209,89 +209,69 @@ ALTER TABLE public.omnichannel_routing_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.omnichannel_sla_policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.omnichannel_dispatch_logs ENABLE ROW LEVEL SECURITY;
 
--- 8. RLS Policies
+-- 8. RLS Policies (Canonical Authorization via has_workspace_role and is_platform_admin)
 DROP POLICY IF EXISTS "omnichannel_rules_member_select" ON public.omnichannel_routing_rules;
 CREATE POLICY "omnichannel_rules_member_select"
   ON public.omnichannel_routing_rules FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = omnichannel_routing_rules.workspace_id
-        AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u
-      WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "omnichannel_rules_admin_manage" ON public.omnichannel_routing_rules;
 CREATE POLICY "omnichannel_rules_admin_manage"
   ON public.omnichannel_routing_rules FOR ALL
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = omnichannel_routing_rules.workspace_id
-        AND wm.user_id = auth.uid()
-        AND wm.role IN ('owner', 'admin')
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u
-      WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
+    OR is_platform_admin()
+  )
+  WITH CHECK (
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "omnichannel_sla_member_select" ON public.omnichannel_sla_policies;
 CREATE POLICY "omnichannel_sla_member_select"
   ON public.omnichannel_sla_policies FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = omnichannel_sla_policies.workspace_id
-        AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u
-      WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "omnichannel_sla_admin_manage" ON public.omnichannel_sla_policies;
 CREATE POLICY "omnichannel_sla_admin_manage"
   ON public.omnichannel_sla_policies FOR ALL
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = omnichannel_sla_policies.workspace_id
-        AND wm.user_id = auth.uid()
-        AND wm.role IN ('owner', 'admin')
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u
-      WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
+    OR is_platform_admin()
+  )
+  WITH CHECK (
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "omnichannel_dispatch_member_select" ON public.omnichannel_dispatch_logs;
 CREATE POLICY "omnichannel_dispatch_member_select"
   ON public.omnichannel_dispatch_logs FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = omnichannel_dispatch_logs.workspace_id
-        AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u
-      WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "omnichannel_dispatch_member_insert" ON public.omnichannel_dispatch_logs;
 CREATE POLICY "omnichannel_dispatch_member_insert"
   ON public.omnichannel_dispatch_logs FOR INSERT
   WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = omnichannel_dispatch_logs.workspace_id
-        AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u
-      WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
+    OR is_platform_admin()
   );
+
+-- 9. Table Grants for Authenticated Role
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    GRANT ALL ON public.omnichannel_routing_rules TO authenticated;
+    GRANT ALL ON public.omnichannel_sla_policies TO authenticated;
+    GRANT ALL ON public.omnichannel_dispatch_logs TO authenticated;
+  END IF;
+END $$;

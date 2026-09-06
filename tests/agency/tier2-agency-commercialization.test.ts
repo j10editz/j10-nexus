@@ -246,11 +246,27 @@ describe("Tier 2: Agency & Client Commercialization Engine", () => {
       expect(state.workspaces[0].custom_domain).toBe("portal.omnimedia.com");
       expect(state.workspaces[0].custom_domain_status).toBe("pending_verification");
 
-      // 2. Verify DNS and issue SSL
+      // 2a. Honest DNS verification: when DNS records are unconfigured, retains pending status
+      const pendingCheck = await verifyCustomDomainDns(
+        mockClient,
+        "ws-agency-1",
+        regResult.domain.id,
+        {
+          dnsChecker: async () => ({ txtVerified: false, cnameVerified: false }),
+        }
+      );
+      expect(pendingCheck.status).toBe("pending");
+      expect(pendingCheck.ssl_status).toBe("pending");
+      expect(state.workspaces[0].custom_domain_status).toBe("pending_verification");
+
+      // 2b. When genuine DNS TXT ownership challenge and CNAME target match: advance to active & SSL issued
       const verified = await verifyCustomDomainDns(
         mockClient,
         "ws-agency-1",
-        regResult.domain.id
+        regResult.domain.id,
+        {
+          dnsChecker: async () => ({ txtVerified: true, cnameVerified: true }),
+        }
       );
 
       expect(verified.status).toBe("active");

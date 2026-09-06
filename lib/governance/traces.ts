@@ -171,6 +171,21 @@ export async function completeAgentTrace(
   return mapTraceRow(data);
 }
 
+export async function failAgentTrace(
+  traceId: string,
+  errorMessage: string,
+  latencyMs = 0
+): Promise<AgentTrace> {
+  return completeAgentTrace(traceId, {
+    status: "failed",
+    outputPayload: { error: errorMessage },
+    promptTokens: 0,
+    completionTokens: 0,
+    latencyMs,
+    errorMessage,
+  });
+}
+
 export async function getAgentTraces(
   workspaceId: string,
   filters?: {

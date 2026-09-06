@@ -32,14 +32,8 @@ describe("Tier 4: Governed AI Agent Platform Database Certification (PGlite)", (
       $$ LANGUAGE sql STABLE;
     `);
 
-    // 2. Setup Base Tables (Users, Workspaces, Members, Contacts)
+    // 2. Setup Base Tables (Workspaces, Memberships, Platform Roles, Canonical Security Definers)
     await db.exec(`
-      CREATE TABLE IF NOT EXISTS public.users (
-        id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-        email TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'user'
-      );
-
       CREATE TABLE IF NOT EXISTS public.workspaces (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name TEXT NOT NULL,
@@ -48,16 +42,72 @@ describe("Tier 4: Governed AI Agent Platform Database Certification (PGlite)", (
         updated_at TIMESTAMPTZ DEFAULT now()
       );
 
-      CREATE TABLE IF NOT EXISTS public.workspace_members (
+      CREATE TABLE IF NOT EXISTS public.workspace_memberships (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-        role TEXT NOT NULL DEFAULT 'viewer',
-        status TEXT NOT NULL DEFAULT 'active',
+        role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('owner', 'admin', 'manager', 'agent', 'viewer')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invited', 'suspended', 'removed')),
         created_at TIMESTAMPTZ DEFAULT now(),
         updated_at TIMESTAMPTZ DEFAULT now(),
         CONSTRAINT uq_ws_member UNIQUE (workspace_id, user_id)
       );
+
+      CREATE TABLE IF NOT EXISTS public.platform_roles (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('platform_founder', 'platform_admin', 'support_agent')),
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+
+      CREATE OR REPLACE FUNCTION public.has_workspace_role(
+        p_workspace_id UUID,
+        p_roles TEXT[]
+      )
+      RETURNS BOOLEAN
+      LANGUAGE plpgsql
+      STABLE
+      SECURITY DEFINER
+      AS $$
+      DECLARE
+        v_user_id UUID;
+      BEGIN
+        v_user_id := auth.uid();
+        IF v_user_id IS NULL THEN
+          RETURN false;
+        END IF;
+
+        RETURN EXISTS (
+          SELECT 1 FROM public.workspace_memberships
+          WHERE workspace_id = p_workspace_id
+            AND user_id = v_user_id
+            AND status = 'active'
+            AND role = ANY(p_roles)
+        );
+      END;
+      $$;
+
+      CREATE OR REPLACE FUNCTION public.is_platform_admin()
+      RETURNS BOOLEAN
+      LANGUAGE plpgsql
+      STABLE
+      SECURITY DEFINER
+      AS $$
+      DECLARE
+        v_user_id UUID;
+      BEGIN
+        v_user_id := auth.uid();
+        IF v_user_id IS NULL THEN
+          RETURN false;
+        END IF;
+
+        RETURN EXISTS (
+          SELECT 1 FROM public.platform_roles
+          WHERE user_id = v_user_id
+            AND role IN ('platform_founder', 'platform_admin')
+        );
+      END;
+      $$;
 
       CREATE TABLE IF NOT EXISTS public.contacts (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -257,12 +307,12 @@ describe("Tier 4: Governed AI Agent Platform Database Certification (PGlite)", (
     const ws1Id = ws1.rows[0].id;
     const ws2Id = ws2.rows[0].id;
 
-    // Membership: u1 in ws1, u2 in ws2
+    // Canonical Memberships: u1 in ws1, u2 in ws2
     await db.exec(`
-      INSERT INTO public.workspace_members (workspace_id, user_id, role)
+      INSERT INTO public.workspace_memberships (workspace_id, user_id, role, status)
       VALUES
-        ('${ws1Id}', '${u1Id}', 'admin'),
-        ('${ws2Id}', '${u2Id}', 'admin');
+        ('${ws1Id}', '${u1Id}', 'admin', 'active'),
+        ('${ws2Id}', '${u2Id}', 'admin', 'active');
     `);
 
     // Insert ROI attribution into ws1
@@ -299,5 +349,86 @@ describe("Tier 4: Governed AI Agent Platform Database Certification (PGlite)", (
       );
     });
     expect(u2Roi.rows[0].count).toBe(0);
+  });
+
+  it("enforces canonical RLS: viewer read-only and suspended member denial on governance tables", async () => {
+    const db = await setupDatabase();
+    const migrationPath = resolve(
+      __dirname,
+      "../../supabase/migrations/20260922_tier4_governed_ai_agent_platform.sql"
+    );
+    await db.exec(readFileSync(migrationPath, "utf-8"));
+
+    const ws = (await db.query<{ id: string }>(`INSERT INTO public.workspaces (name, slug) VALUES ('Gov WS', 'gov-ws') RETURNING id;`)).rows[0].id;
+    const ownerId = (await db.query<{ id: string }>(`INSERT INTO auth.users (email) VALUES ('gov_owner@test.com') RETURNING id;`)).rows[0].id;
+    const viewerId = (await db.query<{ id: string }>(`INSERT INTO auth.users (email) VALUES ('gov_viewer@test.com') RETURNING id;`)).rows[0].id;
+    const suspendedId = (await db.query<{ id: string }>(`INSERT INTO auth.users (email) VALUES ('gov_suspended@test.com') RETURNING id;`)).rows[0].id;
+
+    await db.query(`
+      INSERT INTO public.workspace_memberships (workspace_id, user_id, role, status)
+      VALUES
+        ($1, $2, 'owner', 'active'),
+        ($1, $3, 'viewer', 'active'),
+        ($1, $4, 'admin', 'suspended');
+    `, [ws, ownerId, viewerId, suspendedId]);
+
+    // Insert version as superuser
+    const vId = (await db.query<{ id: string }>(`
+      INSERT INTO public.ai_agent_versions (workspace_id, agent_id, version_number, system_prompt)
+      VALUES ($1, 'agent-1', 1, 'System prompt v1') RETURNING id;
+    `, [ws])).rows[0].id;
+
+    // 1. Viewer can SELECT versions
+    await db.transaction(async (tx) => {
+      await tx.exec(`SET LOCAL ROLE authenticated; SET LOCAL "request.jwt.claim.sub" = '${viewerId}';`);
+      const res = await tx.query(`SELECT id FROM public.ai_agent_versions WHERE workspace_id = $1;`, [ws]);
+      expect(res.rows.length).toBe(1);
+    });
+
+    // 2. Viewer CANNOT INSERT new version (mutation denied)
+    await db.transaction(async (tx) => {
+      await tx.exec(`SET LOCAL ROLE authenticated; SET LOCAL "request.jwt.claim.sub" = '${viewerId}';`);
+      await expect(tx.query(`
+        INSERT INTO public.ai_agent_versions (workspace_id, agent_id, version_number, system_prompt)
+        VALUES ($1, 'agent-1', 2, 'Unauthorized update');
+      `, [ws])).rejects.toThrow();
+    });
+
+    // 3. Suspended member CANNOT SELECT (denied)
+    await db.transaction(async (tx) => {
+      await tx.exec(`SET LOCAL ROLE authenticated; SET LOCAL "request.jwt.claim.sub" = '${suspendedId}';`);
+      const res = await tx.query(`SELECT id FROM public.ai_agent_versions WHERE workspace_id = $1;`, [ws]);
+      expect(res.rows.length).toBe(0);
+    });
+  });
+
+  it("enforces cross-tenant composite foreign keys between traces, versions, and approval gates", async () => {
+    const db = await setupDatabase();
+    const migrationPath = resolve(
+      __dirname,
+      "../../supabase/migrations/20260922_tier4_governed_ai_agent_platform.sql"
+    );
+    await db.exec(readFileSync(migrationPath, "utf-8"));
+
+    const wsA = (await db.query<{ id: string }>(`INSERT INTO public.workspaces (name, slug) VALUES ('WS Alpha', 'ws-alpha') RETURNING id;`)).rows[0].id;
+    const wsB = (await db.query<{ id: string }>(`INSERT INTO public.workspaces (name, slug) VALUES ('WS Beta', 'ws-beta') RETURNING id;`)).rows[0].id;
+
+    // Create version in Workspace A
+    const verA = (await db.query<{ id: string }>(`
+      INSERT INTO public.ai_agent_versions (workspace_id, agent_id, version_number, system_prompt)
+      VALUES ($1, 'agent-a', 1, 'Prompt A') RETURNING id;
+    `, [wsA])).rows[0].id;
+
+    // Attempting to create trace in Workspace B with version from Workspace A MUST FAIL composite FK
+    await expect(db.query(`
+      INSERT INTO public.ai_agent_traces (workspace_id, agent_id, version_id)
+      VALUES ($1, 'agent-b', $2);
+    `, [wsB, verA])).rejects.toThrow();
+
+    // Valid trace in Workspace A with version from Workspace A succeeds
+    await expect(db.query(`
+      INSERT INTO public.ai_agent_traces (workspace_id, agent_id, version_id)
+      VALUES ($1, 'agent-a', $2);
+    `, [wsA, verA])).resolves.not.toThrow();
   });
 });

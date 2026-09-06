@@ -190,50 +190,81 @@ ALTER TABLE public.ai_agent_approval_gates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_agent_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_agent_roi_attributions ENABLE ROW LEVEL SECURITY;
 
+--- 9. Composite Foreign Keys & Constraints for Cross-Tenant Integrity
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_ai_agent_versions_ws_id') THEN
+    ALTER TABLE public.ai_agent_versions ADD CONSTRAINT uq_ai_agent_versions_ws_id UNIQUE (workspace_id, id);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_ai_agent_traces_ws_id') THEN
+    ALTER TABLE public.ai_agent_traces ADD CONSTRAINT uq_ai_agent_traces_ws_id UNIQUE (workspace_id, id);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_traces_version_ws') THEN
+    ALTER TABLE public.ai_agent_traces
+      ADD CONSTRAINT fk_ai_agent_traces_version_ws
+      FOREIGN KEY (workspace_id, version_id)
+      REFERENCES public.ai_agent_versions(workspace_id, id)
+      ON DELETE SET NULL;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_approval_gates_trace_ws') THEN
+    ALTER TABLE public.ai_agent_approval_gates
+      ADD CONSTRAINT fk_ai_agent_approval_gates_trace_ws
+      FOREIGN KEY (workspace_id, trace_id)
+      REFERENCES public.ai_agent_traces(workspace_id, id)
+      ON DELETE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_evaluations_version_ws') THEN
+    ALTER TABLE public.ai_agent_evaluations
+      ADD CONSTRAINT fk_ai_agent_evaluations_version_ws
+      FOREIGN KEY (workspace_id, version_id)
+      REFERENCES public.ai_agent_versions(workspace_id, id)
+      ON DELETE CASCADE;
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END $$;
+
+-- 10. Canonical Row Level Security (RLS) Policies
 -- ai_agent_versions RLS
 DROP POLICY IF EXISTS "ai_agent_versions_select" ON public.ai_agent_versions;
 CREATE POLICY "ai_agent_versions_select" ON public.ai_agent_versions FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_versions.workspace_id AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "ai_agent_versions_manage" ON public.ai_agent_versions;
 CREATE POLICY "ai_agent_versions_manage" ON public.ai_agent_versions FOR ALL
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_versions.workspace_id AND wm.user_id = auth.uid() AND wm.role IN ('owner', 'admin', 'manager')
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
+    OR is_platform_admin()
+  )
+  WITH CHECK (
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
+    OR is_platform_admin()
   );
 
 -- ai_agent_traces RLS
 DROP POLICY IF EXISTS "ai_agent_traces_select" ON public.ai_agent_traces;
 CREATE POLICY "ai_agent_traces_select" ON public.ai_agent_traces FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_traces.workspace_id AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "ai_agent_traces_manage" ON public.ai_agent_traces;
 CREATE POLICY "ai_agent_traces_manage" ON public.ai_agent_traces FOR ALL
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_traces.workspace_id AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
+    OR is_platform_admin()
+  )
+  WITH CHECK (
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
+    OR is_platform_admin()
   );
 
 -- ai_agent_trace_steps RLS
@@ -242,10 +273,11 @@ CREATE POLICY "ai_agent_trace_steps_select" ON public.ai_agent_trace_steps FOR S
   USING (
     EXISTS (
       SELECT 1 FROM public.ai_agent_traces t
-      JOIN public.workspace_members wm ON wm.workspace_id = t.workspace_id
-      WHERE t.id = ai_agent_trace_steps.trace_id AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
+      WHERE t.id = ai_agent_trace_steps.trace_id
+        AND (
+          has_workspace_role(t.workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+          OR is_platform_admin()
+        )
     )
   );
 
@@ -254,10 +286,21 @@ CREATE POLICY "ai_agent_trace_steps_manage" ON public.ai_agent_trace_steps FOR A
   USING (
     EXISTS (
       SELECT 1 FROM public.ai_agent_traces t
-      JOIN public.workspace_members wm ON wm.workspace_id = t.workspace_id
-      WHERE t.id = ai_agent_trace_steps.trace_id AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
+      WHERE t.id = ai_agent_trace_steps.trace_id
+        AND (
+          has_workspace_role(t.workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
+          OR is_platform_admin()
+        )
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.ai_agent_traces t
+      WHERE t.id = ai_agent_trace_steps.trace_id
+        AND (
+          has_workspace_role(t.workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
+          OR is_platform_admin()
+        )
     )
   );
 
@@ -265,115 +308,95 @@ CREATE POLICY "ai_agent_trace_steps_manage" ON public.ai_agent_trace_steps FOR A
 DROP POLICY IF EXISTS "ai_agent_permissions_select" ON public.ai_agent_permissions;
 CREATE POLICY "ai_agent_permissions_select" ON public.ai_agent_permissions FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_permissions.workspace_id AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "ai_agent_permissions_manage" ON public.ai_agent_permissions;
 CREATE POLICY "ai_agent_permissions_manage" ON public.ai_agent_permissions FOR ALL
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_permissions.workspace_id AND wm.user_id = auth.uid() AND wm.role IN ('owner', 'admin')
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
+    OR is_platform_admin()
+  )
+  WITH CHECK (
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
+    OR is_platform_admin()
   );
 
 -- ai_agent_budgets RLS
 DROP POLICY IF EXISTS "ai_agent_budgets_select" ON public.ai_agent_budgets;
 CREATE POLICY "ai_agent_budgets_select" ON public.ai_agent_budgets FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_budgets.workspace_id AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "ai_agent_budgets_manage" ON public.ai_agent_budgets;
 CREATE POLICY "ai_agent_budgets_manage" ON public.ai_agent_budgets FOR ALL
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_budgets.workspace_id AND wm.user_id = auth.uid() AND wm.role IN ('owner', 'admin')
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
+    OR is_platform_admin()
+  )
+  WITH CHECK (
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
+    OR is_platform_admin()
   );
 
 -- ai_agent_approval_gates RLS
 DROP POLICY IF EXISTS "ai_agent_approval_gates_select" ON public.ai_agent_approval_gates;
 CREATE POLICY "ai_agent_approval_gates_select" ON public.ai_agent_approval_gates FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_approval_gates.workspace_id AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "ai_agent_approval_gates_manage" ON public.ai_agent_approval_gates;
 CREATE POLICY "ai_agent_approval_gates_manage" ON public.ai_agent_approval_gates FOR ALL
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_approval_gates.workspace_id AND wm.user_id = auth.uid() AND wm.role IN ('owner', 'admin', 'manager')
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
+    OR is_platform_admin()
+  )
+  WITH CHECK (
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
+    OR is_platform_admin()
   );
 
 -- ai_agent_evaluations RLS
 DROP POLICY IF EXISTS "ai_agent_evaluations_select" ON public.ai_agent_evaluations;
 CREATE POLICY "ai_agent_evaluations_select" ON public.ai_agent_evaluations FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_evaluations.workspace_id AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "ai_agent_evaluations_manage" ON public.ai_agent_evaluations;
 CREATE POLICY "ai_agent_evaluations_manage" ON public.ai_agent_evaluations FOR ALL
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_evaluations.workspace_id AND wm.user_id = auth.uid() AND wm.role IN ('owner', 'admin', 'manager')
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
+    OR is_platform_admin()
+  )
+  WITH CHECK (
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
+    OR is_platform_admin()
   );
 
 -- ai_agent_roi_attributions RLS
 DROP POLICY IF EXISTS "ai_agent_roi_attributions_select" ON public.ai_agent_roi_attributions;
 CREATE POLICY "ai_agent_roi_attributions_select" ON public.ai_agent_roi_attributions FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_roi_attributions.workspace_id AND wm.user_id = auth.uid()
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
+    OR is_platform_admin()
   );
 
 DROP POLICY IF EXISTS "ai_agent_roi_attributions_manage" ON public.ai_agent_roi_attributions;
 CREATE POLICY "ai_agent_roi_attributions_manage" ON public.ai_agent_roi_attributions FOR ALL
   USING (
-    EXISTS (
-      SELECT 1 FROM public.workspace_members wm
-      WHERE wm.workspace_id = ai_agent_roi_attributions.workspace_id AND wm.user_id = auth.uid() AND wm.role IN ('owner', 'admin')
-    ) OR EXISTS (
-      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'platform_admin'
-    )
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
+    OR is_platform_admin()
+  )
+  WITH CHECK (
+    has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
+    OR is_platform_admin()
   );
 
 -- Grant table access to authenticated role

@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     }
 
     if (action === "reconcile_payment") {
-      const { checkoutId, providerEventId, amount, currency } = body;
+      const { checkoutId, providerEventId, amount } = body;
 
       if (!checkoutId || typeof checkoutId !== "string") {
         return NextResponse.json(
@@ -69,12 +69,102 @@ export async function POST(req: Request) {
         );
       }
 
+      // Explicitly disallow browser requests supplying an amount or event ID to verify payments
+      if (amount !== undefined || providerEventId !== undefined) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Security violation: Browser requests supplying an amount or event ID cannot mark payments verified. Verification must occur through authoritative provider webhooks or server-side provider lookup.",
+          },
+          { status: 403 }
+        );
+      }
+
+      // Lookup checkout record
+      const { data: checkout, error: checkoutErr } = await supabase
+        .from("payment_checkouts")
+        .select("*")
+        .eq("id", checkoutId)
+        .eq("workspace_id", context.workspace.id)
+        .single();
+
+      if (checkoutErr || !checkout) {
+        return NextResponse.json(
+          { success: false, error: "Checkout record not found in workspace." },
+          { status: 404 }
+        );
+      }
+
+      // If already paid, return reconciled state idempotently
+      if (checkout.status === "paid") {
+        const { data: existingLedger } = await supabase
+          .from("payment_ledger")
+          .select("id")
+          .eq("checkout_id", checkout.id)
+          .eq("workspace_id", context.workspace.id)
+          .maybeSingle();
+
+        return NextResponse.json({
+          success: true,
+          action: "payment_already_reconciled",
+          result: {
+            success: true,
+            ledgerId: existingLedger?.id,
+            checkoutId: checkout.id,
+            dealStage: "won",
+          },
+        });
+      }
+
+      // If Stripe secret key is present, verify directly against Stripe API
+      const secretKey = process.env.STRIPE_SECRET_KEY;
+      let authoritativeEventId: string | undefined;
+
+      if (secretKey && secretKey.startsWith("sk_") && checkout.stripe_checkout_session_id) {
+        try {
+          const res = await fetch(
+            `https://api.stripe.com/v1/checkout/sessions/${checkout.stripe_checkout_session_id}`,
+            {
+              headers: { Authorization: `Bearer ${secretKey}` },
+            }
+          );
+          const session = await res.json();
+          if (!res.ok || session.payment_status !== "paid") {
+            return NextResponse.json(
+              {
+                success: false,
+                error: "Stripe checkout session has not been completed or verified.",
+              },
+              { status: 400 }
+            );
+          }
+          authoritativeEventId = session.payment_intent || session.id;
+        } catch (err) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Failed to verify checkout session with Stripe: ${err instanceof Error ? err.message : String(err)}`,
+            },
+            { status: 502 }
+          );
+        }
+      } else {
+        // In production, reject unverified provider reconciliations
+        if (process.env.NODE_ENV === "production") {
+          return NextResponse.json(
+            {
+              success: false,
+              error: "Stripe verification is not available in production without provider credentials.",
+            },
+            { status: 403 }
+          );
+        }
+      }
+
       const result = await reconcileRevenueLoopPayment(supabase, {
         workspaceId: context.workspace.id,
-        checkoutId,
-        providerEventId,
-        amount: typeof amount === "number" ? amount : undefined,
-        currency,
+        checkoutId: checkout.id,
+        providerEventId: authoritativeEventId,
       });
 
       return NextResponse.json({

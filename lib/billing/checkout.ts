@@ -67,25 +67,34 @@ export async function getOrCreateStripeCustomer(
       });
 
       const customer = await res.json();
-      if (res.ok && customer?.id) {
-        // Save customer ID in workspace_subscriptions
-        await supabase
-          .from("workspace_subscriptions")
-          .update({
-            stripe_customer_id: customer.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("workspace_id", workspaceId);
-
-        return { customerId: customer.id, isNew: true };
+      if (!res.ok || !customer?.id) {
+        throw new Error(
+          `Stripe customer creation failed: ${customer?.error?.message || res.statusText || "Unknown Stripe error"}`
+        );
       }
+
+      // Save customer ID in workspace_subscriptions
+      await supabase
+        .from("workspace_subscriptions")
+        .update({
+          stripe_customer_id: customer.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("workspace_id", workspaceId);
+
+      return { customerId: customer.id, isNew: true };
     } catch (err) {
-      console.warn("Stripe customer creation failed, falling back to simulated customer ID:", err);
+      if (err instanceof Error) throw err;
+      throw new Error(`Stripe customer creation failed: ${String(err)}`);
     }
   }
 
-  // Simulated fallback
-  const simulatedId = `cus_sim_${workspaceId.replace(/-/g, "").slice(0, 14)}`;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Stripe billing is not configured in production environment.");
+  }
+
+  // Development / Offline Testing Sandbox only
+  const simulatedId = `cus_test_${workspaceId.replace(/-/g, "").slice(0, 14)}`;
   await supabase
     .from("workspace_subscriptions")
     .update({
@@ -179,36 +188,45 @@ export async function createWorkspaceSubscriptionCheckout(
       });
 
       const data = await res.json();
-      if (res.ok && data.url) {
-        // Update checkout record with Stripe session details
-        await supabase
-          .from("payment_checkouts")
-          .update({
-            checkout_url: data.url,
-            stripe_checkout_session_id: data.id,
-            stripe_customer_id: customerId,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", internalCheckoutId);
-
-        return {
-          checkoutUrl: data.url,
-          sessionId: data.id,
-          planId: plan.id,
-          amount,
-          interval,
-          mode: "live",
-          providerMode: "live",
-          internalCheckoutId,
-        };
+      if (!res.ok || !data.url) {
+        throw new Error(
+          `Stripe Checkout Session creation failed: ${data?.error?.message || res.statusText || "Unknown error"}`
+        );
       }
+
+      // Update checkout record with Stripe session details
+      await supabase
+        .from("payment_checkouts")
+        .update({
+          checkout_url: data.url,
+          stripe_checkout_session_id: data.id,
+          stripe_customer_id: customerId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", internalCheckoutId);
+
+      return {
+        checkoutUrl: data.url,
+        sessionId: data.id,
+        planId: plan.id,
+        amount,
+        interval,
+        mode: "live",
+        providerMode: "live",
+        internalCheckoutId,
+      };
     } catch (err) {
-      console.warn("Stripe Checkout API call failed, falling back to simulated sandbox session:", err);
+      if (err instanceof Error) throw err;
+      throw new Error(`Stripe checkout session creation failed: ${String(err)}`);
     }
   }
 
-  // 4. Deterministic Simulated Sandbox Checkout Session
-  const sessionId = `cs_sub_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Stripe checkout is not configured in production environment.");
+  }
+
+  // 4. Offline Development / Testing Sandbox Checkout Session (clearly marked as test fixture)
+  const sessionId = `cs_test_offline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const checkoutUrl = `https://checkout.stripe.com/c/pay/${sessionId}#j10_sub_${plan.id}`;
 
   await supabase

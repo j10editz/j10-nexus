@@ -32,14 +32,8 @@ describe("Tier 3: Omnichannel Operations Database Certification (PGlite)", () =>
       $$ LANGUAGE sql STABLE;
     `);
 
-    // 2. Setup Workspaces & Users
+    // 2. Setup Workspaces & Canonical Workspace Memberships
     await db.exec(`
-      CREATE TABLE IF NOT EXISTS public.users (
-        id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-        email TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'user'
-      );
-
       CREATE TABLE IF NOT EXISTS public.workspaces (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name TEXT NOT NULL,
@@ -48,16 +42,72 @@ describe("Tier 3: Omnichannel Operations Database Certification (PGlite)", () =>
         updated_at TIMESTAMPTZ DEFAULT now()
       );
 
-      CREATE TABLE IF NOT EXISTS public.workspace_members (
+      CREATE TABLE IF NOT EXISTS public.workspace_memberships (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-        role TEXT NOT NULL DEFAULT 'viewer',
-        status TEXT NOT NULL DEFAULT 'active',
+        role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('owner', 'admin', 'manager', 'agent', 'viewer')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invited', 'suspended', 'removed')),
         created_at TIMESTAMPTZ DEFAULT now(),
         updated_at TIMESTAMPTZ DEFAULT now(),
         CONSTRAINT uq_ws_member UNIQUE (workspace_id, user_id)
       );
+
+      CREATE TABLE IF NOT EXISTS public.platform_roles (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('platform_founder', 'platform_admin', 'support_agent')),
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+
+      CREATE OR REPLACE FUNCTION public.has_workspace_role(
+        p_workspace_id UUID,
+        p_roles TEXT[]
+      )
+      RETURNS BOOLEAN
+      LANGUAGE plpgsql
+      STABLE
+      SECURITY DEFINER
+      AS $$
+      DECLARE
+        v_user_id UUID;
+      BEGIN
+        v_user_id := auth.uid();
+        IF v_user_id IS NULL THEN
+          RETURN false;
+        END IF;
+
+        RETURN EXISTS (
+          SELECT 1 FROM public.workspace_memberships
+          WHERE workspace_id = p_workspace_id
+            AND user_id = v_user_id
+            AND status = 'active'
+            AND role = ANY(p_roles)
+        );
+      END;
+      $$;
+
+      CREATE OR REPLACE FUNCTION public.is_platform_admin()
+      RETURNS BOOLEAN
+      LANGUAGE plpgsql
+      STABLE
+      SECURITY DEFINER
+      AS $$
+      DECLARE
+        v_user_id UUID;
+      BEGIN
+        v_user_id := auth.uid();
+        IF v_user_id IS NULL THEN
+          RETURN false;
+        END IF;
+
+        RETURN EXISTS (
+          SELECT 1 FROM public.platform_roles
+          WHERE user_id = v_user_id
+            AND role IN ('platform_founder', 'platform_admin')
+        );
+      END;
+      $$;
 
       CREATE TABLE IF NOT EXISTS public.workforce_agents (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -299,5 +349,69 @@ describe("Tier 3: Omnichannel Operations Database Certification (PGlite)", () =>
       [threadId],
     );
     expect(afterDelete.rows.length).toBe(0);
+  });
+
+  it("enforces canonical RLS: viewer read-only and suspended member denial on omnichannel tables", async () => {
+    const db = await setupDatabase();
+    const migrationPath = resolve(
+      process.cwd(),
+      "supabase/migrations/20260921_tier3_omnichannel_operations.sql",
+    );
+    await db.exec(readFileSync(migrationPath, "utf8"));
+
+    // Create workspace
+    const ws = (await db.query<{ id: string }>(`
+      INSERT INTO public.workspaces (name, slug) VALUES ('Security WS', 'sec-ws') RETURNING id;
+    `)).rows[0].id;
+
+    // Create users
+    const ownerId = (await db.query<{ id: string }>(`INSERT INTO auth.users (email) VALUES ('owner@sec.com') RETURNING id;`)).rows[0].id;
+    const viewerId = (await db.query<{ id: string }>(`INSERT INTO auth.users (email) VALUES ('viewer@sec.com') RETURNING id;`)).rows[0].id;
+    const suspendedId = (await db.query<{ id: string }>(`INSERT INTO auth.users (email) VALUES ('suspended@sec.com') RETURNING id;`)).rows[0].id;
+
+    // Add memberships
+    await db.query(`
+      INSERT INTO public.workspace_memberships (workspace_id, user_id, role, status)
+      VALUES
+        ($1, $2, 'owner', 'active'),
+        ($1, $3, 'viewer', 'active'),
+        ($1, $4, 'agent', 'suspended');
+    `, [ws, ownerId, viewerId, suspendedId]);
+
+    // Insert a routing rule as superuser
+    const ruleId = (await db.query<{ id: string }>(`
+      INSERT INTO public.omnichannel_routing_rules (workspace_id, name, channel, routing_strategy)
+      VALUES ($1, 'Support Rule', 'email', 'round_robin') RETURNING id;
+    `, [ws])).rows[0].id;
+
+    // 1. Owner can SELECT
+    await db.transaction(async (tx) => {
+      await tx.exec(`SET LOCAL ROLE authenticated; SET LOCAL "request.jwt.claim.sub" = '${ownerId}';`);
+      const res = await tx.query(`SELECT id FROM public.omnichannel_routing_rules WHERE workspace_id = $1;`, [ws]);
+      expect(res.rows.length).toBe(1);
+    });
+
+    // 2. Viewer can SELECT (read-only allowed)
+    await db.transaction(async (tx) => {
+      await tx.exec(`SET LOCAL ROLE authenticated; SET LOCAL "request.jwt.claim.sub" = '${viewerId}';`);
+      const res = await tx.query(`SELECT id FROM public.omnichannel_routing_rules WHERE workspace_id = $1;`, [ws]);
+      expect(res.rows.length).toBe(1);
+    });
+
+    // 3. Viewer CANNOT INSERT/UPDATE/DELETE (mutation denied)
+    await db.transaction(async (tx) => {
+      await tx.exec(`SET LOCAL ROLE authenticated; SET LOCAL "request.jwt.claim.sub" = '${viewerId}';`);
+      await expect(tx.query(`
+        INSERT INTO public.omnichannel_routing_rules (workspace_id, name, channel, routing_strategy)
+        VALUES ($1, 'Hacked Rule', 'email', 'round_robin');
+      `, [ws])).rejects.toThrow();
+    });
+
+    // 4. Suspended member CANNOT SELECT (denied)
+    await db.transaction(async (tx) => {
+      await tx.exec(`SET LOCAL ROLE authenticated; SET LOCAL "request.jwt.claim.sub" = '${suspendedId}';`);
+      const res = await tx.query(`SELECT id FROM public.omnichannel_routing_rules WHERE workspace_id = $1;`, [ws]);
+      expect(res.rows.length).toBe(0);
+    });
   });
 });

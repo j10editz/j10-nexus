@@ -4,6 +4,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 describe("Tier 0G: PostgreSQL Database Certification (PGlite)", () => {
+  const migrationSql = readFileSync(
+    resolve(__dirname, "../../supabase/migrations/20260918_tier0g_saas_billing.sql"),
+    "utf-8"
+  );
+
   async function setupDatabase() {
     const db = new PGlite();
 
@@ -406,5 +411,55 @@ describe("Tier 0G: PostgreSQL Database Certification (PGlite)", () => {
     // User B can only see Workspace B records
     expect(userBVisible.rows).toHaveLength(1);
     expect(userBVisible.rows[0].workspace_id).toBe(wsB);
+  });
+
+  it("6. Concurrency test: proves concurrent requests cannot exceed quota allowance", async () => {
+    const db = await setupDatabase();
+    await db.exec(migrationSql);
+
+    const wsId = "11111111-1111-1111-1111-111111111111";
+    const userId = "22222222-2222-2222-2222-222222222222";
+
+    await db.query("INSERT INTO auth.users (id, email) VALUES ($1, 'concurrency@example.com')", [userId]);
+    await db.query("INSERT INTO public.workspaces (id, name, slug, owner_user_id) VALUES ($1, 'Concurrency Corp', 'concurrent-corp', $2)", [wsId, userId]);
+    await db.query("INSERT INTO public.workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'agent')", [wsId, userId]);
+
+    // Provision subscription with total limit = 50, currently used = 0
+    await db.query(`
+      INSERT INTO public.workspace_subscriptions (
+        workspace_id, plan_id, status, provenance, monthly_message_limit, messages_used_this_period
+      ) VALUES ($1, 'starter', 'active', 'stripe', 50, 0)
+    `, [wsId]);
+
+    // Set JWT claims
+    await db.exec(`
+      SET request.jwt.claim.sub = '${userId}';
+      SET request.jwt.claims = '{"role": "authenticated", "sub": "${userId}"}';
+    `);
+
+    // Dispatch 10 concurrent requests, each asking for 10 units (total attempted = 100 on a limit of 50)
+    const requests = Array.from({ length: 10 }).map((_, idx) =>
+      db.query<{ record_verified_workspace_usage: any }>(
+        "SELECT public.record_verified_workspace_usage($1::uuid, 'whatsapp_outbound'::text, 10::int, $2::text, 'resource-concur'::text, $3::uuid)",
+        [wsId, `concur-key-${idx}`, userId]
+      )
+    );
+
+    const results = await Promise.all(requests);
+    const parsed = results.map(r => r.rows[0].record_verified_workspace_usage);
+
+    const succeeded = parsed.filter(r => r.success === true);
+    const rejected = parsed.filter(r => r.success === false && r.limit_reached === true);
+
+    // Exactly 5 should succeed (5 x 10 = 50 = limit), and 5 must be rejected
+    expect(succeeded).toHaveLength(5);
+    expect(rejected).toHaveLength(5);
+
+    // Confirm final counter in database never exceeded 50
+    const finalSub = await db.query<{ messages_used_this_period: number }>(
+      "SELECT messages_used_this_period FROM public.workspace_subscriptions WHERE workspace_id = $1",
+      [wsId]
+    );
+    expect(finalSub.rows[0].messages_used_this_period).toBe(50);
   });
 });

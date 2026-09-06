@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CHANNEL_METADATA } from "@/lib/inbox/service";
 import type {
   ActiveViewerPresence,
@@ -443,37 +443,125 @@ describe("Tier 3 — True Omnichannel Operations", () => {
   });
 
   describe("5. Multi-Channel Outbound Dispatch Engine", () => {
-    it("routes outbound messages through appropriate channel providers", async () => {
-      const email = await sendChannelProviderMessage({
+    it("routes outbound messages through appropriate channel providers with honest unconfigured handling", async () => {
+      // 1. Unconfigured channels return unavailable honestly
+      const unconfEmail = await sendChannelProviderMessage({
         channel: "email",
         recipient: "executive@aegis.com",
         body: "Attached is your proposal.",
       });
-      expect(email.provider).toBe("resend");
-      expect(email.externalId).toMatch(/^email_msg_/);
+      expect(unconfEmail.provider).toBe("resend");
+      expect(unconfEmail.status).toBe("unavailable");
 
-      const sms = await sendChannelProviderMessage({
+      const unconfSms = await sendChannelProviderMessage({
         channel: "sms",
         recipient: "+14155552671",
         body: "Your verification code is 492019",
       });
-      expect(sms.provider).toBe("twilio");
-      expect(sms.externalId).toMatch(/^SM_/);
+      expect(unconfSms.provider).toBe("twilio");
+      expect(unconfSms.status).toBe("unavailable");
 
-      const ig = await sendChannelProviderMessage({
+      const unconfIg = await sendChannelProviderMessage({
         channel: "instagram",
         recipient: "ig_recipient_123",
-        body: "Thank you for reaching out!",
+        body: "Hello",
       });
-      expect(ig.provider).toBe("meta_graph_instagram");
+      expect(unconfIg.provider).toBe("meta_graph_instagram");
+      expect(unconfIg.status).toBe("unavailable");
 
-      const group = await sendChannelProviderMessage({
+      const unconfGroup = await sendChannelProviderMessage({
         channel: "whatsapp_group",
-        recipient: "group_trading_desk_12",
-        body: "Alert: Market volatility threshold triggered.",
+        recipient: "group_123",
+        body: "Alert",
       });
-      expect(group.provider).toBe("whatsapp_cloud_group");
-      expect(group.externalId).toContain("GRP");
+      expect(unconfGroup.provider).toBe("whatsapp_cloud_group");
+      expect(unconfGroup.status).toBe("unavailable");
+
+      // 2. Configured channels invoke genuine provider adapters and return accurate delivery states
+      const originalFetch = globalThis.fetch;
+      try {
+        globalThis.fetch = vi.fn(async (url: any) => {
+          const urlStr = String(url);
+          if (urlStr.includes("resend.com")) {
+            return {
+              ok: true,
+              json: async () => ({ id: "email_msg_live_resend_991" }),
+            } as any;
+          }
+          if (urlStr.includes("twilio.com")) {
+            return {
+              ok: true,
+              json: async () => ({ sid: "SM_twilio_live_882", status: "queued" }),
+            } as any;
+          }
+          if (urlStr.includes("graph.facebook.com") && urlStr.includes("messages")) {
+            return {
+              ok: true,
+              json: async () => ({
+                messages: [{ id: "wamid.HBgL1726000GRP" }],
+                message_id: "ig_mid_live_773",
+              }),
+            } as any;
+          }
+          return { ok: false, statusText: "Not found", json: async () => ({}) } as any;
+        });
+
+        const email = await sendChannelProviderMessage({
+          channel: "email",
+          recipient: "executive@aegis.com",
+          body: "Attached is your proposal.",
+          credentials: { resendApiKey: "re_live_test_key" },
+        });
+        expect(email.provider).toBe("resend");
+        expect(email.status).toBe("sent");
+        expect(email.externalId).toBe("email_msg_live_resend_991");
+
+        const sms = await sendChannelProviderMessage({
+          channel: "sms",
+          recipient: "+14155552671",
+          body: "Your verification code is 492019",
+          credentials: {
+            twilioAccountSid: "AC_live_123",
+            twilioAuthToken: "auth_token_456",
+          },
+        });
+        expect(sms.provider).toBe("twilio");
+        expect(sms.status).toBe("queued");
+        expect(sms.externalId).toBe("SM_twilio_live_882");
+
+        const ig = await sendChannelProviderMessage({
+          channel: "instagram",
+          recipient: "ig_recipient_123",
+          body: "Thank you for reaching out!",
+          credentials: { metaGraphAccessToken: "meta_token_789" },
+        });
+        expect(ig.provider).toBe("meta_graph_instagram");
+        expect(ig.status).toBe("sent");
+        expect(ig.externalId).toBe("ig_mid_live_773");
+
+        const group = await sendChannelProviderMessage({
+          channel: "whatsapp_group",
+          recipient: "group_trading_desk_12",
+          body: "Alert: Market volatility threshold triggered.",
+          credentials: {
+            whatsappAccessToken: "wa_token_abc",
+            whatsappPhoneNumberId: "phone_id_def",
+          },
+        });
+        expect(group.provider).toBe("whatsapp_cloud_group");
+        expect(group.status).toBe("sent");
+        expect(group.externalId).toBe("wamid.HBgL1726000GRP");
+
+        const webchat = await sendChannelProviderMessage({
+          channel: "webchat",
+          recipient: "session_123",
+          body: "Live agent online",
+        });
+        expect(webchat.provider).toBe("internal_websocket");
+        expect(webchat.status).toBe("delivered");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
   });
 
