@@ -11,11 +11,270 @@ import {
 import {
   createAutomationBridgeCookieHeader,
   readAutomationBridgeIdentity,
+  setAutomationBridgeServiceClientFactory,
 } from "@/lib/automation/bridge-auth";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createIntegrationConnection } from "@/lib/integrations/database";
 import { POST as j10AiTestPost } from "@/app/api/j10-ai/test/route";
 import { NextRequest } from "next/server";
 import { POST as continuePost } from "@/app/api/automation-runs/[runId]/continue/route";
+
+export type QueryLog = {
+  table: string;
+  op: "select" | "insert" | "update" | "delete";
+  filters: Record<string, unknown>;
+  sql: string;
+  params: unknown[];
+  rowCount: number;
+};
+
+export function createPgliteSupabaseAdapter(
+  db: PGlite,
+  queryLog?: QueryLog[]
+) {
+  return {
+    auth: {
+      admin: {
+        getUserById: async (userId: string) => {
+          const res = await db.query<{ id: string; email: string; created_at: string }>(
+            "SELECT id, email, created_at FROM auth.users WHERE id = $1",
+            [userId]
+          );
+          if (res.rows.length === 0) {
+            return { data: { user: null }, error: new Error("User not found") };
+          }
+          const u = res.rows[0];
+          return {
+            data: {
+              user: {
+                id: u.id,
+                email: u.email,
+                app_metadata: {},
+                user_metadata: {},
+                aud: "authenticated",
+                created_at: u.created_at,
+              },
+            },
+            error: null,
+          };
+        },
+      },
+      getUser: async () => ({ data: { user: null }, error: null }),
+    },
+    from: (table: string) => {
+      let op: "select" | "insert" | "update" | "delete" = "select";
+      let insertValues: Record<string, unknown> | Record<string, unknown>[] | null = null;
+      let updateValues: Record<string, unknown> | null = null;
+      const filters: { col: string; op: string; val: unknown }[] = [];
+      let orderClause: string | null = null;
+      let limitCount: number | null = null;
+      let isSingle = false;
+      let isMaybeSingle = false;
+
+      const builder = {
+        select: () => builder,
+        insert: (values: Record<string, unknown> | Record<string, unknown>[]) => {
+          op = "insert";
+          insertValues = values;
+          return builder;
+        },
+        update: (values: Record<string, unknown>) => {
+          op = "update";
+          updateValues = values;
+          return builder;
+        },
+        delete: () => {
+          op = "delete";
+          return builder;
+        },
+        eq: (col: string, val: unknown) => {
+          filters.push({ col, op: "=", val });
+          return builder;
+        },
+        neq: (col: string, val: unknown) => {
+          filters.push({ col, op: "!=", val });
+          return builder;
+        },
+        in: (col: string, vals: unknown[]) => {
+          filters.push({ col, op: "IN", val: vals });
+          return builder;
+        },
+        gte: (col: string, val: unknown) => {
+          filters.push({ col, op: ">=", val });
+          return builder;
+        },
+        lte: (col: string, val: unknown) => {
+          filters.push({ col, op: "<=", val });
+          return builder;
+        },
+        order: (col: string, options?: { ascending?: boolean }) => {
+          orderClause = `"${col}" ${options?.ascending === false ? "DESC" : "ASC"}`;
+          return builder;
+        },
+        limit: (count: number) => {
+          limitCount = count;
+          return builder;
+        },
+        single: () => {
+          isSingle = true;
+          return builder;
+        },
+        maybeSingle: () => {
+          isMaybeSingle = true;
+          return builder;
+        },
+        execute: async () => {
+          let sql = "";
+          const params: unknown[] = [];
+
+          if (op === "select") {
+            sql = `SELECT * FROM public."${table}"`;
+            if (filters.length > 0) {
+              const whereClauses: string[] = [];
+              for (const f of filters) {
+                if (f.op === "IN") {
+                  const inVals = Array.isArray(f.val) ? f.val : [f.val];
+                  if (inVals.length === 0) {
+                    whereClauses.push("false");
+                  } else {
+                    const inPlaceholders: string[] = [];
+                    for (const v of inVals) {
+                      inPlaceholders.push(`$${params.length + 1}`);
+                      params.push(v);
+                    }
+                    whereClauses.push(`"${f.col}" IN (${inPlaceholders.join(", ")})`);
+                  }
+                } else {
+                  whereClauses.push(`"${f.col}" ${f.op} $${params.length + 1}`);
+                  params.push(f.val);
+                }
+              }
+              sql += ` WHERE ${whereClauses.join(" AND ")}`;
+            }
+            if (orderClause) {
+              sql += ` ORDER BY ${orderClause}`;
+            }
+            if (limitCount !== null) {
+              sql += ` LIMIT ${limitCount}`;
+            }
+          } else if (op === "insert") {
+            const rowsToInsert = Array.isArray(insertValues) ? insertValues : [insertValues ?? {}];
+            if (rowsToInsert.length === 0) {
+              return { data: [], error: null };
+            }
+            const keys = Object.keys(rowsToInsert[0]);
+            const cols = keys.map((k) => `"${k}"`).join(", ");
+            const rowPlaceholders: string[] = [];
+            for (const row of rowsToInsert) {
+              const placeholders: string[] = [];
+              for (const k of keys) {
+                const v = row[k];
+                placeholders.push(`$${params.length + 1}`);
+                if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+                  params.push(JSON.stringify(v));
+                } else {
+                  params.push(v);
+                }
+              }
+              rowPlaceholders.push(`(${placeholders.join(", ")})`);
+            }
+            sql = `INSERT INTO public."${table}" (${cols}) VALUES ${rowPlaceholders.join(", ")} RETURNING *`;
+          } else if (op === "update") {
+            const keys = Object.keys(updateValues ?? {});
+            const setClauses: string[] = [];
+            for (const k of keys) {
+              const v = (updateValues as Record<string, unknown>)[k];
+              setClauses.push(`"${k}" = $${params.length + 1}`);
+              if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+                params.push(JSON.stringify(v));
+              } else {
+                params.push(v);
+              }
+            }
+            sql = `UPDATE public."${table}" SET ${setClauses.join(", ")}`;
+            if (filters.length > 0) {
+              const whereClauses: string[] = [];
+              for (const f of filters) {
+                if (f.op === "IN") {
+                  const inVals = Array.isArray(f.val) ? f.val : [f.val];
+                  if (inVals.length === 0) {
+                    whereClauses.push("false");
+                  } else {
+                    const inPlaceholders: string[] = [];
+                    for (const v of inVals) {
+                      inPlaceholders.push(`$${params.length + 1}`);
+                      params.push(v);
+                    }
+                    whereClauses.push(`"${f.col}" IN (${inPlaceholders.join(", ")})`);
+                  }
+                } else {
+                  whereClauses.push(`"${f.col}" ${f.op} $${params.length + 1}`);
+                  params.push(f.val);
+                }
+              }
+              sql += ` WHERE ${whereClauses.join(" AND ")}`;
+            }
+            sql += ` RETURNING *`;
+          }
+
+          try {
+            const res = await db.query(sql, params);
+            const rows = res.rows as Record<string, unknown>[];
+
+            if (queryLog) {
+              queryLog.push({
+                table,
+                op,
+                filters: Object.fromEntries(filters.map((f) => [f.col, f.val])),
+                sql,
+                params,
+                rowCount: rows.length,
+              });
+            }
+
+            if (isSingle) {
+              if (rows.length === 0) {
+                return { data: null, error: { message: "No rows returned", code: "PGRST116" } };
+              }
+              return { data: rows[0], error: null };
+            }
+            if (isMaybeSingle) {
+              return { data: rows[0] ?? null, error: null };
+            }
+            return { data: rows, error: null };
+          } catch (err: unknown) {
+            const errObj = err as { message?: string; code?: string };
+            if (queryLog) {
+              queryLog.push({
+                table,
+                op,
+                filters: Object.fromEntries(filters.map((f) => [f.col, f.val])),
+                sql,
+                params,
+                rowCount: 0,
+              });
+            }
+            return {
+              data: null,
+              error: {
+                message: errObj?.message ?? "Database query error",
+                code: errObj?.code ?? "UNKNOWN",
+              },
+            };
+          }
+        },
+        then: <TResult1 = unknown, TResult2 = never>(
+          onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
+          onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+        ) => {
+          return builder.execute().then(onfulfilled, onrejected);
+        },
+      };
+
+      return builder;
+    },
+  };
+}
 
 describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
   const migrationSql = readFileSync(
@@ -412,7 +671,12 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'active',
-        created_at TIMESTAMPTZ DEFAULT now()
+        successful_executions INT DEFAULT 0,
+        failed_executions INT DEFAULT 0,
+        awaiting_approval_executions INT DEFAULT 0,
+        last_run_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        updated_at TIMESTAMPTZ DEFAULT now()
       );
 
       CREATE TABLE IF NOT EXISTS public.automation_versions (
@@ -428,7 +692,58 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
         automation_id UUID NOT NULL REFERENCES public.automations(id) ON DELETE CASCADE,
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         user_id UUID REFERENCES auth.users(id),
+        automation_version_id UUID,
+        graph_snapshot JSONB,
+        trigger_type TEXT DEFAULT 'manual',
+        trigger_payload JSONB DEFAULT '{}'::jsonb,
         status TEXT NOT NULL DEFAULT 'queued',
+        current_step_order INT DEFAULT 1,
+        result_summary TEXT,
+        error_message TEXT,
+        execution_mode TEXT DEFAULT 'live',
+        api_called BOOLEAN DEFAULT false,
+        total_cost_usd NUMERIC(10,4) DEFAULT 0,
+        started_at TIMESTAMPTZ DEFAULT now(),
+        completed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS public.automation_steps (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        automation_id UUID NOT NULL REFERENCES public.automations(id) ON DELETE CASCADE,
+        step_order INT NOT NULL,
+        name TEXT,
+        step_type TEXT NOT NULL DEFAULT 'action',
+        action_type TEXT,
+        employee_id UUID,
+        employee_name TEXT,
+        task_type TEXT,
+        instructions TEXT,
+        config JSONB DEFAULT '{}'::jsonb,
+        requires_approval BOOLEAN DEFAULT false,
+        approval_type TEXT,
+        is_enabled BOOLEAN DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS public.automation_run_steps (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        run_id UUID NOT NULL REFERENCES public.automation_runs(id) ON DELETE CASCADE,
+        automation_id UUID NOT NULL REFERENCES public.automations(id) ON DELETE CASCADE,
+        automation_step_id UUID,
+        automation_version_id UUID,
+        graph_node_id TEXT,
+        user_id UUID REFERENCES auth.users(id),
+        step_order INT NOT NULL,
+        step_type TEXT NOT NULL DEFAULT 'action',
+        action_type TEXT,
+        employee_id UUID,
+        employee_name TEXT,
+        ai_task_id UUID,
+        status TEXT NOT NULL DEFAULT 'queued',
+        requires_approval BOOLEAN DEFAULT false,
+        approval_status TEXT NOT NULL DEFAULT 'not_required',
+        input_payload JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ DEFAULT now()
       );
 
@@ -1094,32 +1409,49 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
       [wsA, adminA, viewerA, wsB, adminB]
     );
 
-    // 1. Admin A creates integration in Workspace A
-    const rowRes = await db.query<{ id: string; workspace_id: string; user_id: string }>(
-      `INSERT INTO public.integrations (workspace_id, user_id, provider, status)
-       VALUES ($1, $2, 'whatsapp', 'pending')
-       RETURNING id, workspace_id, user_id`,
-      [wsA, adminA]
+    const adapter = createPgliteSupabaseAdapter(db);
+
+    // 1. Admin A creates integration in Workspace A using createIntegrationConnection through adapter
+    const created = await createIntegrationConnection(
+      adapter as unknown as SupabaseClient,
+      { workspaceId: wsA, actorUserId: adminA },
+      { providerId: "whatsapp-business" }
     );
-    expect(rowRes.rows[0].workspace_id).toBe(wsA);
-    expect(rowRes.rows[0].user_id).toBe(adminA);
+    expect(created.workspaceId).toBe(wsA);
+    expect(created.userId).toBe(adminA);
+    expect(created.providerId).toBe("whatsapp-business");
+    expect(created.status).toBe("pending");
+
+    // Verify row in underlying PGlite database
+    const dbCheck = await db.query<{ id: string; workspace_id: string; user_id: string; provider: string }>(
+      "SELECT id, workspace_id, user_id, provider FROM public.integrations WHERE id = $1",
+      [created.id]
+    );
+    expect(dbCheck.rows.length).toBe(1);
+    expect(dbCheck.rows[0].workspace_id).toBe(wsA);
+    expect(dbCheck.rows[0].user_id).toBe(adminA);
 
     // 2. createIntegrationConnection helper rejects actorUserId === workspaceId
-    const mockClient = {
-      from: () => ({ select: () => ({ eq: () => ({ in: () => ({ order: () => Promise.resolve({ data: [], error: null }) }) }) }) }),
-    };
     await expect(
       createIntegrationConnection(
-        mockClient as unknown as Parameters<typeof createIntegrationConnection>[0],
+        adapter as unknown as SupabaseClient,
         { workspaceId: wsA, actorUserId: wsA }, // Forbidden: workspaceId passed as actorUserId
-        { providerId: "whatsapp-business" }
+        { providerId: "google-calendar" }
       )
     ).rejects.toThrow("actorUserId must be an authenticated user identifier, not a workspace identifier.");
 
-    // 3. Duplicate provider in same workspace rejected by uniqueness constraint
+    // 3. Duplicate provider in same workspace rejected by helper and uniqueness constraint
+    await expect(
+      createIntegrationConnection(
+        adapter as unknown as SupabaseClient,
+        { workspaceId: wsA, actorUserId: adminA },
+        { providerId: "whatsapp-business" }
+      )
+    ).rejects.toThrow(/already registered/);
+
     await expect(
       db.query(
-        "INSERT INTO public.integrations (workspace_id, user_id, provider, status) VALUES ($1, $2, 'whatsapp', 'active')",
+        "INSERT INTO public.integrations (workspace_id, user_id, provider, status) VALUES ($1, $2, 'whatsapp-business', 'active')",
         [wsA, adminA]
       )
     ).rejects.toThrow();
@@ -1131,7 +1463,7 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
         SET LOCAL "request.jwt.claim.sub" = '${adminB}';
         SET LOCAL "request.jwt.claims" = '{"sub":"${adminB}","role":"authenticated"}';
       `);
-      const crossRes = await tx.query("SELECT * FROM public.integrations WHERE id = $1", [rowRes.rows[0].id]);
+      const crossRes = await tx.query("SELECT * FROM public.integrations WHERE id = $1", [created.id]);
       expect(crossRes.rows.length).toBe(0);
     });
 
@@ -1268,13 +1600,26 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
     const autoA = autoRes.rows[0].id;
     const autoB = autoRes.rows[1].id;
 
-    const runRes = await db.query<{ id: string }>(
-      `INSERT INTO public.automation_runs (automation_id, workspace_id, user_id, status)
-       VALUES ($1, $2, $3, 'queued')
+    // Seed run in Workspace A for user 1
+    const runARes = await db.query<{ id: string }>(
+      `INSERT INTO public.automation_runs (automation_id, workspace_id, user_id, status, current_step_order)
+       VALUES ($1, $2, $3, 'queued', 1)
+       RETURNING id`,
+      [autoA, wsA, u1]
+    );
+    const runA = runARes.rows[0].id;
+
+    // Seed run in Workspace B for user 2
+    const runBRes = await db.query<{ id: string }>(
+      `INSERT INTO public.automation_runs (automation_id, workspace_id, user_id, status, current_step_order)
+       VALUES ($1, $2, $3, 'queued', 1)
        RETURNING id`,
       [autoB, wsB, u2]
     );
-    const runB = runRes.rows[0].id;
+    const runB = runBRes.rows[0].id;
+
+    const queryLog: QueryLog[] = [];
+    const adapter = createPgliteSupabaseAdapter(db, queryLog);
 
     // Create a bridge cookie signed for Workspace A and Automation A
     const originalSecret = process.env.AUTOMATION_BRIDGE_SECRET;
@@ -1287,6 +1632,8 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "test_service_role_key_that_is_at_least_32_chars_long";
 
+    setAutomationBridgeServiceClientFactory(() => adapter as unknown as SupabaseClient);
+
     try {
       const cookieHeader = createAutomationBridgeCookieHeader(
         u1,
@@ -1295,39 +1642,80 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
         "evt_bridge_123"
       );
 
-      // Invoke the actual continuation handler with a Workspace A bridge credential and Workspace B run ID
-      const fakeReq = new NextRequest("http://localhost:3000/api/automation-runs/" + runB + "/continue", {
+      // 1. Demonstrate that a valid Workspace A credential can reach its own seeded run (runA)
+      const fakeReqA = new NextRequest("http://localhost:3000/api/automation-runs/" + runA + "/continue", {
         method: "POST",
         headers: { cookie: cookieHeader },
       });
 
-      const response = await continuePost(fakeReq, {
+      const responseA = await continuePost(fakeReqA, {
+        params: Promise.resolve({ runId: runA }),
+      });
+
+      // Explicitly fail on connection or authentication-configuration errors
+      if (responseA.status === 401) {
+        throw new Error("Authentication-configuration error: bridge credentials failed to authenticate user against database.");
+      }
+      if (responseA.status === 500) {
+        const bodyA = await responseA.json().catch(() => ({}));
+        throw new Error(`Database-connection error on runA continuation: ${JSON.stringify(bodyA)}`);
+      }
+      expect(responseA.status).toBe(200);
+
+      // Verify runA transitioned in the underlying PGlite database
+      const runAAfter = await db.query<{ status: string }>(
+        "SELECT status FROM public.automation_runs WHERE id = $1",
+        [runA]
+      );
+      expect(runAAfter.rows[0].status).toBe("completed");
+
+      // 2. Use that Workspace A credential against Workspace B's seeded run (runB)
+      const trackerBeforeB = queryLog.length;
+
+      const fakeReqB = new NextRequest("http://localhost:3000/api/automation-runs/" + runB + "/continue", {
+        method: "POST",
+        headers: { cookie: cookieHeader },
+      });
+
+      const responseB = await continuePost(fakeReqB, {
         params: Promise.resolve({ runId: runB }),
       });
 
-      // Assert denial: status is 401, 403, or 404
-      expect([401, 403, 404].includes(response.status)).toBe(true);
+      // A 401 or database-connection failure must not count as tenant-isolation evidence
+      if (responseB.status === 401) {
+        throw new Error("401 Unauthorized must not count as tenant-isolation evidence; auth configuration failed.");
+      }
+      if (responseB.status === 500) {
+        throw new Error("500 Internal Server Error must not count as tenant-isolation evidence; database connection failed.");
+      }
 
-      // Assert zero mutation on Workspace B run
-      const runAfter = await db.query<{ status: string }>(
+      // Require the intended authorization/not-found response (404 Not Found)
+      expect(responseB.status).toBe(404);
+      const bodyB = await responseB.json();
+      expect(bodyB.error).toBe("Workflow execution not found.");
+
+      // Prove the lookup reached the database with the correct workspace and automation scope
+      const queriesForB = queryLog.slice(trackerBeforeB).filter((q) => q.table === "automation_runs" && q.op === "select");
+      expect(queriesForB.length).toBeGreaterThan(0);
+      const lookupQuery = queriesForB[0];
+      expect(lookupQuery.filters.id).toBe(runB);
+      expect(lookupQuery.filters.workspace_id).toBe(wsA);
+      expect(lookupQuery.filters.automation_id).toBe(autoA);
+      expect(lookupQuery.rowCount).toBe(0);
+
+      // Assert zero mutation on Workspace B run in that same database
+      const runBAfter = await db.query<{ status: string }>(
         "SELECT status FROM public.automation_runs WHERE id = $1",
         [runB]
       );
-      expect(runAfter.rows[0].status).toBe("queued");
+      expect(runBAfter.rows[0].status).toBe("queued");
 
-      const identity = readAutomationBridgeIdentity(fakeReq);
+      const identity = readAutomationBridgeIdentity(fakeReqB);
       expect(identity).not.toBeNull();
       expect(identity?.workspaceId).toBe(wsA);
       expect(identity?.automationId).toBe(autoA);
-
-      // Supplement with direct query verification: query scoped to bridge identity (wsA, autoA) returns 0 rows for runB
-      const lookupResult = await db.query(
-        `SELECT id FROM public.automation_runs
-         WHERE id = $1 AND workspace_id = $2 AND automation_id = $3`,
-        [runB, identity!.workspaceId, identity!.automationId]
-      );
-      expect(lookupResult.rows.length).toBe(0);
     } finally {
+      setAutomationBridgeServiceClientFactory(null);
       if (originalSecret !== undefined) {
         process.env.AUTOMATION_BRIDGE_SECRET = originalSecret;
       } else {

@@ -474,7 +474,21 @@ export function hasAutomationBridgeCookie(
   );
 }
 
-export function createAutomationBridgeServiceClient() {
+type AutomationBridgeServiceClientFactory = () => SupabaseClient;
+
+let customBridgeServiceClientFactory: AutomationBridgeServiceClientFactory | null = null;
+
+export function setAutomationBridgeServiceClientFactory(
+  factory: AutomationBridgeServiceClientFactory | null,
+) {
+  customBridgeServiceClientFactory = factory;
+}
+
+export function createAutomationBridgeServiceClient(): SupabaseClient {
+  if (customBridgeServiceClientFactory) {
+    return customBridgeServiceClientFactory();
+  }
+
   const supabaseUrl =
     process.env
       .NEXT_PUBLIC_SUPABASE_URL
