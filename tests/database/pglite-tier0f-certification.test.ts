@@ -14,6 +14,8 @@ import {
 } from "@/lib/automation/bridge-auth";
 import { createIntegrationConnection } from "@/lib/integrations/database";
 import { POST as j10AiTestPost } from "@/app/api/j10-ai/test/route";
+import { NextRequest } from "next/server";
+import { POST as continuePost } from "@/app/api/automation-runs/[runId]/continue/route";
 
 describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
   const migrationSql = readFileSync(
@@ -70,8 +72,8 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-        role TEXT NOT NULL DEFAULT 'viewer',
-        status TEXT NOT NULL DEFAULT 'active',
+        role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('owner', 'admin', 'manager', 'agent', 'viewer')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'invited', 'suspended', 'removed')),
         created_at TIMESTAMPTZ DEFAULT now(),
         updated_at TIMESTAMPTZ DEFAULT now(),
         CONSTRAINT uq_ws_member UNIQUE (workspace_id, user_id)
@@ -89,10 +91,10 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
       CREATE TABLE IF NOT EXISTS public.workspace_subscriptions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-        plan_id TEXT NOT NULL DEFAULT 'growth',
-        status TEXT NOT NULL DEFAULT 'active',
-        monthly_message_limit INT NOT NULL DEFAULT 10000,
-        messages_used_this_period INT NOT NULL DEFAULT 0,
+        plan_id TEXT NOT NULL DEFAULT 'starter' CHECK (plan_id IN ('starter', 'growth', 'enterprise')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'trialing', 'past_due', 'canceled', 'unpaid', 'none')),
+        monthly_message_limit INT NOT NULL DEFAULT 1000 CHECK (monthly_message_limit >= 0),
+        messages_used_this_period INT NOT NULL DEFAULT 0 CHECK (messages_used_this_period >= 0),
         current_period_start TIMESTAMPTZ NOT NULL DEFAULT now(),
         current_period_end TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '30 days'),
         grace_period_end TIMESTAMPTZ,
@@ -123,6 +125,23 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
             AND role = ANY(allowed_roles)
         );
       $$;
+
+      ALTER TABLE public.workspace_memberships ENABLE ROW LEVEL SECURITY;
+      DROP POLICY IF EXISTS "memberships_select_member" ON public.workspace_memberships;
+      CREATE POLICY "memberships_select_member" ON public.workspace_memberships
+        FOR SELECT TO authenticated
+        USING (user_id = auth.uid() OR public.is_workspace_member(workspace_id));
+      DROP POLICY IF EXISTS "memberships_insert_privileged" ON public.workspace_memberships;
+      CREATE POLICY "memberships_insert_privileged" ON public.workspace_memberships
+        FOR INSERT TO authenticated
+        WITH CHECK (
+          public.has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
+          OR (
+            NOT EXISTS (SELECT 1 FROM public.workspace_memberships wm WHERE wm.workspace_id = workspace_id)
+            AND user_id = auth.uid()
+            AND role = 'owner'
+          )
+        );
 
       ALTER TABLE public.workspace_subscriptions ENABLE ROW LEVEL SECURITY;
       DROP POLICY IF EXISTS "workspace_subscriptions_select_member" ON public.workspace_subscriptions;
@@ -178,6 +197,16 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
         payload JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ DEFAULT now()
       );
+
+      ALTER TABLE public.webhook_events ENABLE ROW LEVEL SECURITY;
+      DROP POLICY IF EXISTS "webhook_events_select_member" ON public.webhook_events;
+      CREATE POLICY "webhook_events_select_member" ON public.webhook_events
+        FOR SELECT TO authenticated
+        USING (workspace_id IS NULL OR public.is_workspace_member(workspace_id));
+      DROP POLICY IF EXISTS "webhook_events_service_role_all" ON public.webhook_events;
+      CREATE POLICY "webhook_events_service_role_all" ON public.webhook_events
+        FOR ALL TO service_role
+        USING (true) WITH CHECK (true);
 
       CREATE TABLE IF NOT EXISTS public.inbox_threads (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -432,41 +461,152 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
     return db;
   }
 
-  it("1. Apply repaired 20260917 successfully", async () => {
+  it("1. Apply repaired 20260917 twice: proves idempotency, founder internal grant, unverified de-entitlement, and CRM preservation", async () => {
     const db = await createBaselineDb();
 
-    // Insert sample founder and normal workspace
-    const userRes = await db.query<{ id: string }>(
-      "INSERT INTO auth.users (email) VALUES ('founder@j10.test'), ('client@j10.test') RETURNING id"
+    // 1. Seed users: founder, client (non-founder owner), secondary viewer
+    const userRes = await db.query<{ id: string; email: string }>(
+      `INSERT INTO auth.users (email) VALUES
+       ('founder@j10.test'),
+       ('client@j10.test'),
+       ('viewer@j10.test')
+       RETURNING id, email`
     );
-    const founderId = userRes.rows[0].id;
-    const clientId = userRes.rows[1].id;
+    const founderId = userRes.rows.find((u) => u.email === "founder@j10.test")!.id;
+    const clientId = userRes.rows.find((u) => u.email === "client@j10.test")!.id;
+    const viewerId = userRes.rows.find((u) => u.email === "viewer@j10.test")!.id;
 
-    // Founder workspace and client workspace
-    const wsRes = await db.query<{ id: string }>(
+    // Platform founder role in platform_roles
+    await db.query(
+      "INSERT INTO public.platform_roles (user_id, role) VALUES ($1, 'platform_founder')",
+      [founderId]
+    );
+
+    // 2. Workspaces: Founder HQ (founder-owned) and Client Org (non-founder)
+    const wsRes = await db.query<{ id: string; slug: string }>(
       `INSERT INTO public.workspaces (name, slug, owner_user_id)
        VALUES ('Founder HQ', 'founder-hq', $1), ('Client Org', 'client-org', $2)
-       RETURNING id`,
+       RETURNING id, slug`,
       [founderId, clientId]
     );
-    const founderWsId = wsRes.rows[0].id;
-    const clientWsId = wsRes.rows[1].id;
+    const founderWsId = wsRes.rows.find((w) => w.slug === "founder-hq")!.id;
+    const clientWsId = wsRes.rows.find((w) => w.slug === "client-org")!.id;
 
-    // Subscriptions
+    // 3. Memberships:
+    // - Founder owner membership in Founder HQ
+    // - Client owner membership in Client Org
+    // - Secondary viewer membership in Client Org
     await db.query(
-      `INSERT INTO public.workspace_subscriptions (workspace_id, status, monthly_message_limit)
-       VALUES ($1, 'active', 100000), ($2, 'active', 5000)`,
+      `INSERT INTO public.workspace_memberships (workspace_id, user_id, role, status) VALUES
+       ($1, $2, 'owner', 'active'),
+       ($3, $4, 'owner', 'active'),
+       ($3, $5, 'viewer', 'active')`,
+      [founderWsId, founderId, clientWsId, clientId, viewerId]
+    );
+
+    // 4. Subscriptions:
+    // - Founder active subscription without Stripe ID (will receive internal_grant)
+    // - Client active unverified subscription without Stripe ID (will become non-entitled: provenance='none', status='none')
+    await db.query(
+      `INSERT INTO public.workspace_subscriptions (workspace_id, plan_id, status, monthly_message_limit)
+       VALUES ($1, 'growth', 'active', 100000), ($2, 'starter', 'active', 5000)`,
       [founderWsId, clientWsId]
     );
 
-    // Apply the migration
+    // 5. CRM records with non-null fields
+    // Canonical contacts row in founder workspace
+    await db.query(
+      `INSERT INTO public.contacts (
+         workspace_id, name, email, phone, company, deal_stage, estimated_value
+       ) VALUES ($1, 'George Washington', 'george@mountvernon.org', '+17035550100', 'Mount Vernon', 'lead', 50000.00)`,
+      [founderWsId]
+    );
+
+    // Legacy crm_contacts row in client workspace
+    await db.query(
+      `INSERT INTO public.crm_contacts (
+         workspace_id, first_name, last_name, email, phone, company, job_title, type, status, estimated_value, notes
+       ) VALUES ($1, 'Alexander', 'Hamilton', 'alex@treasury.gov', '+12125550100', 'Treasury Corp', 'Secretary', 'Lead', 'Qualified', 75000.00, 'VIP Founding Note')`,
+      [clientWsId]
+    );
+
+    // Execute the complete migration twice
+    await expect(db.exec(migrationSql)).resolves.not.toThrow();
     await expect(db.exec(migrationSql)).resolves.not.toThrow();
 
-    // Verify subscriptions table has provenance column
-    const subRes = await db.query<{ provenance: string; workspace_id: string }>(
-      "SELECT workspace_id, provenance FROM public.workspace_subscriptions"
+    // Prove 1: Founder ownership and membership remain unchanged
+    const founderWs = await db.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM public.workspaces WHERE id = $1",
+      [founderWsId]
     );
-    expect(subRes.rows.length).toBe(2);
+    expect(founderWs.rows[0].owner_user_id).toBe(founderId);
+
+    const founderMem = await db.query<{ role: string; status: string }>(
+      "SELECT role, status FROM public.workspace_memberships WHERE workspace_id = $1 AND user_id = $2",
+      [founderWsId, founderId]
+    );
+    expect(founderMem.rows[0].role).toBe("owner");
+    expect(founderMem.rows[0].status).toBe("active");
+
+    // Prove 2: Secondary viewer membership is preserved
+    const viewerMem = await db.query<{ role: string; status: string }>(
+      "SELECT role, status FROM public.workspace_memberships WHERE workspace_id = $1 AND user_id = $2",
+      [clientWsId, viewerId]
+    );
+    expect(viewerMem.rows[0].role).toBe("viewer");
+    expect(viewerMem.rows[0].status).toBe("active");
+
+    // Prove 3: Founder subscription receives internal_grant and remains active
+    const founderSub = await db.query<{ provenance: string; status: string; plan_id: string }>(
+      "SELECT provenance, status, plan_id FROM public.workspace_subscriptions WHERE workspace_id = $1",
+      [founderWsId]
+    );
+    expect(founderSub.rows[0].provenance).toBe("internal_grant");
+    expect(founderSub.rows[0].status).toBe("active");
+
+    // Prove 4: Unverified subscription becomes non-entitled (provenance='none', status='none')
+    const clientSub = await db.query<{ provenance: string; status: string; plan_id: string }>(
+      "SELECT provenance, status, plan_id FROM public.workspace_subscriptions WHERE workspace_id = $1",
+      [clientWsId]
+    );
+    expect(clientSub.rows[0].provenance).toBe("none");
+    expect(clientSub.rows[0].status).toBe("none");
+
+    // Prove 5: CRM records and non-null fields are preserved
+    const contactsRes = await db.query<{
+      name: string;
+      email: string;
+      phone: string;
+      company: string;
+      estimated_value: number;
+      notes?: string;
+    }>(
+      "SELECT name, email, phone, company, estimated_value, notes FROM public.contacts ORDER BY name"
+    );
+    expect(contactsRes.rows.length).toBe(2);
+
+    const alex = contactsRes.rows.find((c) => c.email === "alex@treasury.gov");
+    expect(alex).toBeDefined();
+    expect(alex?.name).toBe("Alexander Hamilton");
+    expect(alex?.phone).toBe("+12125550100");
+    expect(alex?.company).toBe("Treasury Corp");
+    expect(alex?.notes).toBe("VIP Founding Note");
+    expect(Number(alex?.estimated_value)).toBe(75000.00);
+
+    const george = contactsRes.rows.find((c) => c.email === "george@mountvernon.org");
+    expect(george).toBeDefined();
+    expect(george?.phone).toBe("+17035550100");
+    expect(george?.company).toBe("Mount Vernon");
+    expect(Number(george?.estimated_value)).toBe(50000.00);
+
+    // Archive table preserved
+    const archiveRes = await db.query<{ first_name: string; phone: string; company: string }>(
+      "SELECT first_name, phone, company FROM public.crm_contacts_legacy_archive_tier0f WHERE email = 'alex@treasury.gov'"
+    );
+    expect(archiveRes.rows.length).toBe(1);
+    expect(archiveRes.rows[0].first_name).toBe("Alexander");
+    expect(archiveRes.rows[0].phone).toBe("+12125550100");
+    expect(archiveRes.rows[0].company).toBe("Treasury Corp");
   });
 
   it("2. Apply it a second time successfully (idempotency)", async () => {
@@ -494,17 +634,33 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
     await expect(db.exec(migrationSql)).resolves.not.toThrow();
   });
 
-  it("3. Apply it when webhook_events_tenant_select already exists", async () => {
+  it("3. Test documented pre-existing webhook policy transition and idempotent rerun", async () => {
     const db = await createBaselineDb();
 
-    // Pre-create the policy as happened in remote environment
+    // Baseline starts with documented pre-existing webhook policies from 20260913:
+    // - "webhook_events_select_member" USING (workspace_id IS NULL OR public.is_workspace_member(workspace_id))
+    // - "webhook_events_service_role_all" USING (auth.role() = 'service_role')
+    // We also test if webhook_events_tenant_select already exists before migration:
     await db.exec(`
-      ALTER TABLE public.webhook_events ENABLE ROW LEVEL SECURITY;
+      DROP POLICY IF EXISTS "webhook_events_tenant_select" ON public.webhook_events;
       CREATE POLICY "webhook_events_tenant_select" ON public.webhook_events FOR SELECT
-        TO authenticated USING (workspace_id IS NOT NULL);
+        TO authenticated USING (workspace_id IS NOT NULL AND public.is_workspace_member(workspace_id));
     `);
 
     // Applying migration must tolerate it and succeed
+    await expect(db.exec(migrationSql)).resolves.not.toThrow();
+
+    // Verify security assertion: no SELECT policy permits NULL workspace_id
+    const policies = await db.query<{ policyname: string; qual: string }>(
+      `SELECT policyname, qual FROM pg_policies
+       WHERE tablename = 'webhook_events' AND cmd = 'SELECT'`
+    );
+    expect(policies.rows.length).toBeGreaterThan(0);
+    for (const pol of policies.rows) {
+      expect(pol.qual).not.toContain("workspace_id IS NULL");
+    }
+
+    // Applying migration a second time succeeds idempotently
     await expect(db.exec(migrationSql)).resolves.not.toThrow();
   });
 
@@ -904,75 +1060,128 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
     });
   });
 
-  it("10. Test integration creation with correct workspace and actor IDs", async () => {
+  it("10. Test integration creation with correct workspace and actor IDs across two workspaces and viewer denial", async () => {
     const db = await createBaselineDb();
     await db.exec(migrationSql);
 
-    const userRes = await db.query<{ id: string }>(
-      "INSERT INTO auth.users (email) VALUES ('actor_user@test.com') RETURNING id"
+    const userRes = await db.query<{ id: string; email: string }>(
+      `INSERT INTO auth.users (email) VALUES
+       ('admin_a@test.com'),
+       ('viewer_a@test.com'),
+       ('admin_b@test.com')
+       RETURNING id, email`
     );
-    const actorUserId = userRes.rows[0].id;
-    const wsRes = await db.query<{ id: string }>(
-      "INSERT INTO public.workspaces (name, slug, owner_user_id) VALUES ('Integ WS', 'integ-actor-ws', $1) RETURNING id",
-      [actorUserId]
-    );
-    const workspaceId = wsRes.rows[0].id;
+    const adminA = userRes.rows.find((u) => u.email === "admin_a@test.com")!.id;
+    const viewerA = userRes.rows.find((u) => u.email === "viewer_a@test.com")!.id;
+    const adminB = userRes.rows.find((u) => u.email === "admin_b@test.com")!.id;
 
-    // Database row correctly stores workspace_id and user_id (actor)
+    const wsRes = await db.query<{ id: string; slug: string }>(
+      `INSERT INTO public.workspaces (name, slug, owner_user_id) VALUES
+       ('Integ WS A', 'integ-ws-a', $1),
+       ('Integ WS B', 'integ-ws-b', $2)
+       RETURNING id, slug`,
+      [adminA, adminB]
+    );
+    const wsA = wsRes.rows.find((w) => w.slug === "integ-ws-a")!.id;
+    const wsB = wsRes.rows.find((w) => w.slug === "integ-ws-b")!.id;
+
+    // Memberships: Admin A (admin, wsA), Viewer A (viewer, wsA), Admin B (admin, wsB)
+    await db.query(
+      `INSERT INTO public.workspace_memberships (workspace_id, user_id, role, status) VALUES
+       ($1, $2, 'admin', 'active'),
+       ($1, $3, 'viewer', 'active'),
+       ($4, $5, 'admin', 'active')`,
+      [wsA, adminA, viewerA, wsB, adminB]
+    );
+
+    // 1. Admin A creates integration in Workspace A
     const rowRes = await db.query<{ id: string; workspace_id: string; user_id: string }>(
       `INSERT INTO public.integrations (workspace_id, user_id, provider, status)
        VALUES ($1, $2, 'whatsapp', 'pending')
        RETURNING id, workspace_id, user_id`,
-      [workspaceId, actorUserId]
+      [wsA, adminA]
     );
-    expect(rowRes.rows[0].workspace_id).toBe(workspaceId);
-    expect(rowRes.rows[0].user_id).toBe(actorUserId);
+    expect(rowRes.rows[0].workspace_id).toBe(wsA);
+    expect(rowRes.rows[0].user_id).toBe(adminA);
 
-    // Mock client to test TypeScript helper rejection of actorUserId === workspaceId
+    // 2. createIntegrationConnection helper rejects actorUserId === workspaceId
     const mockClient = {
       from: () => ({ select: () => ({ eq: () => ({ in: () => ({ order: () => Promise.resolve({ data: [], error: null }) }) }) }) }),
     };
-
     await expect(
       createIntegrationConnection(
         mockClient as unknown as Parameters<typeof createIntegrationConnection>[0],
-        { workspaceId, actorUserId: workspaceId }, // Forbidden: workspaceId passed as actorUserId
+        { workspaceId: wsA, actorUserId: wsA }, // Forbidden: workspaceId passed as actorUserId
         { providerId: "whatsapp-business" }
       )
     ).rejects.toThrow("actorUserId must be an authenticated user identifier, not a workspace identifier.");
 
-    // Duplicate provider in same workspace rejected by uniqueness constraint
+    // 3. Duplicate provider in same workspace rejected by uniqueness constraint
     await expect(
       db.query(
         "INSERT INTO public.integrations (workspace_id, user_id, provider, status) VALUES ($1, $2, 'whatsapp', 'active')",
-        [workspaceId, actorUserId]
+        [wsA, adminA]
       )
     ).rejects.toThrow();
+
+    // 4. Cross-workspace access rejection: Admin B querying Workspace A integration gets 0 rows
+    await db.transaction(async (tx) => {
+      await tx.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${adminB}';
+        SET LOCAL "request.jwt.claims" = '{"sub":"${adminB}","role":"authenticated"}';
+      `);
+      const crossRes = await tx.query("SELECT * FROM public.integrations WHERE id = $1", [rowRes.rows[0].id]);
+      expect(crossRes.rows.length).toBe(0);
+    });
+
+    // 5. Viewer mutation denial: Viewer A in Workspace A attempting to insert an integration is denied by RLS
+    await db.transaction(async (tx) => {
+      await tx.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${viewerA}';
+        SET LOCAL "request.jwt.claims" = '{"sub":"${viewerA}","role":"authenticated"}';
+      `);
+      await expect(
+        tx.query(
+          "INSERT INTO public.integrations (workspace_id, user_id, provider, status) VALUES ($1, $2, 'slack', 'pending')",
+          [wsA, viewerA]
+        )
+      ).rejects.toThrow();
+    });
   });
 
-  it("11. Test webhook credential isolation", async () => {
+  it("11. Test webhook credential isolation and viewer denial across workspaces", async () => {
     const db = await createBaselineDb();
     await db.exec(migrationSql);
 
-    const uRes = await db.query<{ id: string }>(
-      "INSERT INTO auth.users (email) VALUES ('ws_a_admin@test.com'), ('ws_b_admin@test.com') RETURNING id"
+    const uRes = await db.query<{ id: string; email: string }>(
+      `INSERT INTO auth.users (email) VALUES
+       ('ws_a_admin@test.com'),
+       ('ws_a_viewer@test.com'),
+       ('ws_b_admin@test.com')
+       RETURNING id, email`
     );
-    const adminA = uRes.rows[0].id;
-    const adminB = uRes.rows[1].id;
+    const adminA = uRes.rows.find((u) => u.email === "ws_a_admin@test.com")!.id;
+    const viewerA = uRes.rows.find((u) => u.email === "ws_a_viewer@test.com")!.id;
+    const adminB = uRes.rows.find((u) => u.email === "ws_b_admin@test.com")!.id;
 
-    const wsRes = await db.query<{ id: string }>(
-      `INSERT INTO public.workspaces (name, slug, owner_user_id)
-       VALUES ('WS Alpha Corp', 'ws-alpha-corp', $1), ('WS Beta Corp', 'ws-beta-corp', $2)
-       RETURNING id`,
+    const wsRes = await db.query<{ id: string; slug: string }>(
+      `INSERT INTO public.workspaces (name, slug, owner_user_id) VALUES
+       ('WS Alpha Corp', 'ws-alpha-corp', $1),
+       ('WS Beta Corp', 'ws-beta-corp', $2)
+       RETURNING id, slug`,
       [adminA, adminB]
     );
-    const wsA = wsRes.rows[0].id;
-    const wsB = wsRes.rows[1].id;
+    const wsA = wsRes.rows.find((w) => w.slug === "ws-alpha-corp")!.id;
+    const wsB = wsRes.rows.find((w) => w.slug === "ws-beta-corp")!.id;
 
     await db.query(
-      `INSERT INTO public.workspace_memberships (workspace_id, user_id, role, status)
-       VALUES ($1, $2, 'admin', 'active'), ($3, $4, 'admin', 'active')`,
-      [wsA, adminA, wsB, adminB]
+      `INSERT INTO public.workspace_memberships (workspace_id, user_id, role, status) VALUES
+       ($1, $2, 'admin', 'active'),
+       ($1, $3, 'viewer', 'active'),
+       ($4, $5, 'admin', 'active')`,
+      [wsA, adminA, viewerA, wsB, adminB]
     );
 
     // Integration in Workspace A
@@ -994,7 +1203,21 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
       );
     });
 
-    // Admin B in Workspace B attempts to retrieve Workspace A credentials: rejected with Forbidden
+    // 1. Admin A can retrieve credentials
+    await db.transaction(async (tx) => {
+      await tx.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${adminA}';
+      `);
+      const creds = await tx.query<{ encrypted_payload: string }>(
+        "SELECT encrypted_payload FROM public.get_integration_credential_envelope($1)",
+        [integA]
+      );
+      expect(creds.rows.length).toBe(1);
+      expect(creds.rows[0].encrypted_payload).toBe("top_secret_a");
+    });
+
+    // 2. Admin B in Workspace B attempts to retrieve Workspace A credentials: rejected with Forbidden
     await db.transaction(async (tx) => {
       await tx.exec(`
         SET LOCAL ROLE authenticated;
@@ -1004,9 +1227,20 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
         tx.query("SELECT * FROM public.get_integration_credential_envelope($1)", [integA])
       ).rejects.toThrow(/Forbidden/);
     });
+
+    // 3. Viewer in Workspace A attempts to retrieve credentials: rejected with Forbidden
+    await db.transaction(async (tx) => {
+      await tx.exec(`
+        SET LOCAL ROLE authenticated;
+        SET LOCAL "request.jwt.claim.sub" = '${viewerA}';
+      `);
+      await expect(
+        tx.query("SELECT * FROM public.get_integration_credential_envelope($1)", [integA])
+      ).rejects.toThrow(/Forbidden/);
+    });
   });
 
-  it("12. Test automation bridge cross-tenant rejection", async () => {
+  it("12. Test automation bridge cross-tenant rejection via continuation handler", async () => {
     const db = await createBaselineDb();
     await db.exec(migrationSql);
 
@@ -1045,8 +1279,13 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
     // Create a bridge cookie signed for Workspace A and Automation A
     const originalSecret = process.env.AUTOMATION_BRIDGE_SECRET;
     const originalKey = process.env.J10_INTEGRATION_ENCRYPTION_KEY;
+    const originalUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const originalRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
     process.env.AUTOMATION_BRIDGE_SECRET = "test_bridge_secret_at_least_32_characters_long_for_security";
     process.env.J10_INTEGRATION_ENCRYPTION_KEY = "test_bridge_secret_at_least_32_characters_long_for_security";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "test_service_role_key_that_is_at_least_32_chars_long";
 
     try {
       const cookieHeader = createAutomationBridgeCookieHeader(
@@ -1056,16 +1295,32 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
         "evt_bridge_123"
       );
 
-      const fakeReq = new Request("http://localhost:3000/api/automation-runs/" + runB + "/continue", {
+      // Invoke the actual continuation handler with a Workspace A bridge credential and Workspace B run ID
+      const fakeReq = new NextRequest("http://localhost:3000/api/automation-runs/" + runB + "/continue", {
+        method: "POST",
         headers: { cookie: cookieHeader },
       });
+
+      const response = await continuePost(fakeReq, {
+        params: Promise.resolve({ runId: runB }),
+      });
+
+      // Assert denial: status is 401, 403, or 404
+      expect([401, 403, 404].includes(response.status)).toBe(true);
+
+      // Assert zero mutation on Workspace B run
+      const runAfter = await db.query<{ status: string }>(
+        "SELECT status FROM public.automation_runs WHERE id = $1",
+        [runB]
+      );
+      expect(runAfter.rows[0].status).toBe("queued");
 
       const identity = readAutomationBridgeIdentity(fakeReq);
       expect(identity).not.toBeNull();
       expect(identity?.workspaceId).toBe(wsA);
       expect(identity?.automationId).toBe(autoA);
 
-      // Verify that query bound to bridge token (wsA, autoA) CANNOT find Run B (which belongs to wsB, autoB)
+      // Supplement with direct query verification: query scoped to bridge identity (wsA, autoA) returns 0 rows for runB
       const lookupResult = await db.query(
         `SELECT id FROM public.automation_runs
          WHERE id = $1 AND workspace_id = $2 AND automation_id = $3`,
@@ -1082,6 +1337,16 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
         process.env.J10_INTEGRATION_ENCRYPTION_KEY = originalKey;
       } else {
         delete process.env.J10_INTEGRATION_ENCRYPTION_KEY;
+      }
+      if (originalUrl !== undefined) {
+        process.env.NEXT_PUBLIC_SUPABASE_URL = originalUrl;
+      } else {
+        delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+      }
+      if (originalRoleKey !== undefined) {
+        process.env.SUPABASE_SERVICE_ROLE_KEY = originalRoleKey;
+      } else {
+        delete process.env.SUPABASE_SERVICE_ROLE_KEY;
       }
     }
   });
@@ -1107,7 +1372,7 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
     }
   });
 
-  it("14. Test concurrent quota exhaustion", async () => {
+  it("14. Sequential quota exhaustion test", async () => {
     const db = await createBaselineDb();
     await db.exec(migrationSql);
 
@@ -1134,7 +1399,7 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
       [wsId]
     );
 
-    // Run 5 sequential increments of 1 each in transactions (representing concurrent requests)
+    // Run 5 sequential increments of 1 each in transactions
     const results = [];
     for (let i = 0; i < 5; i++) {
       const r = await db.transaction(async (tx) => {
@@ -1214,7 +1479,7 @@ describe("Tier 0F PostgreSQL Database Certification (PGlite)", () => {
     expect(res.action).toBe("quarantined_unknown_price");
   });
 
-  it("16. Test concurrent lead idempotency", async () => {
+  it("16. Sequential lead idempotency test", async () => {
     const db = await createBaselineDb();
     await db.exec(migrationSql);
 

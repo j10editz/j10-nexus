@@ -356,7 +356,7 @@ ALTER TABLE public.workspace_subscriptions
 
 -- Deactivate unverified subscriptions (provenance = none)
 UPDATE public.workspace_subscriptions
-SET status = 'inactive',
+SET status = 'none',
     updated_at = now()
 WHERE provenance = 'none'
   AND status IN ('active', 'trialing');
