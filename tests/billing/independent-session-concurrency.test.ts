@@ -116,7 +116,7 @@ describe("Tier 0G: Independent Session Concurrency & Pre-Reservation Verificatio
 
     const mockSupabase = {
       rpc: async (fn: string, params: any) => {
-        if (fn === "record_verified_workspace_usage") {
+        if (fn === "reserve_workspace_quota_atomic") {
           const qty = params.p_quantity;
           if (currentUsage + qty > monthlyLimit) {
             return {
@@ -129,10 +129,20 @@ describe("Tier 0G: Independent Session Concurrency & Pre-Reservation Verificatio
             };
           }
           currentUsage += qty;
+          const resId = params.p_reservation_id;
+          reservations[resId] = {
+            id: `res-pk-${Date.now()}`,
+            reservation_id: resId,
+            workspace_id: params.p_workspace_id,
+            metric_name: params.p_metric_name,
+            quantity: qty,
+            status: "reserved",
+          };
           return {
             data: {
               success: true,
               record_id: "rec-res-123",
+              quantity_reserved: qty,
               messages_used_this_period: currentUsage,
               monthly_message_limit: monthlyLimit,
               remaining: monthlyLimit - currentUsage,
@@ -143,8 +153,37 @@ describe("Tier 0G: Independent Session Concurrency & Pre-Reservation Verificatio
           };
         }
         if (fn === "release_workspace_quota_atomic") {
-          // If RPC not available, error will trigger client-side fallback
-          return { data: null, error: { message: "RPC not deployed" } };
+          const resId = params.p_reservation_id;
+          const res = reservations[resId];
+          if (!res) {
+            return { data: { success: false, error: "Reservation not found" }, error: null };
+          }
+          if (res.workspace_id !== params.p_workspace_id) {
+            return {
+              data: { success: false, error: "Reservation ownership mismatch" },
+              error: null,
+            };
+          }
+          if (res.status === "released") {
+            return {
+              data: {
+                success: true,
+                idempotent: true,
+                messages_used_this_period: currentUsage,
+              },
+              error: null,
+            };
+          }
+          res.status = "released";
+          currentUsage -= res.quantity;
+          return {
+            data: {
+              success: true,
+              idempotent: false,
+              messages_used_this_period: currentUsage,
+            },
+            error: null,
+          };
         }
         throw new Error(`Unexpected RPC ${fn}`);
       },

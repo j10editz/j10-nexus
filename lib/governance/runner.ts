@@ -297,6 +297,7 @@ export async function executeGovernedAgentTask(
   }
 
   // 3. Atomically reserve estimated budget before execution
+  const reservationId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const estimatedPreExecutionCost = 0.05;
   const budget = await evaluateBudgetAllowance(input.workspaceId, input.agentId, estimatedPreExecutionCost);
   if (!budget.canExecute) {
@@ -304,8 +305,18 @@ export async function executeGovernedAgentTask(
       `Agent execution blocked by budget policy: ${budget.actionRequired}. Daily limit reached.`
     );
   }
-  // Atomically lock the pre-reservation spend into budget ledger
-  await recordAgentExecutionSpend(input.workspaceId, input.agentId, estimatedPreExecutionCost);
+  // Atomically lock the pre-reservation spend into budget ledger and verify admission result
+  const admission = await recordAgentExecutionSpend(
+    input.workspaceId,
+    input.agentId,
+    estimatedPreExecutionCost,
+    reservationId
+  );
+  if (!admission.success || !admission.canExecute) {
+    throw new Error(
+      `Agent execution blocked by budget policy: spend admission denied.`
+    );
+  }
 
   // 4. Model route decision
   const route = selectGovernedModel({
@@ -362,6 +373,13 @@ export async function executeGovernedAgentTask(
         latencyMs,
         error: String(primaryError),
       });
+      // Refund pre-reserved budget
+      await recordAgentExecutionSpend(
+        input.workspaceId,
+        input.agentId,
+        -estimatedPreExecutionCost,
+        reservationId
+      );
       throw primaryError;
     }
 
@@ -397,6 +415,13 @@ export async function executeGovernedAgentTask(
         usedFallback: true,
         error: String(fallbackError),
       });
+      // Refund pre-reserved budget
+      await recordAgentExecutionSpend(
+        input.workspaceId,
+        input.agentId,
+        -estimatedPreExecutionCost,
+        reservationId
+      );
       throw fallbackError;
     }
   }
@@ -432,7 +457,12 @@ export async function executeGovernedAgentTask(
   // Reconcile spend against pre-reserved budget
   const spendAdjustment = costUsd - estimatedPreExecutionCost;
   if (spendAdjustment !== 0) {
-    await recordAgentExecutionSpend(input.workspaceId, input.agentId, spendAdjustment);
+    await recordAgentExecutionSpend(
+      input.workspaceId,
+      input.agentId,
+      spendAdjustment,
+      reservationId
+    );
   }
 
   return {

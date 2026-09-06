@@ -125,64 +125,47 @@ export async function recordSpend(
   workspaceId: string,
   agentId: string,
   costUsd: number,
+  reservationIdOrClient?: string | any,
   client?: any
 ): Promise<{ success: boolean; canExecute: boolean; newDailySpendUsd?: number }> {
   if (costUsd === 0) {
     return { success: true, canExecute: true };
   }
 
-  const supabase = client || createServerSupabaseClient();
+  let reservationId: string | undefined;
+  let supabase = client;
+  if (typeof reservationIdOrClient === "string") {
+    reservationId = reservationIdOrClient;
+  } else if (reservationIdOrClient && typeof reservationIdOrClient === "object" && "rpc" in reservationIdOrClient) {
+    supabase = reservationIdOrClient;
+  }
+  supabase = supabase || createServerSupabaseClient();
 
-  // 1. Attempt atomic database RPC
-  try {
-    const { data: rpcData, error: rpcErr } = await supabase.rpc("record_agent_execution_spend_atomic", {
-      p_workspace_id: workspaceId,
-      p_agent_id: agentId,
-      p_cost_usd: costUsd,
-    });
+  const { data: rpcData, error: rpcErr } = await supabase.rpc("record_agent_execution_spend_atomic", {
+    p_workspace_id: workspaceId,
+    p_agent_id: agentId,
+    p_cost_usd: costUsd,
+    p_reservation_id: reservationId ?? null,
+  });
 
-    if (!rpcErr && rpcData) {
-      if (rpcData.can_execute === false) {
-        return { success: false, canExecute: false };
-      }
-      return {
-        success: true,
-        canExecute: true,
-        newDailySpendUsd: Number(rpcData.daily_spend_usd || 0),
-      };
-    }
-  } catch {
-    // Fall back to client query
+  if (rpcErr) {
+    throw new Error(`Failed to record agent execution spend: ${rpcErr.message}`);
   }
 
-  // 2. Client fallback with atomic admission check and update error verification
-  const budget = await getAgentBudget(workspaceId, agentId, supabase);
-
-  // Enforce atomic budget admission check before committing positive spend
-  if (costUsd > 0 && budget.dailyBudgetUsd > 0 && (budget.currentDailySpendUsd + costUsd) > budget.dailyBudgetUsd) {
-    if (budget.overBudgetPolicy === "hard_stop") {
-      return { success: false, canExecute: false };
-    }
+  const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+  if (!row || row.success === false || row.can_execute === false) {
+    return {
+      success: false,
+      canExecute: false,
+      newDailySpendUsd: Number(row?.daily_spend_usd ?? row?.current_daily_spend ?? 0),
+    };
   }
 
-  const newDaily = Math.max(0, budget.currentDailySpendUsd + costUsd);
-  const newMonthly = Math.max(0, budget.currentMonthlySpendUsd + costUsd);
-
-  const { error: updateErr } = await supabase
-    .from("ai_agent_budgets")
-    .update({
-      current_daily_spend_usd: newDaily,
-      current_monthly_spend_usd: newMonthly,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("workspace_id", workspaceId)
-    .eq("agent_id", agentId);
-
-  if (updateErr) {
-    throw new Error(`Failed to record agent execution spend: ${updateErr.message}`);
-  }
-
-  return { success: true, canExecute: true, newDailySpendUsd: newDaily };
+  return {
+    success: true,
+    canExecute: true,
+    newDailySpendUsd: Number(row.daily_spend_usd ?? 0),
+  };
 }
 
 export const recordAgentExecutionSpend = recordSpend;

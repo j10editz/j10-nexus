@@ -418,6 +418,7 @@ export interface QuotaReservationResult {
 
 /**
  * Atomically reserves quota BEFORE executing a billable external action.
+ * Invokes reserve_workspace_quota_atomic RPC in one single transaction.
  * Throws BillingRequiredError if quota is insufficient or subscription is inactive.
  */
 export async function reserveWorkspaceQuota(
@@ -428,54 +429,92 @@ export async function reserveWorkspaceQuota(
     options.reservationId ||
     `res-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-  const res = await recordVerifiedWorkspaceUsage(supabase, {
-    workspaceId: options.workspaceId,
-    metricName: options.metricName,
-    quantity: options.quantity,
-    idempotencyKey: reservationId,
-    resourceId: options.resourceId || reservationId,
-    actorUserId: options.actorUserId,
-    metadata: {
-      isPreReservation: true,
-      reservationId,
-      ...(options.metadata || {}),
-    },
+  const { data, error } = await supabase.rpc("reserve_workspace_quota_atomic", {
+    p_workspace_id: options.workspaceId,
+    p_metric_name: options.metricName,
+    p_quantity: options.quantity,
+    p_reservation_id: reservationId,
+    p_resource_id: options.resourceId || reservationId,
+    p_actor_user_id: options.actorUserId || null,
+    p_metadata: options.metadata || {},
   });
 
-  // Track reservation in database-backed reservations table
-  try {
-    await supabase
-      .from("workspace_quota_reservations")
-      .insert({
-        reservation_id: reservationId,
-        workspace_id: options.workspaceId,
-        metric_name: options.metricName,
-        quantity: options.quantity,
-        status: "reserved",
-        resource_id: options.resourceId || reservationId,
-        actor_user_id: options.actorUserId || null,
-        metadata: options.metadata || {},
-      });
-  } catch {
-    // Ignore if table not yet migrated
+  if (error) {
+    throw new Error(
+      `Failed to reserve workspace quota for workspace ${options.workspaceId}: ${error.message}`
+    );
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || row.success === false) {
+    throw new BillingRequiredError(
+      row?.error || `Failed to reserve quota for workspace ${options.workspaceId}`,
+      row?.limit_reached ? "USAGE_LIMIT_REACHED" : "USAGE_RESERVATION_FAILED"
+    );
   }
 
   return {
     success: true,
     reservationId,
-    recordId: res.recordId,
-    quantityReserved: options.quantity,
-    newUsage: res.newUsage,
-    remainingQuota: res.remaining,
-    monthlyLimit: res.limit,
-    isExceeded: res.isExceeded,
-    idempotent: res.idempotent,
+    recordId: row.record_id,
+    quantityReserved: row.quantity_reserved ?? options.quantity,
+    newUsage: row.messages_used_this_period ?? 0,
+    remainingQuota: row.remaining ?? 0,
+    monthlyLimit: row.monthly_message_limit ?? 0,
+    isExceeded: Boolean(row.is_exceeded),
+    idempotent: Boolean(row.idempotent),
+  };
+}
+
+/**
+ * Atomically settles a previously reserved quota.
+ * Invokes settle_workspace_quota_atomic RPC with quantity reconciliation.
+ */
+export async function settleWorkspaceQuota(
+  supabase: SupabaseClient,
+  options: {
+    workspaceId: string;
+    reservationId: string;
+    actualQuantity?: number;
+    metadata?: Record<string, unknown>;
+  }
+): Promise<{ success: boolean; reservationId: string; settledQuantity: number; newUsage: number; idempotent?: boolean }> {
+  if (!options.workspaceId || options.workspaceId.trim() === "") {
+    throw new Error("workspaceId is required to settle workspace quota.");
+  }
+  if (!options.reservationId || options.reservationId.trim() === "") {
+    throw new Error("reservationId is required to settle workspace quota.");
+  }
+
+  const { data, error } = await supabase.rpc("settle_workspace_quota_atomic", {
+    p_workspace_id: options.workspaceId,
+    p_reservation_id: options.reservationId,
+    p_actual_quantity: options.actualQuantity ?? null,
+    p_metadata: options.metadata || {},
+  });
+
+  if (error) {
+    throw new Error(`Failed to settle workspace quota: ${error.message}`);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || row.success === false) {
+    throw new Error(row?.error || "Failed to settle workspace quota");
+  }
+
+  return {
+    success: true,
+    reservationId: options.reservationId,
+    settledQuantity: row.settled_quantity ?? options.actualQuantity ?? 0,
+    newUsage: row.messages_used_this_period ?? 0,
+    idempotent: Boolean(row.idempotent),
   };
 }
 
 /**
  * Releases or refunds previously reserved quota if an action fails.
- * Enforces single-use release, workspace ownership validation, and write error handling.
+ * Enforces single-use release, caller authority, and single-transaction ledger compensation.
+ * Never reports success after ignored database errors.
  */
 export async function releaseWorkspaceQuota(
   supabase: SupabaseClient,
@@ -490,105 +529,30 @@ export async function releaseWorkspaceQuota(
     throw new Error("workspaceId is required to release workspace quota.");
   }
 
-  // 1. Attempt atomic database release via RPC if available
-  try {
-    const { data: rpcData, error: rpcErr } = await supabase.rpc("release_workspace_quota_atomic", {
-      p_workspace_id: options.workspaceId,
-      p_reservation_id: options.reservationId || "",
-      p_reason: options.reason || "execution_failure",
-    });
-
-    if (!rpcErr && rpcData && rpcData.success !== false) {
-      return {
-        success: true,
-        newUsage: rpcData.messages_used_this_period ?? 0,
-        idempotent: Boolean(rpcData.idempotent),
-      };
-    }
-  } catch {
-    // Fall back to direct client-side query pattern with strict checks
+  if (!options.reservationId || options.reservationId.trim() === "") {
+    throw new Error("reservationId is required to release workspace quota.");
   }
 
-  // 2. Client-side fallback with strict single-use and ownership checks:
-  if (options.reservationId) {
-    const { data: resRow, error: resErr } = await supabase
-      .from("workspace_quota_reservations")
-      .select("*")
-      .eq("reservation_id", options.reservationId)
-      .maybeSingle();
+  const { data: rpcData, error: rpcErr } = await supabase.rpc("release_workspace_quota_atomic", {
+    p_workspace_id: options.workspaceId,
+    p_reservation_id: options.reservationId,
+    p_reason: options.reason || "execution_failure",
+  });
 
-    if (resErr) {
-      throw new Error(`Failed to query reservation: ${resErr.message}`);
-    }
-
-    if (resRow) {
-      // Workspace ownership check
-      if (resRow.workspace_id !== options.workspaceId) {
-        throw new Error("Reservation ownership mismatch: reservation does not belong to this workspace.");
-      }
-
-      // Single-use check: If already released, return existing usage without decrementing twice
-      if (resRow.status === "released") {
-        const { data: existingSub } = await supabase
-          .from("workspace_subscriptions")
-          .select("messages_used_this_period")
-          .eq("workspace_id", options.workspaceId)
-          .single();
-        return {
-          success: true,
-          newUsage: existingSub?.messages_used_this_period || 0,
-          idempotent: true,
-        };
-      }
-
-      // Mark reservation as released
-      const { error: markErr } = await supabase
-        .from("workspace_quota_reservations")
-        .update({
-          status: "released",
-          updated_at: new Date().toISOString(),
-          metadata: {
-            ...(resRow.metadata || {}),
-            release_reason: options.reason || "execution_failure",
-          },
-        })
-        .eq("id", resRow.id);
-
-      if (markErr) {
-        throw new Error(`Failed to update reservation status: ${markErr.message}`);
-      }
-    }
+  if (rpcErr) {
+    throw new Error(`Failed to release workspace quota: ${rpcErr.message}`);
   }
 
-  // 3. Atomically update subscription usage and handle write errors
-  const { data: sub, error: subErr } = await supabase
-    .from("workspace_subscriptions")
-    .select("id, messages_used_this_period")
-    .eq("workspace_id", options.workspaceId)
-    .single();
-
-  if (subErr || !sub) {
-    throw new Error(`Failed to retrieve workspace subscription: ${subErr?.message || "Not found"}`);
+  const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+  if (!row || row.success === false) {
+    throw new Error(row?.error || "Failed to release workspace quota");
   }
 
-  const updatedUsage = Math.max(
-    0,
-    (sub.messages_used_this_period || 0) - options.quantity
-  );
-
-  const { error: updateErr } = await supabase
-    .from("workspace_subscriptions")
-    .update({
-      messages_used_this_period: updatedUsage,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", sub.id);
-
-  if (updateErr) {
-    throw new Error(`Failed to update workspace subscription usage: ${updateErr.message}`);
-  }
-
-  return { success: true, newUsage: updatedUsage, idempotent: false };
+  return {
+    success: true,
+    newUsage: row.messages_used_this_period ?? 0,
+    idempotent: Boolean(row.idempotent),
+  };
 }
 
 /**

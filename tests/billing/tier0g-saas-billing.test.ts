@@ -540,55 +540,33 @@ describe("Tier 0G: SaaS Billing & Subscription Architecture", () => {
       let reservationStatus = "reserved";
 
       const mockSupabase = {
-        from: (table: string) => {
-          if (table === "workspace_quota_reservations") {
-            return {
-              select: () => ({
-                eq: () => ({
-                  maybeSingle: async () => ({
-                    data: {
-                      id: "res-uuid-1",
-                      reservation_id: "res-12345",
-                      workspace_id: "ws-atomic-1",
-                      metric_name: "whatsapp_outbound",
-                      quantity: 5,
-                      status: reservationStatus,
-                    },
-                    error: null,
-                  }),
-                }),
-              }),
-              update: (payload: any) => ({
-                eq: async () => {
-                  reservationStatus = payload.status;
-                  return { error: null };
+        rpc: async (fn: string, params: any) => {
+          if (fn === "release_workspace_quota_atomic") {
+            if (params.p_workspace_id !== "ws-atomic-1" || params.p_reservation_id !== "res-12345") {
+              return { data: { success: false, error: "Not found" }, error: null };
+            }
+            if (reservationStatus === "released") {
+              return {
+                data: {
+                  success: true,
+                  idempotent: true,
+                  messages_used_this_period: currentUsage,
                 },
-              }),
+                error: null,
+              };
+            }
+            reservationStatus = "released";
+            currentUsage -= 5;
+            return {
+              data: {
+                success: true,
+                idempotent: false,
+                messages_used_this_period: currentUsage,
+              },
+              error: null,
             };
           }
-          if (table === "workspace_subscriptions") {
-            return {
-              select: () => ({
-                eq: () => ({
-                  single: async () => ({
-                    data: {
-                      id: "sub-1",
-                      workspace_id: "ws-atomic-1",
-                      messages_used_this_period: currentUsage,
-                    },
-                    error: null,
-                  }),
-                }),
-              }),
-              update: (payload: any) => ({
-                eq: async () => {
-                  currentUsage = payload.messages_used_this_period;
-                  return { error: null };
-                },
-              }),
-            };
-          }
-          throw new Error(`Unexpected table ${table}`);
+          throw new Error(`Unexpected RPC ${fn}`);
         },
       } as unknown as SupabaseClient;
 
@@ -623,26 +601,20 @@ describe("Tier 0G: SaaS Billing & Subscription Architecture", () => {
 
     it("proves releaseWorkspaceQuota validates workspace ownership", async () => {
       const mockSupabase = {
-        from: (table: string) => {
-          if (table === "workspace_quota_reservations") {
-            return {
-              select: () => ({
-                eq: () => ({
-                  maybeSingle: async () => ({
-                    data: {
-                      id: "res-uuid-2",
-                      reservation_id: "res-other-tenant",
-                      workspace_id: "ws-tenant-victim",
-                      quantity: 10,
-                      status: "reserved",
-                    },
-                    error: null,
-                  }),
-                }),
-              }),
-            };
+        rpc: async (fn: string, params: any) => {
+          if (fn === "release_workspace_quota_atomic") {
+            if (params.p_workspace_id !== "ws-tenant-victim") {
+              return {
+                data: {
+                  success: false,
+                  error: "Reservation ownership mismatch",
+                },
+                error: null,
+              };
+            }
+            return { data: { success: true }, error: null };
           }
-          throw new Error(`Unexpected table ${table}`);
+          throw new Error(`Unexpected RPC ${fn}`);
         },
       } as unknown as SupabaseClient;
 
@@ -657,28 +629,14 @@ describe("Tier 0G: SaaS Billing & Subscription Architecture", () => {
 
     it("proves releaseWorkspaceQuota throws when database update fails", async () => {
       const mockSupabase = {
-        from: (table: string) => {
-          if (table === "workspace_subscriptions") {
+        rpc: async (fn: string) => {
+          if (fn === "release_workspace_quota_atomic") {
             return {
-              select: () => ({
-                eq: () => ({
-                  single: async () => ({
-                    data: {
-                      id: "sub-1",
-                      messages_used_this_period: 20,
-                    },
-                    error: null,
-                  }),
-                }),
-              }),
-              update: () => ({
-                eq: async () => ({
-                  error: { message: "connection timeout" },
-                }),
-              }),
+              data: null,
+              error: { message: "connection timeout" },
             };
           }
-          throw new Error(`Unexpected table ${table}`);
+          throw new Error(`Unexpected RPC ${fn}`);
         },
       } as unknown as SupabaseClient;
 
@@ -686,8 +644,9 @@ describe("Tier 0G: SaaS Billing & Subscription Architecture", () => {
         releaseWorkspaceQuota(mockSupabase, {
           workspaceId: "ws-atomic-err",
           quantity: 2,
+          reservationId: "res-err-1",
         })
-      ).rejects.toThrow("Failed to update workspace subscription usage: connection timeout");
+      ).rejects.toThrow("Failed to release workspace quota: connection timeout");
     });
 
     it("proves recordSpend enforces atomic admission and processes downward spend adjustment", async () => {

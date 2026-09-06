@@ -145,6 +145,48 @@ function createMockClient() {
 
       return builder;
     }),
+    rpc: vi.fn(async (fn: string, params: any) => {
+      if (fn === "record_agent_execution_spend_atomic") {
+        const budget = (mockStore.ai_agent_budgets || []).find(
+          (b: any) => b.workspace_id === params.p_workspace_id && b.agent_id === params.p_agent_id
+        ) || {
+          daily_budget_usd: 10.0,
+          monthly_budget_usd: 100.0,
+          current_daily_spend_usd: 0,
+          current_monthly_spend_usd: 0,
+          over_budget_policy: "hard_stop",
+        };
+        const cost = params.p_cost_usd || 0;
+        const currentDaily = Number(budget.current_daily_spend_usd || 0);
+        const dailyLimit = Number(budget.daily_budget_usd || 10.0);
+        if (cost > 0 && currentDaily + cost > dailyLimit) {
+          return {
+            data: {
+              success: false,
+              can_execute: false,
+              policy: budget.over_budget_policy || "hard_stop",
+              reason: `Agent daily budget exceeded: limit $${dailyLimit}, requested $${cost}, current $${currentDaily}`,
+            },
+            error: null,
+          };
+        }
+        budget.current_daily_spend_usd = Math.max(0, currentDaily + cost);
+        budget.current_monthly_spend_usd = Math.max(
+          0,
+          Number(budget.current_monthly_spend_usd || 0) + cost
+        );
+        return {
+          data: {
+            success: true,
+            can_execute: true,
+            daily_spend_usd: budget.current_daily_spend_usd,
+            monthly_spend_usd: budget.current_monthly_spend_usd,
+          },
+          error: null,
+        };
+      }
+      throw new Error(`Unexpected RPC ${fn}`);
+    }),
   };
   return client;
 }

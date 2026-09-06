@@ -15,7 +15,7 @@ Status values:
 | Tier 0G | Workspace Subscriptions & Checkout | /dashboard/settings/billing | app/api/billing/checkout/route.ts, app/api/billing/subscription/route.ts | public.workspace_subscriptions, Stripe Checkout API | tests/billing/subscription-api.test.ts | Locally Verified |
 | Tier 0G | Single-Use Free Trial Enforcement | /dashboard/settings/billing | app/api/billing/trial/route.ts | public.workspace_subscriptions (has_used_trial) | tests/billing/tier0g-saas-billing.test.ts | Locally Verified |
 | Tier 0G | Plan Entitlements & Feature Flags | /dashboard/settings/billing | lib/billing/entitlements.ts (isWorkspaceFeatureEntitled, assertWorkspaceFeature) | public.workspace_subscriptions, lib/billing/plans.ts | tests/billing/entitlements.test.ts | Locally Verified |
-| Tier 0G | Quota Pre-Reservation & Atomic Deductions | /dashboard/settings/billing | lib/billing/entitlements.ts (reserveWorkspaceQuota, releaseWorkspaceQuota) | public.workspace_quota_reservations, record_verified_workspace_usage RPC | tests/billing/tier0g-saas-billing.test.ts | Locally Verified |
+| Tier 0G | Quota Pre-Reservation & Atomic Deductions | /dashboard/settings/billing | lib/billing/entitlements.ts (reserveWorkspaceQuota, settleWorkspaceQuota, releaseWorkspaceQuota) | public.workspace_quota_reservations, reserve_workspace_quota_atomic, settle_workspace_quota_atomic, release_workspace_quota_atomic RPCs | tests/billing/tier0g-saas-billing.test.ts, tests/billing/reservation-lifecycle.test.ts | Locally Verified |
 | Tier 0G | Stripe Customer Portal & Payment Recovery | /dashboard/settings/billing | app/api/billing/portal/route.ts | Stripe Billing Portal API, customer session | tests/billing/subscription-api.test.ts | Locally Verified |
 | Tier 0G | Dunning Lifecycle & Grace Period Enforcement | /dashboard/settings/billing | lib/billing/dunning.ts, app/api/webhooks/stripe/route.ts | public.workspace_subscriptions (dunning_status, grace_period_end) | tests/billing/stripe-webhook.test.ts | Locally Verified |
 | Tier 0G | Verified Usage with Concurrent Transaction Locks | /dashboard/settings/billing | app/api/billing/usage/route.ts, lib/billing/entitlements.ts | public.workspace_usage_records, PostgreSQL FOR UPDATE locking | tests/billing/independent-session-concurrency.test.ts | Blocked (Multi-session PostgreSQL database required; PGlite is single-instance in Node) |
@@ -40,7 +40,7 @@ Status values:
 | Tier 4 | Route-Connected Agent Budget Enforcement | /dashboard/ai-employees | app/api/ai-tasks/[id]/run/route.ts, lib/governance/budgets.ts | public.ai_agent_budgets | tests/governance/actual-routes-governance.test.ts | Locally Verified |
 | Tier 4 | Model & Provider Passthrough to Inference | /dashboard/ai-employees | lib/ai/runtime.ts, lib/ai/providers/gemini.ts, lib/ai/providers/openai.ts | Google Gemini API, OpenAI API | tests/governance/tier4-governance.test.ts | Locally Verified |
 | Tier 4 | Provider Usage Capture vs Labeled Estimates | /dashboard/ai-employees | lib/governance/runner.ts (executeGovernedAgentTask) | public.ai_agent_traces, public.ai_agent_trace_steps | tests/governance/actual-routes-governance.test.ts | Locally Verified |
-| Tier 4 | Atomic Spend Pre-Reservation Before Execution | /dashboard/ai-employees | lib/governance/runner.ts, lib/governance/budgets.ts | public.ai_agent_budgets, record_agent_execution_spend_atomic RPC | tests/governance/actual-routes-governance.test.ts | Locally Verified |
+| Tier 4 | Atomic Spend Pre-Reservation Before Execution | /dashboard/ai-employees | lib/governance/runner.ts, lib/governance/budgets.ts | public.ai_agent_budgets, record_agent_execution_spend_atomic RPC | tests/governance/actual-routes-governance.test.ts, tests/billing/reservation-lifecycle.test.ts | Locally Verified |
 | Tier 4 | Single-Use Payload-Bound Human Approval Gates | /dashboard/notifications | app/api/governance/approvals/route.ts, lib/governance/runner.ts | public.ai_agent_approval_gates | tests/governance/actual-routes-governance.test.ts | Locally Verified |
 | Tier 4 | Versioned Autonomous Evaluations | /dashboard/ai-employees | app/api/governance/evals/route.ts, lib/governance/evals.ts | public.ai_agent_evaluations, public.ai_agent_versions | tests/governance/tier4-governance.test.ts | Locally Verified |
 | Tier 4 | Genuine ROI Attribution (Won Deals vs Labor) | /dashboard/overview | app/api/governance/roi/route.ts, lib/governance/roi.ts | public.ai_agent_roi_attributions | tests/governance/actual-routes-governance.test.ts | Locally Verified |
@@ -127,3 +127,19 @@ WHERE table_schema = 'public'
 3. WhatsApp Cloud API Live Webhook: Meta webhook subscription and permanent system user access token must be registered in Meta Developer Portal.
 4. Hosting SSL Certificate Authority: Vercel or Cloudflare custom domain certificate API integration required to transition custom domain SSL from pending to verified.
 5. Multi-Client PostgreSQL Connection Pooling: Independent concurrent transaction verification requires a live PostgreSQL instance with connection pooling.
+
+## Supported Omnichannel Metrics Specification
+
+The platform explicitly defines and meters exactly 9 production channels mapped in SUPPORTED_CHANNEL_METRICS:
+- whatsapp: whatsapp_outbound
+- whatsapp_group: whatsapp_group_outbound
+- sms: sms_outbound
+- email: email_outbound
+- instagram: instagram_outbound
+- messenger: messenger_outbound
+- webchat: webchat_outbound
+- website: website_outbound
+- crm: crm_outbound
+
+Channels outside this list (including Telegram, LINE, WeChat, Viber, and RCS) are not supported or substituted. Any dispatch attempt targeting an unsupported channel halts pre-reservation with an explicit error before external provider invocation.
+
