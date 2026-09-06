@@ -38,6 +38,7 @@ import {
 import type {
   InboxChannel,
   InboxDealStage,
+  InboxMessage,
   InboxThread,
 } from "@/types/inbox";
 
@@ -51,6 +52,11 @@ export default function UnifiedInboxPage() {
   const [priorityOnly, setPriorityOnly] = useState(false);
   const [isLivePersisted, setIsLivePersisted] = useState(false);
   const [isLoadingThreads, setIsLoadingThreads] = useState(true);
+
+  // Omnichannel states
+  const [slaFilter, setSlaFilter] = useState<"all" | "warning" | "breached">("all");
+  const [dispatchChannel, setDispatchChannel] = useState<InboxChannel>("whatsapp");
+  const [isLockOverridden, setIsLockOverridden] = useState(false);
 
   // Message reply composer state
   const [replyBody, setReplyBody] = useState("");
@@ -122,14 +128,27 @@ export default function UnifiedInboxPage() {
     return threads.find((t) => t.id === selectedThreadId) || threads[0] || null;
   }, [threads, selectedThreadId]);
 
+  useEffect(() => {
+    if (activeThread?.channel) {
+      setDispatchChannel(activeThread.channel);
+      setIsLockOverridden(false);
+    }
+  }, [activeThread?.id, activeThread?.channel]);
+
   const filteredThreads = useMemo(() => {
-    return filterInboxThreads(threads, {
+    let result = filterInboxThreads(threads, {
       channel: channelFilter,
       stage: stageFilter,
       search: searchQuery,
       priorityOnly,
     });
-  }, [threads, channelFilter, stageFilter, searchQuery, priorityOnly]);
+    if (slaFilter === "breached") {
+      result = result.filter((t) => t.slaStatus === "breached");
+    } else if (slaFilter === "warning") {
+      result = result.filter((t) => t.slaStatus === "warning");
+    }
+    return result;
+  }, [threads, channelFilter, stageFilter, searchQuery, priorityOnly, slaFilter]);
 
   const totalUnread = useMemo(() => {
     return threads.reduce((sum, t) => sum + t.unreadCount, 0);
@@ -169,22 +188,55 @@ export default function UnifiedInboxPage() {
   async function handleSendReply() {
     if (!activeThread || !replyBody.trim()) return;
 
+    // Collision Check: If locked by another user and not overridden, abort
+    if (
+      activeThread.lock?.isLocked &&
+      !activeThread.lock?.isHeldByMe &&
+      !isLockOverridden
+    ) {
+      setStatusNotice(
+        `Collision Prevented: Thread is currently locked by ${activeThread.lock.lockedByUserName || "another operator"}. Click Override Lock to proceed.`,
+      );
+      return;
+    }
+
     setIsSending(true);
     const textToSend = replyBody.trim();
+    const targetChannel = dispatchChannel || activeThread.channel;
+
     try {
       if (isLivePersisted) {
-        const res = await fetch(`/api/inbox/threads/${activeThread.id}/messages`, {
+        const res = await fetch("/api/omnichannel/dispatch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            body: textToSend,
-            direction: "outbound",
-            agentName: "Sarah Chen (Sales Specialist)",
+            threadId: activeThread.id,
+            channel: targetChannel,
+            recipient: activeThread.contactIdentifier,
+            content: textToSend,
+            forceLockOverride: isLockOverridden,
           }),
         });
+
         const data = await res.json();
-        if (data.success && data.message) {
-          const newMsg = data.message;
+        if (res.status === 409) {
+          setStatusNotice(data.error || "Collision lock conflict.");
+          return;
+        }
+
+        if (data.success) {
+          const newMsg: InboxMessage = {
+            id: data.messageId || `msg-${Date.now()}`,
+            threadId: activeThread.id,
+            direction: "outbound",
+            sender: "agent",
+            senderName: "Sarah Chen (Sales Specialist)",
+            body: textToSend,
+            timestamp: new Date().toISOString(),
+            status: "sent",
+            channel: targetChannel,
+          };
+
           setThreads((prev) =>
             prev.map((t) =>
               t.id === activeThread.id
@@ -193,12 +245,15 @@ export default function UnifiedInboxPage() {
                     lastMessageSnippet: textToSend,
                     lastMessageTimestamp: newMsg.timestamp,
                     messages: [...t.messages, newMsg],
+                    slaStatus: "healthy",
                   }
                 : t,
             ),
           );
           setReplyBody("");
-          setStatusNotice("Message delivered and persisted to database");
+          setStatusNotice(
+            `Message dispatched via ${CHANNEL_METADATA[targetChannel].label}`,
+          );
           setTimeout(() => setStatusNotice(""), 3000);
           return;
         }
@@ -212,7 +267,7 @@ export default function UnifiedInboxPage() {
 
       setThreads((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
       setReplyBody("");
-      setStatusNotice("Message delivered across channel");
+      setStatusNotice(`Message dispatched via ${CHANNEL_METADATA[targetChannel].label}`);
       setTimeout(() => setStatusNotice(""), 3000);
     } finally {
       setIsSending(false);
@@ -396,51 +451,36 @@ export default function UnifiedInboxPage() {
         <div className="flex flex-col border-r border-white/[0.08] bg-[#0C0D10] lg:col-span-4 xl:col-span-3">
           {/* Channel Selector Tabs */}
           <div className="border-b border-white/[0.08] p-3">
-            <div className="grid grid-cols-4 gap-1 rounded-lg bg-black/40 p-1">
-              <button
-                type="button"
-                onClick={() => setChannelFilter("all")}
-                className={`rounded-md py-1.5 text-center text-xs font-medium transition ${
-                  channelFilter === "all"
-                    ? "bg-white/15 text-white shadow-sm"
-                    : "text-white/40 hover:text-white/80"
-                }`}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                onClick={() => setChannelFilter("whatsapp")}
-                className={`rounded-md py-1.5 text-center text-xs font-medium transition ${
-                  channelFilter === "whatsapp"
-                    ? "bg-emerald-500/20 text-emerald-300 shadow-sm"
-                    : "text-white/40 hover:text-white/80"
-                }`}
-              >
-                WhatsApp
-              </button>
-              <button
-                type="button"
-                onClick={() => setChannelFilter("website")}
-                className={`rounded-md py-1.5 text-center text-xs font-medium transition ${
-                  channelFilter === "website"
-                    ? "bg-cyan-500/20 text-cyan-300 shadow-sm"
-                    : "text-white/40 hover:text-white/80"
-                }`}
-              >
-                Web
-              </button>
-              <button
-                type="button"
-                onClick={() => setChannelFilter("crm")}
-                className={`rounded-md py-1.5 text-center text-xs font-medium transition ${
-                  channelFilter === "crm"
-                    ? "bg-violet-500/20 text-violet-300 shadow-sm"
-                    : "text-white/40 hover:text-white/80"
-                }`}
-              >
-                CRM
-              </button>
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 text-xs">
+              {(
+                [
+                  { id: "all", label: "All" },
+                  { id: "whatsapp", label: "WhatsApp" },
+                  { id: "email", label: "Email" },
+                  { id: "sms", label: "SMS" },
+                  { id: "webchat", label: "WebChat" },
+                  { id: "instagram", label: "Instagram" },
+                  { id: "messenger", label: "Messenger" },
+                  { id: "whatsapp_group", label: "Groups" },
+                  { id: "crm", label: "CRM" },
+                ] as const
+              ).map((tab) => {
+                const isSelected = channelFilter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setChannelFilter(tab.id as any)}
+                    className={`shrink-0 rounded-md px-2.5 py-1 text-center text-xs font-medium transition ${
+                      isSelected
+                        ? "bg-white/15 text-white shadow-sm"
+                        : "text-white/40 hover:text-white/80"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Search Input */}
@@ -458,20 +498,32 @@ export default function UnifiedInboxPage() {
               />
             </div>
 
-            {/* Stage Quick Filter */}
-            <div className="mt-2.5 flex items-center justify-between">
-              <select
-                value={stageFilter}
-                onChange={(e) => setStageFilter(e.target.value as any)}
-                className="rounded-md border border-white/[0.08] bg-black/50 px-2 py-1 text-[11px] text-white/70 focus:outline-none"
-              >
-                <option value="all">All Deal Stages</option>
-                <option value="lead">Lead</option>
-                <option value="qualified">Qualified</option>
-                <option value="proposal">Proposal</option>
-                <option value="won">Closed Won</option>
-                <option value="churned">Churned</option>
-              </select>
+            {/* Stage and SLA Quick Filters */}
+            <div className="mt-2.5 flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={stageFilter}
+                  onChange={(e) => setStageFilter(e.target.value as any)}
+                  className="rounded-md border border-white/[0.08] bg-black/50 px-2 py-1 text-[11px] text-white/70 focus:outline-none"
+                >
+                  <option value="all">All Stages</option>
+                  <option value="lead">Lead</option>
+                  <option value="qualified">Qualified</option>
+                  <option value="proposal">Proposal</option>
+                  <option value="won">Closed Won</option>
+                  <option value="churned">Churned</option>
+                </select>
+
+                <select
+                  value={slaFilter}
+                  onChange={(e) => setSlaFilter(e.target.value as any)}
+                  className="rounded-md border border-white/[0.08] bg-black/50 px-2 py-1 text-[11px] text-white/70 focus:outline-none"
+                >
+                  <option value="all">All SLAs</option>
+                  <option value="warning">SLA Warning</option>
+                  <option value="breached">SLA Breached</option>
+                </select>
+              </div>
 
               <button
                 type="button"
@@ -482,7 +534,7 @@ export default function UnifiedInboxPage() {
                     : "text-white/40 hover:text-white"
                 }`}
               >
-                Priority Only
+                Priority
               </button>
             </div>
           </div>
@@ -508,8 +560,8 @@ export default function UnifiedInboxPage() {
             ) : (
               filteredThreads.map((thread) => {
                 const isSelected = thread.id === selectedThreadId;
-                const channelMeta = CHANNEL_METADATA[thread.channel];
-                const stageMeta = STAGE_METADATA[thread.dealStage];
+                const channelMeta = CHANNEL_METADATA[thread.channel] || CHANNEL_METADATA.whatsapp;
+                const stageMeta = STAGE_METADATA[thread.dealStage] || STAGE_METADATA.lead;
 
                 return (
                   <button
@@ -559,18 +611,35 @@ export default function UnifiedInboxPage() {
                       {thread.lastMessageSnippet}
                     </p>
 
-                    <div className="mt-1 flex items-center justify-between gap-2 pt-1">
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium border ${channelMeta.badgeClass}`}
-                      >
-                        {channelMeta.label.split(" ")[0]}
-                      </span>
+                    <div className="mt-1 flex items-center justify-between gap-1 pt-1">
+                      <div className="flex items-center gap-1">
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium border ${channelMeta.badgeClass}`}
+                        >
+                          {channelMeta.label.split(" ")[0]}
+                        </span>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium border ${stageMeta.badgeClass}`}
+                        >
+                          {stageMeta.label}
+                        </span>
+                      </div>
 
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium border ${stageMeta.badgeClass}`}
-                      >
-                        {stageMeta.label}
-                      </span>
+                      {thread.slaStatus === "breached" && (
+                        <span className="rounded border border-rose-500/30 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-rose-300">
+                          SLA Breached
+                        </span>
+                      )}
+                      {thread.slaStatus === "warning" && (
+                        <span className="rounded border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-amber-300">
+                          Warning ({thread.slaMinutesRemaining ?? 0}m)
+                        </span>
+                      )}
+                      {thread.slaStatus === "healthy" && (
+                        <span className="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-400">
+                          SLA OK
+                        </span>
+                      )}
                     </div>
                   </button>
                 );
@@ -630,6 +699,25 @@ export default function UnifiedInboxPage() {
                   </a>
                 </div>
               </div>
+
+              {/* Collision Alert Banner */}
+              {activeThread.lock?.isLocked && !activeThread.lock?.isHeldByMe && (
+                <div className="flex items-center justify-between border-b border-amber-500/30 bg-amber-500/10 px-5 py-2 text-xs text-amber-300">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert size={15} className="text-amber-400 shrink-0" />
+                    <span>
+                      Collision Warning: {activeThread.lock.lockedByUserName || "Another operator"} holds active lease on this conversation.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsLockOverridden(!isLockOverridden)}
+                    className="rounded border border-amber-500/40 bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-200 hover:bg-amber-500/30"
+                  >
+                    {isLockOverridden ? "Lock Overridden" : "Override Lock"}
+                  </button>
+                </div>
+              )}
 
               {/* Message Stream */}
               <div className="flex-1 space-y-4 overflow-y-auto p-5">
@@ -756,12 +844,53 @@ export default function UnifiedInboxPage() {
               {/* Composer Input */}
               <div className="border-t border-white/[0.08] bg-[#0A0B0E] p-3.5">
                 <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2 focus-within:border-blue-500/50">
+                  <div className="mb-2 flex items-center justify-between border-b border-white/[0.06] pb-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] uppercase tracking-wider text-white/40">
+                        Dispatch Channel:
+                      </span>
+                      <select
+                        value={dispatchChannel}
+                        onChange={(e) => setDispatchChannel(e.target.value as any)}
+                        className="rounded border border-white/[0.08] bg-black/60 px-2 py-0.5 text-[11px] text-white/80 focus:outline-none"
+                      >
+                        <option value="whatsapp">WhatsApp Business</option>
+                        <option value="email">Email Inbound</option>
+                        <option value="sms">SMS Priority</option>
+                        <option value="webchat">Live Web Chat</option>
+                        <option value="instagram">Instagram Direct</option>
+                        <option value="messenger">Facebook Messenger</option>
+                        <option value="whatsapp_group">WhatsApp Group</option>
+                        <option value="crm">CRM Direct Desk</option>
+                      </select>
+                    </div>
+
+                    {activeThread.lock?.isLocked && !activeThread.lock?.isHeldByMe && !isLockOverridden && (
+                      <span className="text-[10px] font-medium text-amber-400">
+                        Lock Active (Override required)
+                      </span>
+                    )}
+                  </div>
+
                   <textarea
                     rows={3}
                     value={replyBody}
-                    onChange={(e) => setReplyBody(e.target.value)}
+                    onChange={(e) => {
+                      setReplyBody(e.target.value);
+                      if (activeThread?.id) {
+                        void fetch("/api/omnichannel/collision", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            action: "heartbeat",
+                            threadId: activeThread.id,
+                            typingStatus: e.target.value.length > 0 ? "typing" : "viewing",
+                          }),
+                        });
+                      }
+                    }}
                     placeholder={`Reply to ${activeThread.contactName} via ${
-                      CHANNEL_METADATA[activeThread.channel].label
+                      CHANNEL_METADATA[dispatchChannel || activeThread.channel]?.label || "Omnichannel"
                     }...`}
                     className="w-full resize-none bg-transparent text-xs text-white placeholder:text-white/30 focus:outline-none"
                   />
@@ -775,11 +904,19 @@ export default function UnifiedInboxPage() {
                       <button
                         type="button"
                         onClick={handleSendReply}
-                        disabled={isSending || !replyBody.trim()}
+                        disabled={
+                          isSending ||
+                          !replyBody.trim() ||
+                          (Boolean(activeThread.lock?.isLocked) &&
+                            !activeThread.lock?.isHeldByMe &&
+                            !isLockOverridden)
+                        }
                         className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition hover:bg-blue-500 disabled:opacity-40"
                       >
                         <Send size={13} />
-                        {isSending ? "Dispatching..." : "Send Reply"}
+                        {isSending
+                          ? "Dispatching..."
+                          : `Dispatch via ${(CHANNEL_METADATA[dispatchChannel || activeThread.channel]?.label || "").split(" ")[0]}`}
                       </button>
                     </div>
                   </div>
@@ -933,6 +1070,53 @@ export default function UnifiedInboxPage() {
                       ? "Generating..."
                       : "Create & Insert Stripe Checkout"}
                   </button>
+                </div>
+              </div>
+
+              {/* Omnichannel SLA & Operations */}
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-white">SLA & Operational Routing</span>
+                  {activeThread.slaStatus === "breached" ? (
+                    <span className="rounded border border-rose-500/30 bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold text-rose-300">
+                      BREACHED
+                    </span>
+                  ) : activeThread.slaStatus === "warning" ? (
+                    <span className="rounded border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                      WARNING
+                    </span>
+                  ) : (
+                    <span className="rounded border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                      HEALTHY
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 text-[11px] text-white/60">
+                  <div className="flex justify-between">
+                    <span className="text-white/40">FRT Deadline:</span>
+                    <span className="font-medium text-white/80">
+                      {activeThread.slaMinutesRemaining !== undefined
+                        ? `${activeThread.slaMinutesRemaining} mins remaining`
+                        : "Active"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/40">Assigned Team:</span>
+                    <span className="font-medium text-white/80">
+                      {activeThread.assignedTeam || "General Desk"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-white/40">Collision Lease:</span>
+                    <span className="font-medium text-emerald-400">
+                      {activeThread.lock?.isLocked
+                        ? activeThread.lock.isHeldByMe
+                          ? "Lease Held by You"
+                          : `Locked (${activeThread.lock.lockedByUserName})`
+                        : "Unlocked"}
+                    </span>
+                  </div>
                 </div>
               </div>
 

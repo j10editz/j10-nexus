@@ -23,6 +23,30 @@ export const CHANNEL_METADATA: Record<
     label: "CRM Direct Desk",
     badgeClass: "bg-violet-500/10 text-violet-400 border-violet-500/20",
   },
+  email: {
+    label: "Email Inbound",
+    badgeClass: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  },
+  sms: {
+    label: "SMS Priority",
+    badgeClass: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  },
+  webchat: {
+    label: "Live Web Chat",
+    badgeClass: "bg-teal-500/10 text-teal-400 border-teal-500/20",
+  },
+  instagram: {
+    label: "Instagram Direct",
+    badgeClass: "bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20",
+  },
+  messenger: {
+    label: "Facebook Messenger",
+    badgeClass: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+  },
+  whatsapp_group: {
+    label: "WhatsApp Group",
+    badgeClass: "bg-emerald-600/10 text-emerald-300 border-emerald-600/20",
+  },
 };
 
 export const STAGE_METADATA: Record<

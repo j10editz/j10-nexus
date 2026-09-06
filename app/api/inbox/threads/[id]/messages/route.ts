@@ -127,6 +127,11 @@ export async function POST(
       .eq("id", threadId)
       .eq("workspace_id", wsId);
 
+    if (direction === "outbound") {
+      const { recordFirstResponseDelivered } = await import("@/lib/omnichannel/sla");
+      await recordFirstResponseDelivered(supabase, wsId, threadId);
+    }
+
     return NextResponse.json({
       success: true,
       message: {

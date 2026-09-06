@@ -35,6 +35,19 @@ export async function GET(req: Request) {
         unread_count,
         last_message_at,
         assigned_user_id,
+        assigned_agent_id,
+        assigned_team,
+        assigned_at,
+        sla_status,
+        sla_policy_id,
+        sla_first_response_due_at,
+        sla_resolution_due_at,
+        sla_first_responded_at,
+        sla_resolved_at,
+        locked_by_user_id,
+        locked_at,
+        lock_expires_at,
+        active_viewers,
         metadata,
         created_at,
         updated_at,
@@ -65,11 +78,28 @@ export async function GET(req: Request) {
       );
     }
 
+    const { evaluateThreadSla } = await import("@/lib/omnichannel/sla");
+    const now = new Date();
+
     // Map into canonical format
     let threads = (rawThreads || []).map((t: any) => {
       const contact = t.contact || {};
       const dealStage = contact.deal_stage || t.metadata?.dealStage || "lead";
       const estimatedValue = Number(contact.estimated_value || t.metadata?.estimatedValue || 0);
+
+      const slaEval = evaluateThreadSla({
+        createdAt: t.created_at,
+        firstResponseDueAt: t.sla_first_response_due_at,
+        firstRespondedAt: t.sla_first_responded_at,
+        resolutionDueAt: t.sla_resolution_due_at,
+        resolvedAt: t.sla_resolved_at,
+        now,
+      });
+
+      const isLocked =
+        Boolean(t.locked_by_user_id) &&
+        Boolean(t.lock_expires_at) &&
+        new Date(t.lock_expires_at) > now;
 
       return {
         id: t.id,
@@ -83,11 +113,36 @@ export async function GET(req: Request) {
         estimatedValue,
         unreadCount: t.unread_count || 0,
         assignedSpecialist: t.metadata?.assignedSpecialist || "AI Sales Specialist",
+        assignedAgentId: t.assigned_agent_id,
+        assignedTeam: t.assigned_team || "general",
+        assignedAt: t.assigned_at,
         lastMessageSnippet: t.metadata?.lastMessageSnippet || "Conversation started.",
         lastMessageTimestamp: t.last_message_at || t.created_at,
         messages: [],
+        slaStatus: slaEval.status,
+        slaPolicyId: t.sla_policy_id,
+        slaFirstResponseDueAt: t.sla_first_response_due_at,
+        slaResolutionDueAt: t.sla_resolution_due_at,
+        slaFirstRespondedAt: t.sla_first_responded_at,
+        slaResolvedAt: t.sla_resolved_at,
+        slaMinutesRemaining: slaEval.minutesRemaining,
+        lock: {
+          isLocked,
+          lockedByUserId: isLocked ? t.locked_by_user_id : undefined,
+          lockedByUserName: isLocked ? t.metadata?.lockedByUserName : undefined,
+          expiresAt: isLocked ? t.lock_expires_at : undefined,
+          isHeldByMe: isLocked && t.locked_by_user_id === context.membership.user_id,
+        },
+        activeViewers: Array.isArray(t.active_viewers) ? t.active_viewers : [],
       };
     });
+
+    const slaOnly = searchParams.get("slaOnly");
+    if (slaOnly === "breached") {
+      threads = threads.filter((t) => t.slaStatus === "breached");
+    } else if (slaOnly === "warning") {
+      threads = threads.filter((t) => t.slaStatus === "warning");
+    }
 
     // Apply stage filter
     if (stageFilter && stageFilter !== "all") {
@@ -212,6 +267,10 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+
+    // Attach SLA Policy to thread
+    const { attachSlaToThread } = await import("@/lib/omnichannel/sla");
+    await attachSlaToThread(supabase, wsId, thread.id, priority as any, channel as any);
 
     // 3. Persist initial message if provided
     if (initialMessage) {
