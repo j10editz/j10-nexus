@@ -280,10 +280,12 @@ function normalizeMetadata(
   return value as Readonly<Record<string, unknown>>;
 }
 
-export interface IntegrationTenantScope {
+export type IntegrationScope = {
   workspaceId: string;
-  actorUserId: string;
-}
+  actorUserId?: string;
+};
+
+export type IntegrationTenantScope = IntegrationScope;
 
 export function mapIntegrationDatabaseRow(
   row: IntegrationDatabaseRow,
@@ -411,8 +413,9 @@ function validateEnabledCapabilities(
 
 export async function listIntegrationConnections(
   supabase: SupabaseClient,
-  workspaceId: string,
+  scope: IntegrationScope | string,
 ): Promise<IntegrationConnection[]> {
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
   const { data, error } =
     await supabase
       .from("integrations")
@@ -447,9 +450,10 @@ export async function listIntegrationConnections(
 
 export async function getIntegrationConnectionById(
   supabase: SupabaseClient,
-  workspaceId: string,
+  scope: IntegrationScope | string,
   connectionId: string,
 ): Promise<IntegrationConnection | null> {
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
   const { data, error } =
     await supabase
       .from("integrations")
@@ -478,9 +482,10 @@ export async function getIntegrationConnectionById(
 
 export async function getIntegrationConnectionByProvider(
   supabase: SupabaseClient,
-  workspaceId: string,
+  scope: IntegrationScope | string,
   providerId: IntegrationProviderId,
 ): Promise<IntegrationConnection | null> {
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
   const aliases =
     getProviderDatabaseAliases(
       providerId,
@@ -665,10 +670,11 @@ export async function createIntegrationConnection(
 
 export async function updateIntegrationConnectionStatus(
   supabase: SupabaseClient,
-  workspaceId: string,
+  scope: IntegrationScope | string,
   connectionId: string,
   input: UpdateIntegrationStatusInput,
 ): Promise<IntegrationConnection> {
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
   const currentConnection =
     await getIntegrationConnectionById(
       supabase,
@@ -797,10 +803,11 @@ export async function updateIntegrationConnectionStatus(
 
 export async function updateIntegrationConnectionConfiguration(
   supabase: SupabaseClient,
-  workspaceId: string,
+  scope: IntegrationScope | string,
   connectionId: string,
   input: UpdateIntegrationConfigurationInput,
 ): Promise<IntegrationConnection> {
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
   const currentConnection =
     await getIntegrationConnectionById(
       supabase,
@@ -857,9 +864,10 @@ export async function updateIntegrationConnectionConfiguration(
 
 export async function deleteIntegrationConnection(
   supabase: SupabaseClient,
-  workspaceId: string,
+  scope: IntegrationScope | string,
   connectionId: string,
 ): Promise<void> {
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
   const { error } =
     await supabase
       .from("integrations")
@@ -877,9 +885,22 @@ export async function deleteIntegrationConnection(
 
 export async function listIntegrationStatusHistory(
   supabase: SupabaseClient,
-  _workspaceId: string,
+  scope: IntegrationScope | string,
   connectionId: string,
 ): Promise<IntegrationStatusHistoryEntry[]> {
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
+  const connection = await getIntegrationConnectionById(
+    supabase,
+    workspaceId,
+    connectionId,
+  );
+  if (!connection) {
+    throw new IntegrationDatabaseError(
+      "Integration connection was not found.",
+      "INTEGRATION_NOT_FOUND",
+    );
+  }
+
   const { data, error } =
     await supabase
       .from(
@@ -898,6 +919,10 @@ export async function listIntegrationStatusHistory(
       .eq(
         "integration_id",
         connectionId,
+      )
+      .eq(
+        "workspace_id",
+        workspaceId,
       )
       .order("created_at", {
         ascending: false,

@@ -11,14 +11,16 @@ import type {
 import {
   getIntegrationConnectionById,
   IntegrationDatabaseError,
+  type IntegrationScope,
 } from "./database";
 
 export async function recordIntegrationHealthCheck(
   supabase: SupabaseClient,
-  userId: string,
+  scope: IntegrationScope | string,
   connectionId: string,
   checkedAt = new Date().toISOString(),
 ): Promise<IntegrationConnection> {
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
   const {
     error,
   } = await supabase
@@ -27,7 +29,7 @@ export async function recordIntegrationHealthCheck(
       last_health_check_at: checkedAt,
     })
     .eq("id", connectionId)
-    .eq("user_id", userId);
+    .eq("workspace_id", workspaceId);
 
   if (error) {
     throw new IntegrationDatabaseError(
@@ -39,7 +41,7 @@ export async function recordIntegrationHealthCheck(
 
   const connection = await getIntegrationConnectionById(
     supabase,
-    userId,
+    workspaceId,
     connectionId,
   );
 

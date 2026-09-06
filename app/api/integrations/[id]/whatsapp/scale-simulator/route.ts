@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
   integrationApiErrorResponse,
   parseRequestObject,
 } from "@/lib/integrations/api";
@@ -21,34 +21,27 @@ type RouteContext = { params: Promise<{ id: string }> };
 let liveMetrics: ScaleMetrics = { ...INITIAL_SCALE_METRICS };
 let liveLogs: WebhookInspectorEvent[] = [...SAMPLE_WEBHOOK_INSPECTOR_LOGS];
 
-async function load(context: RouteContext) {
-  const { id } = await context.params;
-  const supabase = await createIntegrationApiClient();
-  const user = await getAuthenticatedIntegrationUser(supabase);
-  if (!user) {
-    return {
-      response: NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      ),
-    };
-  }
-  const connection = await getIntegrationConnectionById(supabase, user.id, id);
-  if (!connection || connection.providerId !== "whatsapp-business") {
-    return {
-      response: NextResponse.json(
-        { success: false, error: "WhatsApp Business connection was not found." },
-        { status: 404 }
-      ),
-    };
-  }
-  return { id, supabase, user, connection };
-}
-
 export async function GET(_request: Request, context: RouteContext) {
   try {
-    const result = await load(context);
-    if (result.response) return result.response;
+    const { id } = await context.params;
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
+    }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
+
+    const connection = await getIntegrationConnectionById(
+      supabase,
+      { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
+      id,
+    );
+    if (!connection || connection.providerId !== "whatsapp-business") {
+      return NextResponse.json(
+        { success: false, error: "WhatsApp Business connection was not found." },
+        { status: 404 },
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -62,8 +55,25 @@ export async function GET(_request: Request, context: RouteContext) {
 
 export async function POST(request: Request, context: RouteContext) {
   try {
-    const result = await load(context);
-    if (result.response) return result.response;
+    const { id } = await context.params;
+    const auth = await requireApiWorkspaceContext("agent");
+    if (auth.error) {
+      return auth.error;
+    }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
+
+    const connection = await getIntegrationConnectionById(
+      supabase,
+      { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
+      id,
+    );
+    if (!connection || connection.providerId !== "whatsapp-business") {
+      return NextResponse.json(
+        { success: false, error: "WhatsApp Business connection was not found." },
+        { status: 404 },
+      );
+    }
 
     const body = parseRequestObject(await request.json());
     const batchSize = typeof body.batchSize === "number" ? body.batchSize : 25;

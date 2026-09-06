@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { runJ10AI } from "@/lib/ai/runtime";
-import { assertWorkspaceEntitlement, BillingRequiredError } from "@/lib/billing/entitlements";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
+  assertWorkspaceEntitlement,
+  recordWorkspaceMessageUsage,
+  BillingRequiredError,
+} from "@/lib/billing/entitlements";
+import {
   integrationApiErrorResponse,
   parseRequestObject,
 } from "@/lib/integrations/api";
@@ -17,14 +21,18 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    const auth = await requireApiWorkspaceContext("agent");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
-    const connection = await getIntegrationConnectionById(supabase, user.id, id);
+    const connection = await getIntegrationConnectionById(
+      supabase,
+      { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
+      id,
+    );
     if (!connection || connection.providerId !== "whatsapp-business" || connection.status !== "connected") {
       return NextResponse.json(
         { success: false, error: "A connected WhatsApp Business integration is required." },
@@ -32,7 +40,12 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    await assertWorkspaceEntitlement(supabase, connection.workspaceId, { feature: "whatsapp_reply_suggestions" });
+    // Step 9 & 10: Verify entitlement and atomically reserve message quota before AI generation
+    await assertWorkspaceEntitlement(supabase, connection.workspaceId, {
+      feature: "whatsapp_reply_suggestions",
+      requiredMessages: 1,
+    });
+    await recordWorkspaceMessageUsage(supabase, connection.workspaceId, 1);
 
     const body = parseRequestObject(await request.json());
     const customerMessage = typeof body.customerMessage === "string" ? body.customerMessage.trim() : "";

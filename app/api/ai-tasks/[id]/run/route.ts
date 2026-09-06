@@ -6,6 +6,11 @@ import { NextResponse } from "next/server";
 import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 import { runJ10AI } from "@/lib/ai/runtime";
+import {
+  assertWorkspaceEntitlement,
+  recordWorkspaceMessageUsage,
+  BillingRequiredError,
+} from "@/lib/billing/entitlements";
 
 import {
   buildDevelopmentResearchStructuredData,
@@ -447,7 +452,7 @@ export async function POST(
   if (actor.bridge) {
     workspaceId = actor.bridge.workspaceId;
   } else {
-    const auth = await requireApiWorkspaceContext("viewer");
+    const auth = await requireApiWorkspaceContext("agent");
     if (auth.error) {
       return auth.error;
     }
@@ -920,6 +925,26 @@ export async function POST(
     - May call OpenAI
     ==========================================================
     */
+
+    // Step 9 & 10: Verify entitlement and atomically reserve message quota before AI runtime
+    try {
+      await assertWorkspaceEntitlement(supabase, workspaceId, { requiredMessages: 1 });
+      await recordWorkspaceMessageUsage(supabase, workspaceId, 1);
+    } catch (billingErr: unknown) {
+      if (billingErr instanceof BillingRequiredError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: billingErr.message,
+            code: billingErr.code,
+          },
+          {
+            status: 402,
+          },
+        );
+      }
+      throw billingErr;
+    }
 
     const result =
       await runJ10AI({

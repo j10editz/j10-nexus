@@ -30,7 +30,7 @@ export async function GET(request: Request) {
 
       const formatted: WebsiteFunnel = {
         id: funnel.id,
-        workspaceId: funnel.workspace_id,
+        workspaceId: "", // Never expose internal workspace UUIDs to public callers
         title: stripEmojis(funnel.title),
         slug: funnel.slug,
         theme: funnel.theme || "obsidian",

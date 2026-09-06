@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
   integrationApiErrorResponse,
   parseRequestObject,
 } from "@/lib/integrations/api";
@@ -24,34 +24,27 @@ type RouteContext = { params: Promise<{ id: string }> };
 // In-memory warning map for session simulation
 const sessionWarningsMap = new Map<string, GroupMemberWarning>();
 
-async function load(context: RouteContext) {
-  const { id } = await context.params;
-  const supabase = await createIntegrationApiClient();
-  const user = await getAuthenticatedIntegrationUser(supabase);
-  if (!user) {
-    return {
-      response: NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      ),
-    };
-  }
-  const connection = await getIntegrationConnectionById(supabase, user.id, id);
-  if (!connection || connection.providerId !== "whatsapp-business") {
-    return {
-      response: NextResponse.json(
-        { success: false, error: "WhatsApp Business connection was not found." },
-        { status: 404 }
-      ),
-    };
-  }
-  return { id, supabase, user, connection };
-}
-
 export async function POST(request: Request, context: RouteContext) {
   try {
-    const result = await load(context);
-    if (result.response) return result.response;
+    const { id } = await context.params;
+    const auth = await requireApiWorkspaceContext("manager");
+    if (auth.error) {
+      return auth.error;
+    }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
+
+    const connection = await getIntegrationConnectionById(
+      supabase,
+      { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
+      id,
+    );
+    if (!connection || connection.providerId !== "whatsapp-business") {
+      return NextResponse.json(
+        { success: false, error: "WhatsApp Business connection was not found." },
+        { status: 404 },
+      );
+    }
 
     const body = parseRequestObject(await request.json());
     const messageText = typeof body.message === "string" ? body.message.trim() : "";
@@ -61,12 +54,12 @@ export async function POST(request: Request, context: RouteContext) {
     if (!messageText) {
       return NextResponse.json(
         { success: false, error: "A command or message string is required." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const config = getWhatsAppGroupConfig(result.connection!);
-    const publicConfig = result.connection!.publicConfiguration ?? {};
+    const config = getWhatsAppGroupConfig(connection);
+    const publicConfig = connection.publicConfiguration ?? {};
     const businessKnowledge =
       typeof publicConfig.businessKnowledge === "string" ? publicConfig.businessKnowledge : undefined;
 
@@ -96,17 +89,17 @@ export async function POST(request: Request, context: RouteContext) {
         const updatedLogs = [commandResult.moderationEvent, ...currentLogs].slice(0, 50);
 
         await updateIntegrationConnectionConfiguration(
-          result.supabase!,
-          result.user!.id,
-          result.id!,
+          supabase,
+          { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
+          id,
           {
             publicConfiguration: {
               ...publicConfig,
               [WHATSAPP_GROUP_CONFIG_KEY]: JSON.stringify(config),
               whatsapp_group_moderation_logs: JSON.stringify(updatedLogs),
             },
-            enabledCapabilities: result.connection!.enabledCapabilities,
-          }
+            enabledCapabilities: connection.enabledCapabilities,
+          },
         );
       }
 
@@ -141,17 +134,17 @@ export async function POST(request: Request, context: RouteContext) {
       const updatedLogs = [moderationDecision.moderationEvent, ...currentLogs].slice(0, 50);
 
       await updateIntegrationConnectionConfiguration(
-        result.supabase!,
-        result.user!.id,
-        result.id!,
+        supabase,
+        { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
+        id,
         {
           publicConfiguration: {
             ...publicConfig,
             [WHATSAPP_GROUP_CONFIG_KEY]: JSON.stringify(config),
             whatsapp_group_moderation_logs: JSON.stringify(updatedLogs),
           },
-          enabledCapabilities: result.connection!.enabledCapabilities,
-        }
+          enabledCapabilities: connection.enabledCapabilities,
+        },
       );
     }
 

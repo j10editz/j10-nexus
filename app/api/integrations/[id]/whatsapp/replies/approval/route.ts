@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import { assertWorkspaceEntitlement, BillingRequiredError } from "@/lib/billing/entitlements";
 import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
   integrationApiErrorResponse,
   parseRequestObject,
 } from "@/lib/integrations/api";
@@ -23,14 +23,18 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    const auth = await requireApiWorkspaceContext("agent");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
-    const connection = await getIntegrationConnectionById(supabase, user.id, id);
+    const connection = await getIntegrationConnectionById(
+      supabase,
+      { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
+      id,
+    );
     if (!connection || connection.providerId !== "whatsapp-business" || connection.status !== "connected") {
       return NextResponse.json(
         { success: false, error: "A connected WhatsApp Business integration is required." },
@@ -57,7 +61,11 @@ export async function POST(request: Request, context: RouteContext) {
 
     createIntegrationActionPlan(connection, capability, actionRequest, new URL(request.url).origin);
     const fingerprint = createIntegrationActionFingerprint(connection, actionRequest);
-    const approval = createIntegrationOperatorApproval({ userId: user.id, connectionId: connection.id, fingerprint });
+    const approval = createIntegrationOperatorApproval({
+      userId: wsContext.user.id,
+      connectionId: connection.id,
+      fingerprint,
+    });
 
     return NextResponse.json({
       success: true,

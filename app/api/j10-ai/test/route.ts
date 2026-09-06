@@ -16,7 +16,7 @@ J10 NEXUS AI RUNTIME TEST (DIAGNOSTIC ONLY)
 
 export async function POST() {
   if (
-    process.env.NODE_ENV === "production" &&
+    process.env.NODE_ENV === "production" ||
     process.env.ENABLE_AI_DIAGNOSTIC_MODE !== "true"
   ) {
     return NextResponse.json(

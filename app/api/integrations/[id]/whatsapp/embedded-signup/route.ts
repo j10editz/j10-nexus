@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { createIntegrationApiClient, getAuthenticatedIntegrationUser, integrationApiErrorResponse, parseRequestObject } from "@/lib/integrations/api";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+import { integrationApiErrorResponse, parseRequestObject } from "@/lib/integrations/api";
 import { getIntegrationCredentials, storeIntegrationCredentials } from "@/lib/integrations/credentials";
-import { getIntegrationConnectionById, updateIntegrationConnectionConfiguration, updateIntegrationConnectionStatus } from "@/lib/integrations/database";
+import {
+  getIntegrationConnectionById,
+  updateIntegrationConnectionConfiguration,
+  updateIntegrationConnectionStatus,
+} from "@/lib/integrations/database";
 
 type RouteContext = { params: Promise<{ id: string }> };
 type JsonRecord = Record<string, unknown>;
@@ -28,18 +34,36 @@ async function graphJson(url: URL, token?: string): Promise<JsonRecord> {
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-    if (!user) return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
-    const connection = await getIntegrationConnectionById(supabase, user.id, id);
-    if (!connection || connection.providerId !== "whatsapp-business") return NextResponse.json({ success: false, error: "WhatsApp Business connection was not found." }, { status: 404 });
+    const auth = await requireApiWorkspaceContext("admin");
+    if (auth.error) {
+      return auth.error;
+    }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
+
+    const connection = await getIntegrationConnectionById(
+      supabase,
+      { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
+      id,
+    );
+    if (!connection || connection.providerId !== "whatsapp-business") {
+      return NextResponse.json(
+        { success: false, error: "WhatsApp Business connection was not found." },
+        { status: 404 },
+      );
+    }
 
     const body = parseRequestObject(await request.json());
     const code = requiredString(body, "code", /^[A-Za-z0-9_.#=-]{20,4096}$/, "Authorization code");
     const wabaId = requiredString(body, "wabaId", /^\d{5,30}$/, "WhatsApp Business Account ID");
     const phoneNumberId = requiredString(body, "phoneNumberId", /^\d{5,30}$/, "Phone number ID");
     const appSecret = process.env.META_WHATSAPP_APP_SECRET ?? process.env.META_APP_SECRET;
-    if (!appSecret) return NextResponse.json({ success: false, error: "J10 server setup is missing META_WHATSAPP_APP_SECRET." }, { status: 503 });
+    if (!appSecret) {
+      return NextResponse.json(
+        { success: false, error: "J10 server setup is missing META_WHATSAPP_APP_SECRET." },
+        { status: 503 },
+      );
+    }
 
     const tokenUrl = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`);
     tokenUrl.searchParams.set("client_id", META_APP_ID);
@@ -52,17 +76,44 @@ export async function POST(request: Request, context: RouteContext) {
     const phones = await graphJson(new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating`), accessToken);
     const rows = Array.isArray(phones.data) ? phones.data : [];
     const phone = rows.find((entry) => entry && typeof entry === "object" && (entry as JsonRecord).id === phoneNumberId) as JsonRecord | undefined;
-    if (!phone) return NextResponse.json({ success: false, error: "The selected phone number does not belong to the selected WhatsApp Business Account." }, { status: 409 });
+    if (!phone) {
+      return NextResponse.json(
+        { success: false, error: "The selected phone number does not belong to the selected WhatsApp Business Account." },
+        { status: 409 },
+      );
+    }
 
-    const existing = await getIntegrationCredentials(supabase, user.id, connection.id);
-    await storeIntegrationCredentials(supabase, user.id, { connectionId: connection.id, values: { ...(existing?.values ?? {}), access_token: accessToken } });
-    await updateIntegrationConnectionConfiguration(supabase, user.id, connection.id, {
-      publicConfiguration: { ...connection.publicConfiguration, phone_number_id: phoneNumberId, business_account_id: wabaId, onboarding_method: "embedded_signup_coexistence", graph_api_version: GRAPH_VERSION },
+    const scope = { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id };
+    const existing = await getIntegrationCredentials(supabase, scope, connection.id);
+    await storeIntegrationCredentials(supabase, scope, {
+      connectionId: connection.id,
+      values: { ...(existing?.values ?? {}), access_token: accessToken },
+    });
+    await updateIntegrationConnectionConfiguration(supabase, scope, connection.id, {
+      publicConfiguration: {
+        ...connection.publicConfiguration,
+        phone_number_id: phoneNumberId,
+        business_account_id: wabaId,
+        onboarding_method: "embedded_signup_coexistence",
+        graph_api_version: GRAPH_VERSION,
+      },
       enabledCapabilities: connection.enabledCapabilities,
     });
-    await updateIntegrationConnectionStatus(supabase, user.id, connection.id, { status: "connected", reason: "Meta Embedded Signup verified the WhatsApp account and phone number.", metadata: { source: "meta_embedded_signup", waba_id: wabaId, phone_number_id: phoneNumberId } });
+    await updateIntegrationConnectionStatus(supabase, scope, connection.id, {
+      status: "connected",
+      reason: "Meta Embedded Signup verified the WhatsApp account and phone number.",
+      metadata: { source: "meta_embedded_signup", waba_id: wabaId, phone_number_id: phoneNumberId },
+    });
 
-    return NextResponse.json({ success: true, phone: { id: phoneNumberId, displayPhoneNumber: typeof phone.display_phone_number === "string" ? phone.display_phone_number : null, verifiedName: typeof phone.verified_name === "string" ? phone.verified_name : null, qualityRating: typeof phone.quality_rating === "string" ? phone.quality_rating : null } });
+    return NextResponse.json({
+      success: true,
+      phone: {
+        id: phoneNumberId,
+        displayPhoneNumber: typeof phone.display_phone_number === "string" ? phone.display_phone_number : null,
+        verifiedName: typeof phone.verified_name === "string" ? phone.verified_name : null,
+        qualityRating: typeof phone.quality_rating === "string" ? phone.quality_rating : null,
+      },
+    });
   } catch (error) {
     return integrationApiErrorResponse(error, "Could not complete WhatsApp Embedded Signup.");
   }

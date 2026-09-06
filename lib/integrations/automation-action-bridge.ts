@@ -57,6 +57,7 @@ import {
 
 type AutomationRow = {
   id: string;
+  workspace_id?: string | null;
   user_id: string;
   name: string;
 };
@@ -535,6 +536,7 @@ export async function executeIntegrationAutomationAction(args: {
       .select(
         `
         id,
+        workspace_id,
         user_id,
         name
         `,
@@ -631,10 +633,11 @@ export async function executeIntegrationAutomationAction(args: {
       workflowContext,
     );
 
+  const workspaceScope = automation.workspace_id || automation.user_id;
   const connection =
     await getIntegrationConnectionById(
       supabase,
-      automation.user_id,
+      workspaceScope,
       config.connectionId,
     );
 

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
   integrationApiErrorResponse,
 } from "@/lib/integrations/api";
 import { getIntegrationConnectionById } from "@/lib/integrations/database";
@@ -13,14 +13,18 @@ type RouteContext = { params: Promise<{ id: string; sender: string }> };
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { id, sender } = await context.params;
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
-    const connection = await getIntegrationConnectionById(supabase, user.id, id);
+    const connection = await getIntegrationConnectionById(
+      supabase,
+      { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
+      id,
+    );
     if (!connection || connection.providerId !== "whatsapp-business") {
       return NextResponse.json(
         { success: false, error: "WhatsApp Business connection was not found." },
@@ -29,7 +33,12 @@ export async function GET(_request: Request, context: RouteContext) {
     }
 
     const decodedSender = decodeURIComponent(sender);
-    const messages = await getWhatsAppMessageThread(supabase, user.id, id, decodedSender);
+    const messages = await getWhatsAppMessageThread(
+      supabase,
+      { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
+      id,
+      decodedSender,
+    );
 
     return NextResponse.json(
       { success: true, sender: decodedSender, messages },

@@ -497,7 +497,7 @@ export async function POST(
       .eq("workspace_id", actor.bridge.workspaceId)
       .eq("automation_id", actor.bridge.automationId);
   } else {
-    const auth = await requireApiWorkspaceContext("viewer");
+    const auth = await requireApiWorkspaceContext("agent");
     if (auth.error) {
       return auth.error;
     }

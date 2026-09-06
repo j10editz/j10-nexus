@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { IntegrationScope } from "@/lib/integrations/database";
 
 export type WhatsAppMessageThreadItem = {
   id: string;
@@ -83,18 +84,22 @@ export function extractMessageContent(message: Record<string, unknown>): { body:
  */
 export async function getWhatsAppMessageThread(
   supabase: SupabaseClient,
-  userId: string,
+  scope: IntegrationScope | string,
   integrationId: string,
   senderPhone: string,
 ): Promise<WhatsAppMessageThreadItem[]> {
   const cleanSender = senderPhone.replace(/[\s()+.-]/g, "");
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
 
   // 1. Inbound messages from webhook events
-  const { data: inboundRows } = await supabase
+  const inboundQuery = supabase
     .from("integration_webhook_events")
     .select("id,normalized_event,received_at,processing_status")
-    .eq("integration_id", integrationId)
-    .eq("user_id", userId)
+    .eq("integration_id", integrationId);
+
+  const { data: inboundRows } = await (workspaceId
+    ? inboundQuery.eq("workspace_id", workspaceId)
+    : inboundQuery)
     .order("received_at", { ascending: false })
     .limit(100);
 
@@ -129,11 +134,14 @@ export async function getWhatsAppMessageThread(
   }
 
   // 2. Outbound messages from action executions
-  const { data: outboundRows } = await supabase
+  const outboundQuery = supabase
     .from("integration_action_executions")
     .select("id,input,status,executed_at,created_at")
-    .eq("integration_id", integrationId)
-    .eq("user_id", userId)
+    .eq("integration_id", integrationId);
+
+  const { data: outboundRows } = await (workspaceId
+    ? outboundQuery.eq("workspace_id", workspaceId)
+    : outboundQuery)
     .eq("capability_id", "whatsapp.message.send")
     .order("created_at", { ascending: false })
     .limit(100);

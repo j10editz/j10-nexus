@@ -35,7 +35,12 @@ export async function POST(request: Request, routeContext: RouteContext) {
     if (incomingMessages.length > 0) {
       messageTexts = incomingMessages.filter((m: unknown): m is string => typeof m === "string");
     } else {
-      const thread = await getWhatsAppMessageThread(supabase, context.user.id, id, decodedSender);
+      const thread = await getWhatsAppMessageThread(
+        supabase,
+        { workspaceId: context.workspace.id, actorUserId: context.user.id },
+        id,
+        decodedSender,
+      );
       messageTexts = thread.filter((m: WhatsAppMessageThreadItem) => m.direction === "inbound").map((m: WhatsAppMessageThreadItem) => m.body);
     }
 

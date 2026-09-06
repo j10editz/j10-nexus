@@ -1,21 +1,21 @@
 import { NextResponse } from "next/server";
 import { runJ10AI } from "@/lib/ai/runtime";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import {
-  createIntegrationApiClient,
-  getAuthenticatedIntegrationUser,
-} from "@/lib/integrations/api";
+  assertWorkspaceEntitlement,
+  recordWorkspaceMessageUsage,
+  BillingRequiredError,
+} from "@/lib/billing/entitlements";
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createIntegrationApiClient();
-    const user = await getAuthenticatedIntegrationUser(supabase);
-
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized." },
-        { status: 401 }
-      );
+    const auth = await requireApiWorkspaceContext("agent");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     const body = await request.json();
     const productName = String(body.productName || "").trim();
@@ -26,9 +26,15 @@ export async function POST(request: Request) {
     if (!productName) {
       return NextResponse.json(
         { success: false, error: "Product name is required to generate AI copy." },
-        { status: 400 }
+        { status: 400 },
       );
     }
+
+    // Step 9 & 10: Verify entitlement and atomically reserve message quota before AI generation
+    await assertWorkspaceEntitlement(supabase, wsContext.workspace.id, {
+      requiredMessages: 1,
+    });
+    await recordWorkspaceMessageUsage(supabase, wsContext.workspace.id, 1);
 
     const instructions = `You are the lead commerce copywriter for J10 NEXUS.
 Your task is to write high-converting, premium product marketing copy for an e-commerce catalog item.
@@ -60,10 +66,16 @@ Target Audience: ${audience}`;
       provider: aiResult.provider,
     });
   } catch (error) {
+    if (error instanceof BillingRequiredError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: error.code, reason: error.reason },
+        { status: error.status },
+      );
+    }
     console.error("Commerce AI Copy error:", error);
     return NextResponse.json(
       { success: false, error: "Failed to generate AI product copy." },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
