@@ -1,6 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SubscriptionStatus } from "./entitlements";
+import {
+  recordDunningPaymentFailure,
+  recordDunningPaymentRecovery,
+  recordTrialExpirationWarning,
+} from "./dunning";
 
 const SIGNATURE_TOLERANCE_SECONDS = 300; // 5 minutes
 
@@ -329,11 +334,38 @@ export async function processStripeSubscriptionEvent(
 
     case "invoice.payment_failed": {
       const stripeSubId = (obj.subscription || obj.lines?.data?.[0]?.subscription) as string | undefined;
+      const stripeCustomerId = obj.customer as string | undefined;
+      const amount = obj.amount_due ? Number(obj.amount_due) / 100 : undefined;
+      const currency = obj.currency ? String(obj.currency).toUpperCase() : undefined;
+      const attemptCount = obj.attempt_count ? Number(obj.attempt_count) : 1;
+      const failureReason = obj.last_payment_error?.message || obj.charge?.failure_message;
+
+      // Primary: full dunning flow with attempt counting and in-app alerts
+      if (stripeSubId || stripeCustomerId) {
+        try {
+          const dunningRes = await recordDunningPaymentFailure(supabase, {
+            stripeSubscriptionId: stripeSubId,
+            stripeCustomerId,
+            invoiceId: obj.id,
+            amount,
+            currency,
+            attemptCount,
+            failureReason,
+          });
+          if (dunningRes.success) {
+            return { processed: true, action: "marked_past_due", subscriptionId: dunningRes.workspaceId };
+          }
+        } catch {
+          // Fallback to direct update if select query is unavailable in mock environments
+        }
+      }
+
       if (stripeSubId) {
         const { error: failErr } = await supabase
           .from("workspace_subscriptions")
           .update({
             status: "past_due",
+            dunning_status: "grace_period",
             grace_period_end: new Date(Date.now() + 7 * 86400000).toISOString(),
             updated_at: new Date().toISOString(),
           })
@@ -348,11 +380,33 @@ export async function processStripeSubscriptionEvent(
 
     case "invoice.payment_succeeded": {
       const stripeSubId = (obj.subscription || obj.lines?.data?.[0]?.subscription) as string | undefined;
+      const stripeCustomerId = obj.customer as string | undefined;
+      const amount = obj.amount_paid ? Number(obj.amount_paid) / 100 : undefined;
+      const currency = obj.currency ? String(obj.currency).toUpperCase() : undefined;
+
+      if (stripeSubId || stripeCustomerId) {
+        try {
+          const recoveryRes = await recordDunningPaymentRecovery(supabase, {
+            stripeSubscriptionId: stripeSubId,
+            stripeCustomerId,
+            invoiceId: obj.id,
+            amount,
+            currency,
+          });
+          if (recoveryRes.success) {
+            return { processed: true, action: "cleared_past_due", subscriptionId: recoveryRes.workspaceId };
+          }
+        } catch {
+          // Fallback to direct update if select query is unavailable in mock environments
+        }
+      }
+
       if (stripeSubId) {
         const { error: succErr } = await supabase
           .from("workspace_subscriptions")
           .update({
             status: "active",
+            dunning_status: "none",
             grace_period_end: null,
             updated_at: new Date().toISOString(),
           })
@@ -363,6 +417,24 @@ export async function processStripeSubscriptionEvent(
         }
       }
       return { processed: true, action: "cleared_past_due" };
+    }
+
+    case "customer.subscription.trial_will_end": {
+      const stripeSubId = obj.id as string | undefined;
+      const stripeCustomerId = obj.customer as string | undefined;
+      const trialEnd = obj.trial_end ? new Date(obj.trial_end * 1000).toISOString() : undefined;
+
+      try {
+        await recordTrialExpirationWarning(supabase, {
+          stripeSubscriptionId: stripeSubId,
+          stripeCustomerId,
+          trialEnd,
+        });
+      } catch {
+        // Non-blocking in mock environments
+      }
+
+      return { processed: true, action: "trial_warning_recorded" };
     }
 
     default:

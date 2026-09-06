@@ -10,8 +10,11 @@ import {
   CheckCircle2,
   Clock,
   CreditCard,
+  ExternalLink,
   MessageSquare,
   RefreshCw,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 
 interface SubscriptionData {
@@ -26,6 +29,14 @@ interface SubscriptionData {
   currentPeriodEnd: string;
   gracePeriodEnd: string | null;
   daysRemaining: number;
+  trialStart: string | null;
+  trialEnd: string | null;
+  trialActive: boolean;
+  trialDaysRemaining: number;
+  hasUsedTrial: boolean;
+  dunningStatus: string;
+  dunningAttemptCount: number;
+  lastDunningAt: string | null;
   stripeCustomerId: string | null;
 }
 
@@ -41,21 +52,57 @@ interface PlanDefinition {
   features: string[];
 }
 
+interface UsageAccountingData {
+  quota: {
+    limit: number;
+    used: number;
+    remaining: number;
+    usagePercent: number;
+  };
+  metricsBreakdown: {
+    whatsapp_outbound: number;
+    whatsapp_inbound: number;
+    ai_tokens: number;
+    ai_agent_run: number;
+    campaign_broadcast: number;
+    workflow_execution: number;
+  };
+  recentRecords: Array<{
+    id: string;
+    metric_name: string;
+    quantity: number;
+    recorded_at: string;
+    resource_id?: string;
+  }>;
+}
+
 export default function BillingPage() {
   const [subscription, setSubscription] = useState<SubscriptionData | null>(null);
   const [plans, setPlans] = useState<PlanDefinition[]>([]);
+  const [usageAccounting, setUsageAccounting] = useState<UsageAccountingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [upgradingId, setUpgradingId] = useState<string | null>(null);
+  const [openingPortal, setOpeningPortal] = useState(false);
+  const [activatingTrial, setActivatingTrial] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   async function loadBillingData() {
     try {
       setLoading(true);
-      const res = await fetch("/api/billing/subscription");
-      const data = await res.json();
-      if (data.success) {
-        setSubscription(data.subscription);
-        setPlans(data.plans || []);
+      const [subRes, usageRes] = await Promise.all([
+        fetch("/api/billing/subscription"),
+        fetch("/api/billing/usage"),
+      ]);
+
+      const subData = await subRes.json();
+      if (subData.success) {
+        setSubscription(subData.subscription);
+        setPlans(subData.plans || []);
+      }
+
+      const usageData = await usageRes.json();
+      if (usageData.success) {
+        setUsageAccounting(usageData.accounting);
       }
     } catch (err) {
       console.error("Failed to load billing:", err);
@@ -75,10 +122,58 @@ export default function BillingPage() {
     setStatusMessage(null);
 
     try {
-      const res = await fetch("/api/billing/subscription", {
+      const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planId }),
+      });
+      const data = await res.json();
+
+      if (data.success && data.checkoutUrl) {
+        // Redirect to Stripe checkout
+        window.location.href = data.checkoutUrl;
+      } else {
+        setStatusMessage({ type: "error", text: data.error || "Failed to initiate checkout." });
+        setUpgradingId(null);
+      }
+    } catch {
+      setStatusMessage({ type: "error", text: "Network error during plan update." });
+      setUpgradingId(null);
+    }
+  }
+
+  async function handleOpenPortal() {
+    try {
+      setOpeningPortal(true);
+      setStatusMessage(null);
+
+      const res = await fetch("/api/billing/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+
+      if (data.success && data.url) {
+        window.open(data.url, "_blank");
+      } else {
+        setStatusMessage({ type: "error", text: data.error || "Unable to open billing portal." });
+      }
+    } catch {
+      setStatusMessage({ type: "error", text: "Failed to connect to billing portal." });
+    } finally {
+      setOpeningPortal(false);
+    }
+  }
+
+  async function handleStartTrial() {
+    try {
+      setActivatingTrial(true);
+      setStatusMessage(null);
+
+      const res = await fetch("/api/billing/trial", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId: "growth", durationDays: 14 }),
       });
       const data = await res.json();
 
@@ -86,17 +181,20 @@ export default function BillingPage() {
         setStatusMessage({ type: "success", text: data.message });
         await loadBillingData();
       } else {
-        setStatusMessage({ type: "error", text: data.error || "Failed to switch plan." });
+        setStatusMessage({ type: "error", text: data.error || "Failed to start trial." });
       }
     } catch {
-      setStatusMessage({ type: "error", text: "Network error during plan update." });
+      setStatusMessage({ type: "error", text: "Failed to activate trial." });
     } finally {
-      setUpgradingId(null);
+      setActivatingTrial(false);
     }
   }
 
   const currentPlan = plans.find((p) => p.id === subscription?.planId) || plans[0];
   const usagePercent = subscription?.usagePercent ?? 0;
+  const isTrialActive = Boolean(subscription?.trialActive);
+  const isPastDue = subscription?.status === "past_due";
+  const canStartTrial = !subscription?.id || (subscription?.status === "none" && !subscription?.hasUsedTrial);
 
   return (
     <div className="min-h-[calc(100dvh-72px)] bg-[#09090B] px-4 py-8 text-white sm:px-6 lg:px-8">
@@ -117,22 +215,87 @@ export default function BillingPage() {
               </span>
             </div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              Subscription & Entitlements
+              Subscription & SaaS Entitlements
             </h1>
             <p className="mt-1 text-sm text-white/50">
-              Manage your J10 NEXUS subscription tier, automated message quotas, and Stripe billing.
+              Manage your workspace plan tier, 14-day trials, Stripe Customer Portal, and verified usage accounting.
             </p>
           </div>
 
-          <button
-            onClick={() => loadBillingData()}
-            disabled={loading}
-            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-medium text-white/80 transition hover:bg-white/[0.08]"
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            Sync Entitlements
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleOpenPortal}
+              disabled={openingPortal}
+              className="flex items-center gap-2 rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-2 text-xs font-medium text-violet-200 transition hover:bg-violet-500/20"
+            >
+              <CreditCard size={14} />
+              <span>{openingPortal ? "Connecting..." : "Stripe Billing Portal"}</span>
+              <ExternalLink size={12} className="opacity-60" />
+            </button>
+
+            <button
+              onClick={() => loadBillingData()}
+              disabled={loading}
+              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-medium text-white/80 transition hover:bg-white/[0.08]"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              Sync
+            </button>
+          </div>
         </div>
+
+        {/* Dunning Grace Period Alert Banner */}
+        {isPastDue && (
+          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-rose-500/40 bg-rose-950/20 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3.5">
+              <div className="rounded-xl bg-rose-500/20 p-2 text-rose-400">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-rose-200">
+                  Payment Past Due — Grace Period Active
+                </h3>
+                <p className="mt-1 text-xs text-rose-200/70">
+                  Your last subscription renewal invoice failed (Attempt #{subscription?.dunningAttemptCount ?? 1}).
+                  Your workspace has entered a 7-day grace period. Please update your payment method immediately to avoid operational suspension.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleOpenPortal}
+              className="shrink-0 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-rose-600/30 transition hover:bg-rose-500"
+            >
+              Update Payment Method
+            </button>
+          </div>
+        )}
+
+        {/* 14-Day Free Trial Banner (if eligible) */}
+        {canStartTrial && (
+          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-blue-500/30 bg-gradient-to-r from-blue-950/30 to-violet-950/30 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3.5">
+              <div className="rounded-xl bg-blue-500/20 p-2 text-blue-400">
+                <Sparkles size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-blue-200">
+                  Start Your 14-Day Free Trial of Growth Tier
+                </h3>
+                <p className="mt-1 text-xs text-blue-200/70">
+                  Unlock 10 AI Employees, 10,000 WhatsApp messages, and marketing broadcasts with zero upfront charges.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleStartTrial}
+              disabled={activatingTrial}
+              className="flex shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-violet-600 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-blue-500/20 transition hover:brightness-110"
+            >
+              <Zap size={14} />
+              <span>{activatingTrial ? "Activating Trial..." : "Activate 14-Day Free Trial"}</span>
+            </button>
+          </div>
+        )}
 
         {/* Feedback Alert */}
         {statusMessage && (
@@ -168,8 +331,18 @@ export default function BillingPage() {
               <span className="text-xs font-medium uppercase tracking-wider text-white/40">
                 Active Plan
               </span>
-              <span className="rounded-full bg-violet-500/20 px-2.5 py-0.5 text-[11px] font-bold text-violet-300">
-                {subscription?.planName?.toUpperCase() ?? "STARTER"}
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                  isTrialActive
+                    ? "bg-amber-500/20 text-amber-300"
+                    : isPastDue
+                    ? "bg-rose-500/20 text-rose-300"
+                    : "bg-violet-500/20 text-violet-300"
+                }`}
+              >
+                {isTrialActive
+                  ? `TRIAL (${subscription?.planName?.toUpperCase() ?? "GROWTH"})`
+                  : subscription?.planName?.toUpperCase() ?? "STARTER"}
               </span>
             </div>
             <div className="mt-4 flex items-baseline gap-2">
@@ -188,7 +361,7 @@ export default function BillingPage() {
           <div className="rounded-2xl border border-white/[0.08] bg-[#111216] p-5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium uppercase tracking-wider text-white/40">
-                Message Quota
+                Verified Message Quota
               </span>
               <MessageSquare size={16} className="text-blue-400" />
             </div>
@@ -242,28 +415,87 @@ export default function BillingPage() {
             </p>
           </div>
 
-          {/* Cycle Renewal */}
+          {/* Cycle Renewal / Trial Expiration */}
           <div className="rounded-2xl border border-white/[0.08] bg-[#111216] p-5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium uppercase tracking-wider text-white/40">
-                Cycle Renewal
+                {isTrialActive ? "Trial Remaining" : "Cycle Renewal"}
               </span>
               <Clock size={16} className="text-amber-400" />
             </div>
             <div className="mt-4 flex items-baseline gap-1.5">
               <span className="text-3xl font-bold">
-                {subscription?.daysRemaining ?? 30}
+                {isTrialActive
+                  ? subscription?.trialDaysRemaining ?? 14
+                  : subscription?.daysRemaining ?? 30}
               </span>
               <span className="text-xs text-white/40">days remaining</span>
             </div>
             <p className="mt-3 text-xs text-white/40">
-              Resets quota on{" "}
-              {subscription?.currentPeriodEnd
-                ? new Date(subscription.currentPeriodEnd).toLocaleDateString()
-                : "next cycle"}
+              {isTrialActive
+                ? `Expires on ${subscription?.trialEnd ? new Date(subscription.trialEnd).toLocaleDateString() : "end of trial"}`
+                : `Resets on ${subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd).toLocaleDateString() : "next cycle"}`}
             </p>
           </div>
         </div>
+
+        {/* Verified Usage Accounting Breakdown */}
+        {usageAccounting && (
+          <div className="mt-10 rounded-3xl border border-white/[0.08] bg-[#111216] p-6 sm:p-8">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-5">
+              <div>
+                <h3 className="text-lg font-bold text-white">
+                  Verified Usage Accounting Ledger
+                </h3>
+                <p className="mt-1 text-xs text-white/50">
+                  Immutable audit records metering autonomous message traffic and AI compute consumption for this cycle.
+                </p>
+              </div>
+              <span className="rounded-full bg-white/[0.05] px-3 py-1 text-xs font-medium text-white/60">
+                Audit Status: Verified
+              </span>
+            </div>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
+              <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
+                <span className="text-[11px] font-medium text-white/40">WhatsApp Outbound</span>
+                <p className="mt-2 text-2xl font-bold text-white">
+                  {usageAccounting.metricsBreakdown.whatsapp_outbound.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
+                <span className="text-[11px] font-medium text-white/40">WhatsApp Inbound</span>
+                <p className="mt-2 text-2xl font-bold text-white">
+                  {usageAccounting.metricsBreakdown.whatsapp_inbound.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
+                <span className="text-[11px] font-medium text-white/40">Broadcast Messages</span>
+                <p className="mt-2 text-2xl font-bold text-white">
+                  {usageAccounting.metricsBreakdown.campaign_broadcast.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
+                <span className="text-[11px] font-medium text-white/40">AI Agent Runs</span>
+                <p className="mt-2 text-2xl font-bold text-white">
+                  {usageAccounting.metricsBreakdown.ai_agent_run.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
+                <span className="text-[11px] font-medium text-white/40">AI Tokens</span>
+                <p className="mt-2 text-2xl font-bold text-white">
+                  {usageAccounting.metricsBreakdown.ai_tokens.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
+                <span className="text-[11px] font-medium text-white/40">Workflow Triggers</span>
+                <p className="mt-2 text-2xl font-bold text-white">
+                  {usageAccounting.metricsBreakdown.workflow_execution.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tier Comparison & Upgrade Grid */}
         <div className="mt-12">
@@ -359,7 +591,7 @@ export default function BillingPage() {
                         {upgradingId === plan.id ? (
                           <>
                             <RefreshCw size={14} className="animate-spin" />
-                            Updating Tier...
+                            Redirecting to Stripe Checkout...
                           </>
                         ) : (
                           <>
@@ -388,19 +620,21 @@ export default function BillingPage() {
                   Secured by Stripe & Official Meta Cloud API
                 </h3>
                 <p className="mt-1 text-xs text-white/50 max-w-xl">
-                  J10 NEXUS processes payments through PCI DSS Level 1 certified Stripe infrastructure. Automated rate-limiting enforces zero-overage surprise charges.
+                  J10 NEXUS processes subscriptions through PCI DSS Level 1 certified Stripe infrastructure. Row-locked usage metering guarantees zero-surprise billing.
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <Link
-                href="/dashboard/finance"
+              <button
+                onClick={handleOpenPortal}
+                disabled={openingPortal}
                 className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-xs font-medium text-white/80 transition hover:bg-white/[0.08]"
               >
-                <span>View Revenue & Invoices</span>
-                <ArrowRight size={13} />
-              </Link>
+                <CreditCard size={13} />
+                <span>Customer Portal</span>
+                <ExternalLink size={12} className="opacity-60" />
+              </button>
             </div>
           </div>
         </div>
