@@ -61,6 +61,26 @@ export interface SendChannelMessageResult {
   error?: string;
 }
 
+export const SUPPORTED_CHANNEL_METRICS: Record<string, BillableMetricName> = {
+  whatsapp: "whatsapp_outbound",
+  whatsapp_group: "whatsapp_group_outbound",
+  sms: "sms_outbound",
+  email: "email_outbound",
+  instagram: "instagram_outbound",
+  messenger: "messenger_outbound",
+  webchat: "webchat_outbound",
+  website: "website_outbound",
+  crm: "crm_outbound",
+};
+
+export function resolveChannelBillableMetric(channel: string): BillableMetricName {
+  const metric = SUPPORTED_CHANNEL_METRICS[channel.toLowerCase()];
+  if (!metric) {
+    throw new Error(`Unsupported or unrecognized channel metric for channel: '${channel}'. Pre-reservation halted before provider call.`);
+  }
+  return metric;
+}
+
 /**
  * Dispatches message to channel-specific provider adapter using genuine credentials.
  * If credentials are missing or channel is unsupported, honestly returns 'unavailable' instead of pretending success.
@@ -425,10 +445,11 @@ export async function dispatchOmnichannelMessage(
   // 4. Pre-reserve billable quota before dispatching external action
   let reservationId: string | undefined;
   if (["whatsapp", "whatsapp_group", "sms", "email", "instagram", "messenger"].includes(input.channel)) {
+    const metricName = resolveChannelBillableMetric(input.channel);
     try {
       const reservation = await reserveWorkspaceQuota(supabase, {
         workspaceId: input.workspaceId,
-        metricName: `${input.channel}_outbound` as BillableMetricName,
+        metricName,
         quantity: 1,
         actorUserId: input.senderUserId,
         metadata: {
@@ -450,7 +471,7 @@ export async function dispatchOmnichannelMessage(
           error: `Message quota exhausted for workspace: ${quotaErr.message}`,
         };
       }
-      // If table doesn't exist in mock or other non-quota error, proceed with caution
+      throw quotaErr;
     }
   }
 

@@ -25,6 +25,8 @@ import {
   sendChannelProviderMessage,
   resolveWorkspaceChannelCredentials,
   updateOmnichannelDeliveryStatus,
+  resolveChannelBillableMetric,
+  SUPPORTED_CHANNEL_METRICS,
 } from "@/lib/omnichannel/dispatch";
 import { normalizeInboundPayload } from "@/lib/omnichannel/inbound";
 
@@ -732,6 +734,27 @@ describe("Tier 3 — True Omnichannel Operations", () => {
       expect(loggedEvents.length).toBe(1);
       expect(loggedEvents[0].status).toBe("delivered");
       expect(loggedEvents[0].provider).toBe("whatsapp_cloud");
+    });
+
+    it("proves supported channels map to valid billable metrics and unknown metrics fail before provider calls", () => {
+      // 1. Supported channels resolve to their corresponding billable metrics
+      expect(resolveChannelBillableMetric("whatsapp")).toBe("whatsapp_outbound");
+      expect(resolveChannelBillableMetric("sms")).toBe("sms_outbound");
+      expect(resolveChannelBillableMetric("email")).toBe("email_outbound");
+      expect(resolveChannelBillableMetric("instagram")).toBe("instagram_outbound");
+      expect(resolveChannelBillableMetric("messenger")).toBe("messenger_outbound");
+      expect(resolveChannelBillableMetric("whatsapp_group")).toBe("whatsapp_group_outbound");
+      expect(resolveChannelBillableMetric("webchat")).toBe("webchat_outbound");
+      expect(resolveChannelBillableMetric("website")).toBe("website_outbound");
+      expect(resolveChannelBillableMetric("crm")).toBe("crm_outbound");
+
+      // 2. Unknown metric throws explicit error before provider calls
+      expect(() => resolveChannelBillableMetric("satellite_radio")).toThrow(
+        "Unsupported or unrecognized channel metric for channel: 'satellite_radio'. Pre-reservation halted before provider call."
+      );
+      expect(() => resolveChannelBillableMetric("fax")).toThrow(
+        "Unsupported or unrecognized channel metric for channel: 'fax'. Pre-reservation halted before provider call."
+      );
     });
   });
 });

@@ -22,22 +22,38 @@ import {
 } from "@/lib/governance/roi";
 
 // Mock Supabase Store for Governance State
-const mockStore: Record<string, any[]> = {
-  ai_agent_permissions: [],
-  ai_agent_budgets: [],
-  ai_agent_approval_gates: [],
-  ai_agent_roi_attributions: [],
-  ai_agent_traces: [],
-  ai_agent_trace_steps: [],
-  ai_agent_versions: [],
-};
+const { mockStore, createMockSupabase } = vi.hoisted(() => {
+  const mockStore: Record<string, any[]> = {
+    ai_agent_permissions: [],
+    ai_agent_budgets: [],
+    ai_agent_approval_gates: [],
+    ai_agent_roi_attributions: [],
+    ai_agent_traces: [],
+    ai_agent_trace_steps: [],
+    ai_agent_versions: [],
+    ai_tasks: [],
+    ai_employees: [],
+    employees: [],
+    activity_logs: [],
+    workspace_quota_reservations: [],
+    workspace_subscriptions: [],
+  };
 
-vi.mock("@/lib/auth", () => ({
-  createServerSupabaseClient: () => ({
+  const createMockSupabase = () => ({
     from: (table: string) => {
-      let currentData = mockStore[table] || [];
+      let currentData = mockStore[table] ? [...mockStore[table]] : [];
+      let pendingUpdate: any = null;
+
       const builder: any = {
-        select: vi.fn(() => builder),
+        select: vi.fn(() => {
+          if (pendingUpdate) {
+            for (const row of currentData) {
+              Object.assign(row, pendingUpdate);
+            }
+            pendingUpdate = null;
+          }
+          return builder;
+        }),
         eq: vi.fn((field: string, val: any) => {
           currentData = currentData.filter((row: any) => row[field] === val);
           return builder;
@@ -47,11 +63,24 @@ vi.mock("@/lib/auth", () => ({
           return builder;
         }),
         order: vi.fn(() => builder),
+        limit: vi.fn(() => builder),
         single: vi.fn(async () => {
+          if (pendingUpdate) {
+            for (const row of currentData) {
+              Object.assign(row, pendingUpdate);
+            }
+            pendingUpdate = null;
+          }
           const item = currentData[0] || null;
           return { data: item, error: item ? null : { message: "Not found" } };
         }),
         maybeSingle: vi.fn(async () => {
+          if (pendingUpdate) {
+            for (const row of currentData) {
+              Object.assign(row, pendingUpdate);
+            }
+            pendingUpdate = null;
+          }
           return { data: currentData[0] || null, error: null };
         }),
         insert: vi.fn((payload: any) => {
@@ -65,9 +94,7 @@ vi.mock("@/lib/auth", () => ({
           return builder;
         }),
         update: vi.fn((payload: any) => {
-          for (const row of currentData) {
-            Object.assign(row, payload);
-          }
+          pendingUpdate = payload;
           return builder;
         }),
         upsert: vi.fn((payload: any) => {
@@ -89,13 +116,105 @@ vi.mock("@/lib/auth", () => ({
           return builder;
         }),
         then: (resolve: any, reject?: any) => {
+          if (pendingUpdate) {
+            for (const row of currentData) {
+              Object.assign(row, pendingUpdate);
+            }
+            pendingUpdate = null;
+          }
           return Promise.resolve({ data: currentData, error: null }).then(resolve, reject);
         },
       };
       return builder;
     },
+    rpc: vi.fn(async () => ({ data: null, error: null })),
+  });
+
+  return { mockStore, createMockSupabase };
+});
+
+vi.mock("@/lib/auth", () => ({
+  createServerSupabaseClient: createMockSupabase,
+  getCurrentUser: async () => ({ id: "usr-1", email: "operator@j10nexus.local" }),
+  createAdminSupabaseClient: createMockSupabase,
+}));
+
+vi.mock("@/lib/workspaces/server", () => ({
+  requireApiWorkspaceContext: vi.fn(async () => ({
+    error: null,
+    context: {
+      workspace: { id: "ws-prod-gov-test" },
+      membership: { role: "owner" },
+      user: { id: "usr-1" },
+    },
+  })),
+}));
+
+vi.mock("@/lib/automation/bridge-auth", () => ({
+  hasAutomationBridgeCookie: () => false,
+  resolveAutomationRequestActor: async () => ({
+    user: { id: "usr-1" },
+    bridge: null,
+    supabase: createMockSupabase(),
   }),
 }));
+
+vi.mock("@/lib/integrations/api", () => ({
+  createIntegrationApiClient: async () => createMockSupabase(),
+  getAuthenticatedIntegrationUser: async () => ({ id: "usr-1" }),
+  parseRequestObject: (obj: any) => obj,
+  writeIntegrationActivity: async () => null,
+  integrationApiErrorResponse: () => null,
+}));
+
+let mockConnectionWorkspaceId = "ws-prod-gov-test";
+vi.mock("@/lib/integrations/database", () => ({
+  getIntegrationConnectionById: async () => ({
+    id: "conn-1",
+    workspaceId: mockConnectionWorkspaceId,
+    providerId: "twilio",
+    environment: "production",
+  }),
+}));
+
+vi.mock("@/lib/integrations/external-action-adapter", () => ({
+  resolveIntegrationActionCapability: (_conn: any, capabilityId: string) => ({
+    id: capabilityId || "sms.send",
+    name: "Send Action",
+  }),
+  evaluateIntegrationActionPolicy: () => ({ allowed: true, requiresHumanApproval: false, code: "ALLOWED" }),
+  createIntegrationActionPlan: () => ({ id: "plan-1" }),
+  createIntegrationActionFingerprint: () => "fp-123",
+  verifyIntegrationOperatorApproval: () => true,
+  parseIntegrationActionMode: () => "live",
+  parseIntegrationActionInput: (i: any) => i,
+  parseIntegrationActionIdempotencyKey: () => "idem-123",
+}));
+
+vi.mock("@/lib/integrations/integration-action-database", () => ({
+  claimIntegrationActionExecution: async () => ({
+    claimed: true,
+    execution: { id: "exec-1", attemptCount: 1, maxAttempts: 3, status: "pending" },
+  }),
+  finishIntegrationActionExecution: async (_sb: any, _uid: any, _eid: any, updates: any) => ({
+    id: "exec-1",
+    status: updates.status,
+  }),
+  listIntegrationActionExecutions: async () => [],
+  serializeIntegrationActionExecution: (e: any) => e,
+}));
+
+vi.mock("@/lib/billing/entitlements", async (importOriginal) => {
+  const mod = await importOriginal<any>();
+  return {
+    ...mod,
+    assertWorkspaceEntitlement: vi.fn(async () => true),
+    recordWorkspaceMessageUsage: vi.fn(async () => true),
+  };
+});
+
+import { POST as runAiTaskRoute } from "@/app/api/ai-tasks/[id]/run/route";
+import { POST as runIntegrationActionRoute } from "@/app/api/integrations/[id]/actions/route";
 
 describe("Tier 4: Actual Route Callers & Production Governance Verification", () => {
   const workspaceId = "ws-prod-gov-test";
@@ -105,28 +224,104 @@ describe("Tier 4: Actual Route Callers & Production Governance Verification", ()
     Object.keys(mockStore).forEach((k) => (mockStore[k] = []));
   });
 
-  describe("1. Static Contract & Wiring Verification of Actual Production Routes", () => {
-    it("proves app/api/ai-tasks/[id]/run/route.ts contains agent budget enforcement before execution", () => {
-      const source = readFileSync(
-        resolve(process.cwd(), "app/api/ai-tasks/[id]/run/route.ts"),
-        "utf8"
-      );
-      expect(source).toContain("evaluateBudgetAllowance");
-      expect(source).toContain("recordAgentExecutionSpend");
-      expect(source).toContain("BUDGET_EXHAUSTED");
-      expect(source).toContain("status: 403");
+  describe("1. Live Route Handler Invocations: Budget & Permission Enforcement", () => {
+    it("proves app/api/ai-tasks/[id]/run/route.ts blocks execution with 403 BUDGET_EXHAUSTED when budget exhausted", async () => {
+      // Seed employee and pending task
+      mockStore.employees = [
+        {
+          id: agentId,
+          workspace_id: workspaceId,
+          name: "Alex",
+          role: "Operations",
+          department: "Operations",
+          status: "Running",
+          model: "openai/gpt-4o",
+          tasks_completed: 0,
+        },
+      ];
+      mockStore.ai_employees = mockStore.employees;
+
+      mockStore.ai_tasks = [
+        {
+          id: "task-gov-1",
+          workspace_id: workspaceId,
+          employee_id: agentId,
+          employee_name: "Alex",
+          title: "Quarterly Audit",
+          task_type: "research",
+          instructions: "Audit records",
+          input_text: "Target: Q3",
+          status: "pending",
+          user_id: "usr-1",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ];
+
+      // Exhaust budget
+      mockStore.ai_agent_budgets = [
+        {
+          id: "b-exhausted-1",
+          workspace_id: workspaceId,
+          agent_id: agentId,
+          daily_budget_usd: 1.0,
+          monthly_budget_usd: 100.0,
+          current_daily_spend_usd: 1.0, // 100% utilized
+          current_monthly_spend_usd: 1.0,
+          max_cost_per_execution_usd: 1.0,
+          over_budget_policy: "hard_stop",
+          last_reset_date: new Date().toISOString().split("T")[0],
+        },
+      ];
+
+      const request = new Request("http://localhost:3000/api/ai-tasks/task-gov-1/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      const response = await runAiTaskRoute(request, {
+        params: Promise.resolve({ id: "task-gov-1" }),
+      });
+
+      const json = await response.json();
+      expect(response.status).toBe(403);
+      expect(json.success).toBe(false);
+      expect(json.code).toBe("BUDGET_EXHAUSTED");
+      expect(json.error).toContain("blocked by budget policy");
     });
 
-    it("proves app/api/integrations/[id]/actions/route.ts contains tool permission and budget enforcement", () => {
-      const source = readFileSync(
-        resolve(process.cwd(), "app/api/integrations/[id]/actions/route.ts"),
-        "utf8"
-      );
-      expect(source).toContain("checkToolPermission");
-      expect(source).toContain("TOOL_PERMISSION_DENIED");
-      expect(source).toContain("evaluateBudgetAllowance");
-      expect(source).toContain("BUDGET_EXHAUSTED");
-      expect(source).toContain("status: 403");
+    it("proves app/api/integrations/[id]/actions/route.ts blocks denied tools with 403 TOOL_PERMISSION_DENIED", async () => {
+      // Seed permissions explicitly denying stripe.refund
+      mockStore.ai_agent_permissions = [
+        {
+          id: "perm-block-1",
+          workspace_id: workspaceId,
+          agent_id: `${"twilio"}-integration-agent`,
+          allowed_tools: ["sms.send"],
+          denied_tools: ["stripe.refund"],
+        },
+      ];
+
+      const request = new Request("http://localhost:3000/api/integrations/conn-1/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          capabilityId: "stripe.refund",
+          mode: "live",
+          input: { chargeId: "ch_123", amount: 50 },
+        }),
+      });
+
+      const response = await runIntegrationActionRoute(request, {
+        params: Promise.resolve({ id: "conn-1" }),
+      });
+
+      expect(response.status).toBe(403);
+      const json = await response.json();
+      expect(json.success).toBe(false);
+      expect(json.code).toBe("TOOL_PERMISSION_DENIED");
+      expect(json.error).toContain("explicitly blocked by policy");
     });
   });
 

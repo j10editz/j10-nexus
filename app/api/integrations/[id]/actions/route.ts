@@ -79,6 +79,8 @@ import {
   recordAgentExecutionSpend,
 } from "@/lib/governance/budgets";
 
+import { executeGovernedToolAction } from "@/lib/governance/runner";
+
 type RouteContext = {
   params: Promise<{
     id: string;
@@ -350,12 +352,25 @@ export async function POST(
         body.capabilityId,
       );
 
-    // Tier 4 Governance: Capability & Tool Permission Enforcement
+    // Tier 4 Governance: Server-Side Agent Resolution & Governance Validation
+    let resolvedAgentId = `${connection.providerId}-integration-agent`;
     if (connection.workspaceId) {
-      const agentId = (body.agentId as string) || "integration-runner";
+      if (typeof body.agentId === "string" && body.agentId.trim() !== "") {
+        const { data: verifiedAgent } = await supabase
+          .from("ai_employees")
+          .select("id")
+          .eq("id", body.agentId.trim())
+          .eq("workspace_id", connection.workspaceId)
+          .maybeSingle();
+
+        if (verifiedAgent) {
+          resolvedAgentId = verifiedAgent.id;
+        }
+      }
+
       const toolPerm = await checkToolPermission(
         connection.workspaceId,
-        agentId,
+        resolvedAgentId,
         capability.id
       );
 
@@ -373,7 +388,7 @@ export async function POST(
       // Tier 4 Governance: Spend Budget Allowance Enforcement
       const budgetCheck = await evaluateBudgetAllowance(
         connection.workspaceId,
-        agentId,
+        resolvedAgentId,
         0.01
       );
 
@@ -715,26 +730,74 @@ export async function POST(
         await assertWorkspaceEntitlement(supabase, connection.workspaceId, { feature: capability.id });
       }
 
-      const adapterResult =
-        mode === "live"
-          ? await executeLiveIntegrationAction({
-              supabase,
-              userId:
-                user.id,
-              connection,
-              request:
+      let adapterResult: any;
+      if (connection.workspaceId) {
+        const governedActionResult = await executeGovernedToolAction(supabase, {
+          workspaceId: connection.workspaceId,
+          agentId: resolvedAgentId,
+          toolName: capability.id,
+          payload: input,
+          approvalGateId: (body.approvalGateId as string) || undefined,
+          estimatedCostUsd: 0.01,
+          executor: async (actionPayload) => {
+            return mode === "live"
+              ? await executeLiveIntegrationAction({
+                  supabase,
+                  userId: user.id,
+                  connection,
+                  request: { ...actionRequest, input: actionPayload },
+                  executionId: activeExecution.id,
+                  correlationId,
+                  signal: request.signal,
+                })
+              : await executeIntegrationActionPlan(
+                  plan,
+                  { ...actionRequest, input: actionPayload },
+                  activeExecution.id
+                );
+          },
+        });
+
+        if (!governedActionResult.success) {
+          const blockedCode =
+            governedActionResult.blockedBy === "permission"
+              ? "TOOL_PERMISSION_DENIED"
+              : governedActionResult.blockedBy === "budget"
+              ? "BUDGET_EXHAUSTED"
+              : governedActionResult.blockedBy === "payload_mismatch"
+              ? "APPROVAL_PAYLOAD_MISMATCH"
+              : "APPROVAL_REQUIRED";
+
+          return NextResponse.json(
+            {
+              success: false,
+              error: governedActionResult.error || "Tool execution blocked by governance policy.",
+              code: blockedCode,
+              approvalGateId: governedActionResult.approvalGateId,
+            },
+            { status: 403 }
+          );
+        }
+
+        adapterResult = governedActionResult.result;
+      } else {
+        adapterResult =
+          mode === "live"
+            ? await executeLiveIntegrationAction({
+                supabase,
+                userId: user.id,
+                connection,
+                request: actionRequest,
+                executionId: activeExecution.id,
+                correlationId,
+                signal: request.signal,
+              })
+            : await executeIntegrationActionPlan(
+                plan,
                 actionRequest,
-              executionId:
-                activeExecution.id,
-              correlationId,
-              signal:
-                request.signal,
-            })
-          : await executeIntegrationActionPlan(
-              plan,
-              actionRequest,
-              activeExecution.id,
-            );
+                activeExecution.id
+              );
+      }
 
       if (!adapterResult.success) {
         const code =

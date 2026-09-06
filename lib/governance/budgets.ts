@@ -9,9 +9,10 @@ import type { AgentBudget, BudgetUtilization, OverBudgetPolicy } from "@/types/g
 
 export async function getAgentBudget(
   workspaceId: string,
-  agentId: string
+  agentId: string,
+  client?: any
 ): Promise<AgentBudget> {
-  const supabase = createServerSupabaseClient();
+  const supabase = client || createServerSupabaseClient();
   const { data, error } = await supabase
     .from("ai_agent_budgets")
     .select("*")
@@ -123,17 +124,51 @@ export async function evaluateBudgetAllowance(
 export async function recordSpend(
   workspaceId: string,
   agentId: string,
-  costUsd: number
-): Promise<void> {
-  if (costUsd <= 0) return;
+  costUsd: number,
+  client?: any
+): Promise<{ success: boolean; canExecute: boolean; newDailySpendUsd?: number }> {
+  if (costUsd === 0) {
+    return { success: true, canExecute: true };
+  }
 
-  const supabase = createServerSupabaseClient();
-  const budget = await getAgentBudget(workspaceId, agentId);
+  const supabase = client || createServerSupabaseClient();
 
-  const newDaily = budget.currentDailySpendUsd + costUsd;
-  const newMonthly = budget.currentMonthlySpendUsd + costUsd;
+  // 1. Attempt atomic database RPC
+  try {
+    const { data: rpcData, error: rpcErr } = await supabase.rpc("record_agent_execution_spend_atomic", {
+      p_workspace_id: workspaceId,
+      p_agent_id: agentId,
+      p_cost_usd: costUsd,
+    });
 
-  await supabase
+    if (!rpcErr && rpcData) {
+      if (rpcData.can_execute === false) {
+        return { success: false, canExecute: false };
+      }
+      return {
+        success: true,
+        canExecute: true,
+        newDailySpendUsd: Number(rpcData.daily_spend_usd || 0),
+      };
+    }
+  } catch {
+    // Fall back to client query
+  }
+
+  // 2. Client fallback with atomic admission check and update error verification
+  const budget = await getAgentBudget(workspaceId, agentId, supabase);
+
+  // Enforce atomic budget admission check before committing positive spend
+  if (costUsd > 0 && budget.dailyBudgetUsd > 0 && (budget.currentDailySpendUsd + costUsd) > budget.dailyBudgetUsd) {
+    if (budget.overBudgetPolicy === "hard_stop") {
+      return { success: false, canExecute: false };
+    }
+  }
+
+  const newDaily = Math.max(0, budget.currentDailySpendUsd + costUsd);
+  const newMonthly = Math.max(0, budget.currentMonthlySpendUsd + costUsd);
+
+  const { error: updateErr } = await supabase
     .from("ai_agent_budgets")
     .update({
       current_daily_spend_usd: newDaily,
@@ -142,6 +177,12 @@ export async function recordSpend(
     })
     .eq("workspace_id", workspaceId)
     .eq("agent_id", agentId);
+
+  if (updateErr) {
+    throw new Error(`Failed to record agent execution spend: ${updateErr.message}`);
+  }
+
+  return { success: true, canExecute: true, newDailySpendUsd: newDaily };
 }
 
 export const recordAgentExecutionSpend = recordSpend;

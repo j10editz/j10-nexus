@@ -15,6 +15,7 @@ import {
   evaluateBudgetAllowance,
   recordAgentExecutionSpend,
 } from "@/lib/governance/budgets";
+import { executeGovernedAgentTask } from "@/lib/governance/runner";
 
 import {
   buildDevelopmentResearchStructuredData,
@@ -965,49 +966,29 @@ export async function POST(
       );
     }
 
-    const result =
-      await runJ10AI({
-        task:
-          j10TaskType,
+    const governedResult = await executeGovernedAgentTask({
+      workspaceId,
+      agentId: employee.id,
+      taskType: j10TaskType,
+      prompt: runtimeInput,
+      forceModel: employee.model,
+    });
 
-        input:
-          runtimeInput,
-
-        preference,
-
-        instructions: `
-You are ${employee.name}, an AI employee inside J10 NEXUS.
-
-Role:
-${employee.role}
-
-Department:
-${employee.department}
-
-Complete the assigned task using only the supplied context.
-
-Rules:
-
-1. Do not claim that external research, browsing,
-emails, CRM changes, financial transactions or
-other external actions occurred unless J10 NEXUS
-actually executed them.
-
-2. Clearly distinguish facts from assumptions.
-
-3. Follow the task instructions exactly.
-
-4. Produce a useful business result.
-
-5. Keep sensitive actions human-controlled.
-`,
-
-        maxOutputTokens:
-          6000,
-      });
-
-    // Record agent execution spend for governance accounting
-    await recordAgentExecutionSpend(workspaceId, employee.id, result.estimatedCostUSD ?? 0.01).catch(() => null);
+    const result = {
+      text: governedResult.output,
+      executionMode: "live",
+      apiCalled: true,
+      model: governedResult.modelUsed,
+      displayModel: governedResult.modelUsed,
+      estimatedCostUSD: governedResult.costUsd,
+      provider: governedResult.providerUsed,
+      traceId: governedResult.traceId,
+      version: governedResult.versionUsed,
+      simulated: false,
+      workload: "production",
+      reasoningEffort: "medium",
+      reasoningMode: "governed",
+    };
 
 
     const baseStructuredResultData =

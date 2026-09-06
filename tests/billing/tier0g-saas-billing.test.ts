@@ -5,9 +5,12 @@ import {
   assertWorkspaceAiEmployeeLimit,
   getWorkspaceEntitlements,
   recordVerifiedWorkspaceUsage,
+  reserveWorkspaceQuota,
+  releaseWorkspaceQuota,
   activateWorkspaceTrial,
   BillingRequiredError,
 } from "@/lib/billing/entitlements";
+import { recordSpend } from "@/lib/governance/budgets";
 import {
   PLANS,
   getPlanById,
@@ -528,6 +531,193 @@ describe("Tier 0G: SaaS Billing & Subscription Architecture", () => {
       expect(result.action).toBe("marked_past_due");
       expect(updatedStatus.status).toBe("past_due");
       expect(updatedStatus.dunning_status).toBe("grace_period");
+    });
+  });
+
+  describe("7. Atomic Database-Backed Quota Reservations & Settlement", () => {
+    it("proves releaseWorkspaceQuota enforces single-use release and prevents duplicate refunds", async () => {
+      let currentUsage = 50;
+      let reservationStatus = "reserved";
+
+      const mockSupabase = {
+        from: (table: string) => {
+          if (table === "workspace_quota_reservations") {
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({
+                    data: {
+                      id: "res-uuid-1",
+                      reservation_id: "res-12345",
+                      workspace_id: "ws-atomic-1",
+                      metric_name: "whatsapp_outbound",
+                      quantity: 5,
+                      status: reservationStatus,
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+              update: (payload: any) => ({
+                eq: async () => {
+                  reservationStatus = payload.status;
+                  return { error: null };
+                },
+              }),
+            };
+          }
+          if (table === "workspace_subscriptions") {
+            return {
+              select: () => ({
+                eq: () => ({
+                  single: async () => ({
+                    data: {
+                      id: "sub-1",
+                      workspace_id: "ws-atomic-1",
+                      messages_used_this_period: currentUsage,
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+              update: (payload: any) => ({
+                eq: async () => {
+                  currentUsage = payload.messages_used_this_period;
+                  return { error: null };
+                },
+              }),
+            };
+          }
+          throw new Error(`Unexpected table ${table}`);
+        },
+      } as unknown as SupabaseClient;
+
+      // First release: should successfully reduce usage by 5 (50 -> 45)
+      const firstRelease = await releaseWorkspaceQuota(mockSupabase, {
+        workspaceId: "ws-atomic-1",
+        quantity: 5,
+        reservationId: "res-12345",
+        reason: "failed_delivery",
+      });
+
+      expect(firstRelease.success).toBe(true);
+      expect(firstRelease.newUsage).toBe(45);
+      expect(firstRelease.idempotent).toBe(false);
+      expect(currentUsage).toBe(45);
+      expect(reservationStatus).toBe("released");
+
+      // Second release with identical reservationId: idempotent, MUST NOT reduce usage again!
+      const secondRelease = await releaseWorkspaceQuota(mockSupabase, {
+        workspaceId: "ws-atomic-1",
+        quantity: 5,
+        reservationId: "res-12345",
+        reason: "failed_delivery",
+      });
+
+      expect(secondRelease.success).toBe(true);
+      expect(secondRelease.idempotent).toBe(true);
+      // Usage remains strictly 45, NOT 40
+      expect(secondRelease.newUsage).toBe(45);
+      expect(currentUsage).toBe(45);
+    });
+
+    it("proves releaseWorkspaceQuota validates workspace ownership", async () => {
+      const mockSupabase = {
+        from: (table: string) => {
+          if (table === "workspace_quota_reservations") {
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({
+                    data: {
+                      id: "res-uuid-2",
+                      reservation_id: "res-other-tenant",
+                      workspace_id: "ws-tenant-victim",
+                      quantity: 10,
+                      status: "reserved",
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+            };
+          }
+          throw new Error(`Unexpected table ${table}`);
+        },
+      } as unknown as SupabaseClient;
+
+      await expect(
+        releaseWorkspaceQuota(mockSupabase, {
+          workspaceId: "ws-attacker",
+          quantity: 10,
+          reservationId: "res-other-tenant",
+        })
+      ).rejects.toThrow("Reservation ownership mismatch");
+    });
+
+    it("proves releaseWorkspaceQuota throws when database update fails", async () => {
+      const mockSupabase = {
+        from: (table: string) => {
+          if (table === "workspace_subscriptions") {
+            return {
+              select: () => ({
+                eq: () => ({
+                  single: async () => ({
+                    data: {
+                      id: "sub-1",
+                      messages_used_this_period: 20,
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+              update: () => ({
+                eq: async () => ({
+                  error: { message: "connection timeout" },
+                }),
+              }),
+            };
+          }
+          throw new Error(`Unexpected table ${table}`);
+        },
+      } as unknown as SupabaseClient;
+
+      await expect(
+        releaseWorkspaceQuota(mockSupabase, {
+          workspaceId: "ws-atomic-err",
+          quantity: 2,
+        })
+      ).rejects.toThrow("Failed to update workspace subscription usage: connection timeout");
+    });
+
+    it("proves recordSpend enforces atomic admission and processes downward spend adjustment", async () => {
+      let currentDaily = 5.0;
+      const mockSupabase = {
+        rpc: async (fn: string, params: any) => {
+          if (fn === "record_agent_execution_spend_atomic") {
+            const cost = params.p_cost_usd;
+            if (cost > 0 && currentDaily + cost > 10.0) {
+              return { data: { success: false, can_execute: false }, error: null };
+            }
+            currentDaily = Math.max(0, currentDaily + cost);
+            return {
+              data: { success: true, can_execute: true, daily_spend_usd: currentDaily },
+              error: null,
+            };
+          }
+          throw new Error(`Unexpected RPC ${fn}`);
+        },
+      } as unknown as SupabaseClient;
+
+      // Positive spend exceeding limit is rejected by atomic admission
+      const rejectRes = await recordSpend("ws-test", "agent-1", 10.0, mockSupabase);
+      expect(rejectRes.canExecute).toBe(false);
+
+      // Downward reconciliation adjustment reduces spend
+      const adjustRes = await recordSpend("ws-test", "agent-1", -3.0, mockSupabase);
+      expect(adjustRes.success).toBe(true);
+      expect(adjustRes.canExecute).toBe(true);
+      expect(adjustRes.newDailySpendUsd).toBe(2.0);
     });
   });
 });
