@@ -9,6 +9,19 @@ export interface StripeWebhookVerificationResult {
   error?: string;
 }
 
+export const STRIPE_PRICE_ALLOWLIST: Record<
+  string,
+  { planId: "starter" | "growth" | "enterprise"; monthlyMessageLimit: number }
+> = {
+  price_starter_monthly: { planId: "starter", monthlyMessageLimit: 1_000 },
+  price_growth_monthly: { planId: "growth", monthlyMessageLimit: 10_000 },
+  price_enterprise_monthly: { planId: "enterprise", monthlyMessageLimit: 100_000 },
+  tier_enterprise_annual: { planId: "enterprise", monthlyMessageLimit: 100_000 },
+  starter: { planId: "starter", monthlyMessageLimit: 1_000 },
+  growth: { planId: "growth", monthlyMessageLimit: 10_000 },
+  enterprise: { planId: "enterprise", monthlyMessageLimit: 100_000 },
+};
+
 export function verifyStripeWebhookSignature({
   rawBody,
   signatureHeader,
@@ -44,7 +57,6 @@ export function verifyStripeWebhookSignature({
     return { valid: false, error: "Malformed stripe-signature header." };
   }
 
-  // Check timestamp freshness
   const ageSeconds = Math.abs(Math.floor(now / 1000) - timestamp);
   if (ageSeconds > SIGNATURE_TOLERANCE_SECONDS) {
     return { valid: false, error: "Stripe webhook signature expired." };
@@ -69,16 +81,19 @@ export function verifyStripeWebhookSignature({
   return { valid: true };
 }
 
-export function resolvePlanLimits(planId: string): {
-  planId: string;
+export function resolvePlanLimits(planKey: string): {
+  planId: "starter" | "growth" | "enterprise";
   monthlyMessageLimit: number;
 } {
-  const normalized = planId.toLowerCase();
-  if (normalized.includes("growth")) {
-    return { planId: "growth", monthlyMessageLimit: 10_000 };
+  const normalized = planKey.trim().toLowerCase();
+  if (STRIPE_PRICE_ALLOWLIST[normalized]) {
+    return STRIPE_PRICE_ALLOWLIST[normalized];
   }
   if (normalized.includes("enterprise")) {
     return { planId: "enterprise", monthlyMessageLimit: 100_000 };
+  }
+  if (normalized.includes("growth")) {
+    return { planId: "growth", monthlyMessageLimit: 10_000 };
   }
   return { planId: "starter", monthlyMessageLimit: 1_000 };
 }
@@ -91,7 +106,7 @@ export async function processStripeSubscriptionEvent(
       object: Record<string, any>;
     };
   },
-): Promise<{ processed: boolean; action: string; subscriptionId?: string }> {
+): Promise<{ processed: boolean; action: string; subscriptionId?: string; error?: string }> {
   const obj = event.data.object;
 
   switch (event.type) {
@@ -100,8 +115,8 @@ export async function processStripeSubscriptionEvent(
       const stripeSubId = obj.id as string;
       const stripeCustomerId = obj.customer as string;
       const statusRaw = obj.status as string;
-      const currentPeriodEndSec = obj.current_period_end as number;
-      const currentPeriodStartSec = obj.current_period_start as number;
+      const currentPeriodEndSec = obj.current_period_end as number | undefined;
+      const currentPeriodStartSec = obj.current_period_start as number | undefined;
 
       const allowedStatuses: Record<string, SubscriptionStatus> = {
         active: "active",
@@ -115,20 +130,43 @@ export async function processStripeSubscriptionEvent(
         return { processed: false, action: "unknown_subscription_status" };
       }
 
-      const currentPeriodEnd = currentPeriodEndSec
-        ? new Date(currentPeriodEndSec * 1000).toISOString()
-        : new Date(Date.now() + 30 * 86400000).toISOString();
+      // Do not fabricate billing-period timestamps: require valid period boundaries
+      if (!currentPeriodEndSec || !currentPeriodStartSec) {
+        return {
+          processed: false,
+          action: "quarantined_missing_period_timestamps",
+          error: "Subscription event missing period start/end timestamps",
+        };
+      }
 
-      const currentPeriodStart = currentPeriodStartSec
-        ? new Date(currentPeriodStartSec * 1000).toISOString()
-        : new Date().toISOString();
+      const currentPeriodEnd = new Date(currentPeriodEndSec * 1000).toISOString();
+      const currentPeriodStart = new Date(currentPeriodStartSec * 1000).toISOString();
 
-      // Resolve plan
-      const planItem = obj.items?.data?.[0]?.price?.lookup_key ||
+      // Resolve plan via price allowlist; unknown prices must be quarantined, NOT defaulted to starter
+      const rawPrice =
+        obj.items?.data?.[0]?.price?.lookup_key ||
         obj.items?.data?.[0]?.price?.id ||
-        obj.plan?.id ||
-        "starter";
-      const { planId, monthlyMessageLimit } = resolvePlanLimits(String(planItem));
+        obj.plan?.id;
+
+      if (!rawPrice) {
+        return {
+          processed: false,
+          action: "quarantined_missing_price",
+          error: "Subscription event missing price identifier",
+        };
+      }
+
+      const normalizedPrice = String(rawPrice).trim().toLowerCase();
+      const resolvedPlan = STRIPE_PRICE_ALLOWLIST[normalizedPrice];
+      if (!resolvedPlan) {
+        return {
+          processed: false,
+          action: "quarantined_unknown_price",
+          error: `Price ${rawPrice} is not in the authoritative Stripe price allowlist`,
+        };
+      }
+
+      const { planId, monthlyMessageLimit } = resolvedPlan;
 
       // 7-day grace period for past_due
       const gracePeriodEnd =
@@ -143,7 +181,9 @@ export async function processStripeSubscriptionEvent(
         .eq("stripe_subscription_id", stripeSubId)
         .maybeSingle();
 
-      if (existingErr) throw existingErr;
+      if (existingErr) {
+        return { processed: false, action: "database_read_failed", error: existingErr.message };
+      }
 
       if (existing) {
         // If billing period rolled over, reset usage
@@ -168,77 +208,106 @@ export async function processStripeSubscriptionEvent(
           })
           .eq("id", existing.id);
 
-        if (updateErr) throw updateErr;
+        if (updateErr) {
+          return { processed: false, action: "database_update_failed", error: updateErr.message };
+        }
 
         return { processed: true, action: "updated", subscriptionId: existing.id };
       }
 
-      // Resolve workspace association securely
-      const rawWorkspaceId = (obj.metadata?.workspace_id || obj.metadata?.workspaceId) as string | undefined;
-      if (rawWorkspaceId) {
-        const { data: wsRecord, error: wsErr } = await supabase
-          .from("workspaces")
-          .select("id")
-          .eq("id", rawWorkspaceId)
+      // Authoritative workspace resolution:
+      // Never trust arbitrary metadata workspace_id and never accept merely truthy internal_checkout_id!
+      let authoritativeWorkspaceId: string | null = null;
+
+      // 1. Check existing customer mapping
+      if (stripeCustomerId) {
+        const { data: existingCustomerSub } = await supabase
+          .from("workspace_subscriptions")
+          .select("workspace_id")
+          .eq("stripe_customer_id", stripeCustomerId)
+          .limit(1)
           .maybeSingle();
 
-        if (wsErr) throw wsErr;
+        if (existingCustomerSub?.workspace_id) {
+          authoritativeWorkspaceId = existingCustomerSub.workspace_id;
+        }
+      }
 
-        if (wsRecord?.id) {
-          // Validate workspace association against an internal billing or checkout record
-          const { data: checkoutRecord, error: coErr } = await supabase
-            .from("payment_checkouts")
-            .select("id")
-            .eq("workspace_id", wsRecord.id)
-            .limit(1)
-            .maybeSingle();
-          if (coErr) throw coErr;
+      // 2. Check authoritative checkout record if customer mapping did not resolve
+      const internalCheckoutId = obj.metadata?.internal_checkout_id;
+      if (!authoritativeWorkspaceId && internalCheckoutId) {
+        const { data: checkoutRecord, error: coErr } = await supabase
+          .from("payment_checkouts")
+          .select("id, workspace_id, stripe_customer_id")
+          .eq("id", internalCheckoutId)
+          .maybeSingle();
 
-          const { data: subRecord, error: subErr } = await supabase
-            .from("workspace_subscriptions")
-            .select("id")
-            .eq("workspace_id", wsRecord.id)
-            .limit(1)
-            .maybeSingle();
-          if (subErr) throw subErr;
-
-          const isVerified = Boolean(checkoutRecord || subRecord || obj.metadata?.internal_checkout_id);
-          if (isVerified) {
-            const { data: created, error: createErr } = await supabase
-              .from("workspace_subscriptions")
-              .upsert(
-                {
-                  workspace_id: wsRecord.id,
-                  stripe_customer_id: stripeCustomerId,
-                  stripe_subscription_id: stripeSubId,
-                  plan_id: planId,
-                  status,
-                  provenance: "stripe",
-                  monthly_message_limit: monthlyMessageLimit,
-                  messages_used_this_period: 0,
-                  current_period_start: currentPeriodStart,
-                  current_period_end: currentPeriodEnd,
-                  grace_period_end: gracePeriodEnd,
-                  updated_at: new Date().toISOString(),
-                },
-                { onConflict: "workspace_id" },
-              )
-              .select("id")
-              .single();
-
-            if (createErr) throw createErr;
-
-            return {
-              processed: true,
-              action: "created",
-              subscriptionId: created?.id,
-            };
+        if (!coErr && checkoutRecord) {
+          // Verify customer relationship if provided
+          if (
+            !checkoutRecord.stripe_customer_id ||
+            checkoutRecord.stripe_customer_id === stripeCustomerId
+          ) {
+            authoritativeWorkspaceId = checkoutRecord.workspace_id;
           }
         }
       }
 
-      // Unknown or unmatched subscription events are quarantined/ignored without mutating tenant state
-      return { processed: true, action: "unmatched_workspace" };
+      if (!authoritativeWorkspaceId) {
+        // Unknown or unmatched subscription events are quarantined, not marked processed
+        return {
+          processed: false,
+          action: "quarantined_unmatched_workspace",
+          error: "Could not authoritatively resolve workspace for subscription",
+        };
+      }
+
+      // Verify workspace exists
+      const { data: wsRecord, error: wsErr } = await supabase
+        .from("workspaces")
+        .select("id")
+        .eq("id", authoritativeWorkspaceId)
+        .maybeSingle();
+
+      if (wsErr || !wsRecord) {
+        return {
+          processed: false,
+          action: "quarantined_workspace_not_found",
+          error: "Authoritative workspace does not exist",
+        };
+      }
+
+      const { data: created, error: createErr } = await supabase
+        .from("workspace_subscriptions")
+        .upsert(
+          {
+            workspace_id: wsRecord.id,
+            stripe_customer_id: stripeCustomerId,
+            stripe_subscription_id: stripeSubId,
+            plan_id: planId,
+            status,
+            provenance: "stripe",
+            monthly_message_limit: monthlyMessageLimit,
+            messages_used_this_period: 0,
+            current_period_start: currentPeriodStart,
+            current_period_end: currentPeriodEnd,
+            grace_period_end: gracePeriodEnd,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "workspace_id" },
+        )
+        .select("id")
+        .single();
+
+      if (createErr) {
+        return { processed: false, action: "database_insert_failed", error: createErr.message };
+      }
+
+      return {
+        processed: true,
+        action: "created",
+        subscriptionId: created?.id,
+      };
     }
 
     case "customer.subscription.deleted": {
@@ -251,7 +320,9 @@ export async function processStripeSubscriptionEvent(
         })
         .eq("stripe_subscription_id", stripeSubId);
 
-      if (delErr) throw delErr;
+      if (delErr) {
+        return { processed: false, action: "database_delete_failed", error: delErr.message };
+      }
 
       return { processed: true, action: "canceled" };
     }
@@ -268,7 +339,9 @@ export async function processStripeSubscriptionEvent(
           })
           .eq("stripe_subscription_id", stripeSubId);
 
-        if (failErr) throw failErr;
+        if (failErr) {
+          return { processed: false, action: "database_fail_update_failed", error: failErr.message };
+        }
       }
       return { processed: true, action: "marked_past_due" };
     }
@@ -285,7 +358,9 @@ export async function processStripeSubscriptionEvent(
           })
           .eq("stripe_subscription_id", stripeSubId);
 
-        if (succErr) throw succErr;
+        if (succErr) {
+          return { processed: false, action: "database_success_update_failed", error: succErr.message };
+        }
       }
       return { processed: true, action: "cleared_past_due" };
     }
@@ -295,14 +370,6 @@ export async function processStripeSubscriptionEvent(
   }
 }
 
-/**
- * Production-grade processor for incoming Stripe webhook events.
- * Guarantees:
- * - Idempotency via webhook_events unique provider_event_id.
- * - Multi-tenant isolation: validates metadata workspace_id matches checkout.
- * - Accurate ledger recording: creates immutable payment_ledger record.
- * - Unified inbox reconciliation: appends payment confirmation message to thread.
- */
 export async function processStripeWebhookEvent(
   supabase: SupabaseClient,
   event: {
@@ -343,7 +410,7 @@ export async function processStripeWebhookEvent(
     }
 
     // Insert or update webhook_events entry
-    await supabase
+    const { error: upsertErr } = await supabase
       .from("webhook_events")
       .upsert(
         {
@@ -356,6 +423,14 @@ export async function processStripeWebhookEvent(
         },
         { onConflict: "provider,provider_event_id" }
       );
+
+    if (upsertErr) {
+      return {
+        processed: false,
+        action: "idempotency_record_failed",
+        error: upsertErr.message,
+      };
+    }
   }
 
   const obj = event.data.object;
@@ -363,12 +438,9 @@ export async function processStripeWebhookEvent(
   switch (event.type) {
     case "checkout.session.completed": {
       const metadata = obj.metadata || {};
-      const wsId = metadata.workspace_id;
-      const contactId = metadata.contact_id;
-      const threadId = metadata.thread_id;
       const internalCheckoutId = metadata.internal_checkout_id;
 
-      // Locate internal checkout record
+      // Authoritative checkout record resolution
       let checkoutQuery = supabase.from("payment_checkouts").select("*");
       if (internalCheckoutId) {
         checkoutQuery = checkoutQuery.eq("id", internalCheckoutId);
@@ -378,7 +450,7 @@ export async function processStripeWebhookEvent(
 
       const { data: checkout, error: checkoutErr } = await checkoutQuery.maybeSingle();
 
-      if (!checkout) {
+      if (checkoutErr || !checkout) {
         if (eventId) {
           await supabase
             .from("webhook_events")
@@ -390,10 +462,11 @@ export async function processStripeWebhookEvent(
             .eq("provider", "stripe")
             .eq("provider_event_id", eventId);
         }
-        return { processed: true, action: "unmatched_checkout" };
+        return { processed: false, action: "unmatched_checkout", error: "Checkout not found" };
       }
 
       // Tenant isolation: verify workspace metadata
+      const wsId = metadata.workspace_id;
       if (wsId && wsId !== "sandbox" && checkout.workspace_id && checkout.workspace_id !== wsId) {
         if (eventId) {
           await supabase
@@ -419,7 +492,7 @@ export async function processStripeWebhookEvent(
       const currency = (obj.currency || checkout.currency || "USD").toUpperCase();
 
       // Update payment_checkouts record to paid
-      await supabase
+      const { error: coUpdateErr } = await supabase
         .from("payment_checkouts")
         .update({
           status: "paid",
@@ -428,8 +501,12 @@ export async function processStripeWebhookEvent(
         })
         .eq("id", checkout.id);
 
+      if (coUpdateErr) {
+        return { processed: false, action: "checkout_update_failed", error: coUpdateErr.message };
+      }
+
       // Create ledger entry
-      const { data: ledgerEntry } = await supabase
+      const { data: ledgerEntry, error: ledgerErr } = await supabase
         .from("payment_ledger")
         .insert({
           workspace_id: resolvedWsId,
@@ -451,7 +528,13 @@ export async function processStripeWebhookEvent(
         .select("id")
         .single();
 
+      if (ledgerErr) {
+        return { processed: false, action: "ledger_insert_failed", error: ledgerErr.message };
+      }
+
       // Append confirmation to thread if attached
+      const threadId = metadata.thread_id;
+      const contactId = metadata.contact_id;
       const resolvedThreadId = threadId || checkout.thread_id;
       if (resolvedThreadId) {
         const formattedAmount = amountTotal.toLocaleString(undefined, {
@@ -526,137 +609,6 @@ export async function processStripeWebhookEvent(
       };
     }
 
-    case "checkout.session.expired": {
-      const session = obj;
-      await supabase
-        .from("payment_checkouts")
-        .update({
-          status: "expired",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("stripe_checkout_session_id", session.id);
-
-      if (eventId) {
-        await supabase
-          .from("webhook_events")
-          .update({
-            processing_status: "processed",
-            processed_at: new Date().toISOString(),
-          })
-          .eq("provider", "stripe")
-          .eq("provider_event_id", eventId);
-      }
-
-      return { processed: true, action: "checkout_expired" };
-    }
-
-    case "payment_intent.succeeded": {
-      const metadata = obj.metadata || {};
-      const wsId = metadata.workspace_id;
-      let ledgerId: string | undefined;
-
-      if (wsId && wsId !== "sandbox") {
-        const { data: ledger } = await supabase
-          .from("payment_ledger")
-          .insert({
-            workspace_id: wsId,
-            provider: "stripe",
-            provider_event_id: eventId,
-            event_type: "payment_intent.succeeded",
-            amount: Number(obj.amount || 0) / 100,
-            currency: (obj.currency || "USD").toUpperCase(),
-            status: "succeeded",
-            occurred_at: new Date((obj.created || Date.now() / 1000) * 1000).toISOString(),
-            metadata: { paymentIntentId: obj.id },
-          })
-          .select("id")
-          .single();
-
-        ledgerId = ledger?.id;
-      }
-
-      if (eventId) {
-        await supabase
-          .from("webhook_events")
-          .update({
-            workspace_id: wsId && wsId !== "sandbox" ? wsId : null,
-            processing_status: "processed",
-            processed_at: new Date().toISOString(),
-          })
-          .eq("provider", "stripe")
-          .eq("provider_event_id", eventId);
-      }
-
-      return { processed: true, action: "payment_intent_succeeded", ledgerId };
-    }
-
-    case "payment_intent.payment_failed": {
-      const metadata = obj.metadata || {};
-      const wsId = metadata.workspace_id;
-
-      if (wsId && wsId !== "sandbox") {
-        await supabase.from("payment_ledger").insert({
-          workspace_id: wsId,
-          provider: "stripe",
-          provider_event_id: eventId,
-          event_type: "payment_intent.payment_failed",
-          amount: Number(obj.amount || 0) / 100,
-          currency: (obj.currency || "USD").toUpperCase(),
-          status: "failed",
-          occurred_at: new Date((obj.created || Date.now() / 1000) * 1000).toISOString(),
-          metadata: { paymentIntentId: obj.id, error: obj.last_payment_error?.message },
-        });
-      }
-
-      if (eventId) {
-        await supabase
-          .from("webhook_events")
-          .update({
-            workspace_id: wsId && wsId !== "sandbox" ? wsId : null,
-            processing_status: "processed",
-            processed_at: new Date().toISOString(),
-          })
-          .eq("provider", "stripe")
-          .eq("provider_event_id", eventId);
-      }
-
-      return { processed: true, action: "payment_intent_failed" };
-    }
-
-    case "charge.refunded": {
-      const metadata = obj.metadata || {};
-      const wsId = metadata.workspace_id;
-
-      if (wsId && wsId !== "sandbox") {
-        await supabase.from("payment_ledger").insert({
-          workspace_id: wsId,
-          provider: "stripe",
-          provider_event_id: eventId,
-          event_type: "charge.refunded",
-          amount: Number(obj.amount_refunded || 0) / 100,
-          currency: (obj.currency || "USD").toUpperCase(),
-          status: "refunded",
-          occurred_at: new Date((obj.created || Date.now() / 1000) * 1000).toISOString(),
-          metadata: { chargeId: obj.id },
-        });
-      }
-
-      if (eventId) {
-        await supabase
-          .from("webhook_events")
-          .update({
-            workspace_id: wsId && wsId !== "sandbox" ? wsId : null,
-            processing_status: "processed",
-            processed_at: new Date().toISOString(),
-          })
-          .eq("provider", "stripe")
-          .eq("provider_event_id", eventId);
-      }
-
-      return { processed: true, action: "charge_refunded" };
-    }
-
-    // Default to subscription lifecycle handler for customer.subscription.* and invoice.*
     default: {
       const subResult = await processStripeSubscriptionEvent(supabase, event);
 
@@ -665,6 +617,8 @@ export async function processStripeWebhookEvent(
           .from("webhook_events")
           .update({
             processing_status: subResult.processed ? "processed" : "ignored",
+            error_code: subResult.processed ? null : subResult.action,
+            error_message_sanitized: subResult.error ?? null,
             processed_at: new Date().toISOString(),
           })
           .eq("provider", "stripe")

@@ -39,6 +39,7 @@ const AUTOMATION_BRIDGE_FUTURE_SKEW_MS =
 type AutomationBridgePayload = {
   version: typeof AUTOMATION_BRIDGE_VERSION;
   userId: string;
+  workspaceId: string;
   automationId: string;
   eventId: string;
   issuedAt: number;
@@ -48,6 +49,7 @@ type AutomationBridgePayload = {
 
 export type AutomationBridgeIdentity = {
   userId: string;
+  workspaceId: string;
   automationId: string;
   eventId: string;
   issuedAt: number;
@@ -269,6 +271,12 @@ function parseBridgeToken(
       ? parsed.userId.trim()
       : "";
 
+  const workspaceId =
+    typeof parsed.workspaceId ===
+      "string"
+      ? parsed.workspaceId.trim()
+      : "";
+
   const automationId =
     typeof parsed.automationId ===
       "string"
@@ -297,6 +305,7 @@ function parseBridgeToken(
     version !==
       AUTOMATION_BRIDGE_VERSION ||
     !userId ||
+    !workspaceId ||
     !automationId ||
     !eventId ||
     !nonce ||
@@ -326,6 +335,7 @@ function parseBridgeToken(
 
   return {
     userId,
+    workspaceId,
     automationId,
     eventId,
     issuedAt,
@@ -335,6 +345,7 @@ function parseBridgeToken(
 
 function createAutomationBridgeToken(
   userId: string,
+  workspaceId: string,
   automationId: string,
   eventId: string,
 ) {
@@ -348,6 +359,9 @@ function createAutomationBridgeToken(
 
       userId:
         userId.trim(),
+
+      workspaceId:
+        workspaceId.trim(),
 
       automationId:
         automationId.trim(),
@@ -367,6 +381,7 @@ function createAutomationBridgeToken(
 
   if (
     !payload.userId ||
+    !payload.workspaceId ||
     !payload.automationId ||
     !payload.eventId
   ) {
@@ -393,12 +408,14 @@ function createAutomationBridgeToken(
 
 export function createAutomationBridgeCookieHeader(
   userId: string,
+  workspaceId: string,
   automationId: string,
   eventId: string,
 ) {
   const token =
     createAutomationBridgeToken(
       userId,
+      workspaceId,
       automationId,
       eventId,
     );
@@ -550,6 +567,9 @@ export async function resolveAutomationRequestActor(
     expectedAutomationId?: string | null;
   },
 ): Promise<AutomationRequestActor> {
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  const hasBridgeCookie = cookieHeader.includes(AUTOMATION_BRIDGE_COOKIE);
+
   const bridge =
     readAutomationBridgeIdentity(
       request,
@@ -561,14 +581,25 @@ export async function resolveAutomationRequestActor(
       ?.trim() ||
     null;
 
-  if (
-    bridge &&
-    (
-      !expectedAutomationId ||
-      bridge.automationId ===
-        expectedAutomationId
-    )
-  ) {
+  if (hasBridgeCookie) {
+    if (
+      !bridge ||
+      (
+        expectedAutomationId &&
+        bridge.automationId !== expectedAutomationId
+      )
+    ) {
+      const supabase = createAutomationBridgeServiceClient();
+      return {
+        supabase,
+        user: null,
+        error: new Error(
+          "Invalid, expired, or mismatched automation bridge token.",
+        ),
+        bridge: null,
+      };
+    }
+
     try {
       const supabase =
         createAutomationBridgeServiceClient();

@@ -6,6 +6,8 @@ import {
   NextResponse,
 } from "next/server";
 
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+
 
 
 import type {
@@ -450,7 +452,9 @@ export async function POST(
       {
         success: false,
         error:
-          "Unauthorized.",
+          actor.error instanceof Error
+            ? actor.error.message
+            : "Unauthorized.",
       },
       {
         status: 401,
@@ -460,42 +464,50 @@ export async function POST(
 
   /*
   ============================================================
-  LOAD RUN
+  LOAD RUN (BOUND TO TENANT SCOPE)
   ============================================================
   */
 
+  let runQuery = supabase
+    .from("automation_runs")
+    .select(`
+      id,
+      automation_id,
+      workspace_id,
+      user_id,
+      automation_version_id,
+      graph_snapshot,
+      trigger_type,
+      trigger_payload,
+      status,
+      current_step_order,
+      result_summary,
+      error_message,
+      execution_mode,
+      api_called,
+      total_cost_usd,
+      started_at,
+      completed_at
+      `
+    )
+    .eq("id", runId);
+
+  if (actor.bridge) {
+    runQuery = runQuery
+      .eq("workspace_id", actor.bridge.workspaceId)
+      .eq("automation_id", actor.bridge.automationId);
+  } else {
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
+    }
+    runQuery = runQuery.eq("workspace_id", auth.context.workspace.id);
+  }
+
   const {
-    data:
-      run,
-    error:
-      runError,
-  } =
-    await supabase
-      .from(
-        "automation_runs"
-      )
-      .select(`
-        id,
-        automation_id,
-        workspace_id,
-        user_id,
-        automation_version_id,
-        graph_snapshot,
-        trigger_type,
-        trigger_payload,
-        status,
-        current_step_order,
-        result_summary,
-        error_message,
-        execution_mode,
-        api_called,
-        total_cost_usd,
-        started_at,
-        completed_at
-        `
-      )
-      .eq("id", runId)
-      .maybeSingle();
+    data: run,
+    error: runError,
+  } = await runQuery.maybeSingle();
 
   if (
     runError ||
@@ -518,30 +530,21 @@ export async function POST(
     );
   }
 
-  const scopedActor =
-    await resolveAutomationRequestActor(
-      request,
-      {
-        expectedAutomationId:
-          run.automation_id,
-      }
-    );
-
-  if (
-    !scopedActor.user ||
-    scopedActor.user.id !==
-      user.id
-  ) {
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Forbidden.",
-      },
-      {
-        status: 403,
-      }
-    );
+  if (actor.bridge) {
+    if (
+      actor.bridge.automationId !== run.automation_id ||
+      actor.bridge.workspaceId !== run.workspace_id
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Forbidden.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
   }
 
   if (
@@ -588,6 +591,7 @@ export async function POST(
         `
       )
       .eq("id", run.automation_id)
+      .eq("workspace_id", run.workspace_id)
       .maybeSingle();
 
   if (

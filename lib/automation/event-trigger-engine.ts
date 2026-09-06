@@ -64,6 +64,7 @@ type EventWorkflow = {
   name: string;
   trigger_type: string;
   status: string;
+  workspace_id?: string | null;
   trigger_config:
     | Record<string, unknown>
     | null;
@@ -1117,6 +1118,7 @@ export async function dispatchAutomationEvent({
       .select(
         `
         id,
+        workspace_id,
         name,
         trigger_type,
         status,
@@ -1343,6 +1345,7 @@ export async function dispatchAutomationEvent({
         ? cookieHeader
         : createAutomationBridgeCookieHeader(
             userId,
+            workflow.workspace_id || "",
             workflow.id,
             eventId,
           );

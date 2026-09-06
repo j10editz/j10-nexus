@@ -405,7 +405,10 @@ export async function POST(
     const connection =
       await createIntegrationConnection(
         supabase,
-        context.workspace.id,
+        {
+          workspaceId: context.workspace.id,
+          actorUserId: context.user.id,
+        },
         {
           providerId,
 

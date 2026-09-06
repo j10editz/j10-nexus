@@ -33,8 +33,13 @@ import {
   isIntegrationRetryDue,
 } from "../retry-policy";
 
+import type {
+  IntegrationTenantScope,
+} from "../database";
+
 const WEBHOOK_ENDPOINT_SELECT = `
   id,
+  workspace_id,
   integration_id,
   user_id,
   provider,
@@ -50,6 +55,7 @@ const WEBHOOK_ENDPOINT_SELECT = `
 
 const WEBHOOK_EVENT_SELECT = `
   id,
+  workspace_id,
   endpoint_id,
   integration_id,
   user_id,
@@ -80,6 +86,7 @@ const WEBHOOK_EVENT_SELECT = `
 
 interface WebhookEndpointRow {
   id: string;
+  workspace_id: string;
   integration_id: string;
   user_id: string;
   provider: string;
@@ -95,6 +102,7 @@ interface WebhookEndpointRow {
 
 interface WebhookEventRow {
   id: string;
+  workspace_id: string;
   endpoint_id: string;
   integration_id: string;
   user_id: string;
@@ -145,6 +153,7 @@ function mapEndpointRow(
 ): IntegrationWebhookEndpoint {
   return {
     id: row.id,
+    workspaceId: row.workspace_id,
     integrationId: row.integration_id,
     userId: row.user_id,
     providerId: row.provider as IntegrationProviderId,
@@ -164,6 +173,7 @@ function mapEventRow(
 ): IntegrationWebhookEvent {
   return {
     id: row.id,
+    workspaceId: row.workspace_id,
     endpointId: row.endpoint_id,
     integrationId: row.integration_id,
     userId: row.user_id,
@@ -199,13 +209,18 @@ function mapEventRow(
 
 export async function getIntegrationWebhookEndpointByConnection(
   supabase: SupabaseClient,
-  userId: string,
+  scopeOrWorkspaceId: IntegrationTenantScope | string,
   integrationId: string,
 ) {
+  const workspaceId =
+    typeof scopeOrWorkspaceId === "string"
+      ? scopeOrWorkspaceId
+      : scopeOrWorkspaceId.workspaceId;
+
   const { data, error } = await supabase
     .from("integration_webhook_endpoints")
     .select(WEBHOOK_ENDPOINT_SELECT)
-    .eq("user_id", userId)
+    .eq("workspace_id", workspaceId)
     .eq("integration_id", integrationId)
     .maybeSingle();
 
@@ -263,7 +278,7 @@ export async function createOrEnableIntegrationWebhookEndpoint(
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id)
-      .eq("user_id", connection.workspaceId)
+      .eq("workspace_id", connection.workspaceId)
       .select(WEBHOOK_ENDPOINT_SELECT)
       .single();
 
@@ -280,8 +295,9 @@ export async function createOrEnableIntegrationWebhookEndpoint(
   const { data, error } = await supabase
     .from("integration_webhook_endpoints")
     .insert({
+      workspace_id: connection.workspaceId,
       integration_id: connection.id,
-      user_id: connection.workspaceId,
+      user_id: connection.userId,
       provider: connection.providerId,
       environment: connection.environment,
       status: "active",
@@ -302,16 +318,21 @@ export async function createOrEnableIntegrationWebhookEndpoint(
 
 export async function disableIntegrationWebhookEndpoint(
   supabase: SupabaseClient,
-  userId: string,
+  scopeOrWorkspaceId: IntegrationTenantScope | string,
   integrationId: string,
 ) {
+  const workspaceId =
+    typeof scopeOrWorkspaceId === "string"
+      ? scopeOrWorkspaceId
+      : scopeOrWorkspaceId.workspaceId;
+
   const { data, error } = await supabase
     .from("integration_webhook_endpoints")
     .update({
       status: "disabled",
       updated_at: new Date().toISOString(),
     })
-    .eq("user_id", userId)
+    .eq("workspace_id", workspaceId)
     .eq("integration_id", integrationId)
     .select(WEBHOOK_ENDPOINT_SELECT)
     .maybeSingle();
@@ -335,6 +356,7 @@ export async function recordIntegrationWebhookEvent(
   const { data, error } = await supabase
     .from("integration_webhook_events")
     .insert({
+      workspace_id: input.endpoint.workspaceId,
       endpoint_id: input.endpoint.id,
       integration_id: input.endpoint.integrationId,
       user_id: input.endpoint.userId,

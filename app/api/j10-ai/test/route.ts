@@ -1,53 +1,68 @@
 import { NextResponse } from "next/server";
-
 import { runJ10AI } from "@/lib/ai/runtime";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+import {
+  verifyWorkspaceEntitlement,
+  recordWorkspaceMessageUsage,
+  BillingRequiredError,
+} from "@/lib/billing/entitlements";
 
 /*
 ============================================================
-J10 NEXUS AI RUNTIME TEST
-============================================================
-
-This endpoint proves that:
-
-1. J10 AI Runtime works
-2. OpenAI authentication works
-3. J10 Model Router works
-4. GPT-5.6 Sol can execute real business reasoning
-5. Token usage is returned to J10 NEXUS
-
-POST only to prevent accidental refresh charges.
-
+J10 NEXUS AI RUNTIME TEST (DIAGNOSTIC ONLY)
 ============================================================
 */
 
 export async function POST() {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.ENABLE_AI_DIAGNOSTIC_MODE !== "true"
+  ) {
+    return NextResponse.json(
+      {
+        error: "Not found",
+      },
+      {
+        status: 404,
+      }
+    );
+  }
+
   try {
-    const result =
-      await runJ10AI({
-        /*
-        Sales decisions are classified
-        as COMPLEX by J10.
+    const auth = await requireApiWorkspaceContext("admin");
+    if (auth.error) {
+      return auth.error;
+    }
+    const { context } = auth;
+    const supabase = createServerSupabaseClient();
 
-        Automatic routing should select:
+    try {
+      await verifyWorkspaceEntitlement(supabase, context.workspace.id, {
+        requiredMessages: 1,
+      });
+      await recordWorkspaceMessageUsage(supabase, context.workspace.id, 1);
+    } catch (billingErr: unknown) {
+      if (billingErr instanceof BillingRequiredError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: billingErr.message,
+            code: billingErr.code,
+          },
+          {
+            status: 402,
+          }
+        );
+      }
+      throw billingErr;
+    }
 
-        GPT-5.6 Sol
-        xhigh reasoning
-        standard mode
-        */
-        task:
-          "sales_decision",
-
-        preference:
-          "Automatic",
-
-        /*
-        Give the reasoning model enough
-        room for reasoning + visible output.
-        */
-        maxOutputTokens:
-          6000,
-
-        instructions: `
+    const result = await runJ10AI({
+      task: "sales_decision",
+      preference: "Automatic",
+      maxOutputTokens: 6000,
+      instructions: `
 You are J10 AI, the intelligence layer of J10 NEXUS.
 
 You are operating as a senior AI Sales Intelligence Agent.
@@ -64,8 +79,7 @@ RULES:
 - Give concise operational recommendations.
 - Clearly explain why each recommendation was made.
 `,
-
-        input: `
+      input: `
 J10 NEXUS CRM INTELLIGENCE TEST
 
 OPPORTUNITY A
@@ -118,38 +132,23 @@ Do not execute any CRM actions.
 
 Return a concise professional sales intelligence assessment.
 `,
-      });
+    });
 
     return NextResponse.json({
       success: true,
-
-      system:
-        "J10 NEXUS",
-
-      runtime:
-        "J10 AI",
-
-      test:
-        "Real OpenAI execution successful",
-
+      system: "J10 NEXUS",
+      runtime: "J10 AI",
+      test: "Real OpenAI execution successful",
       result,
     });
   } catch (error) {
-    console.error(
-      "J10 AI runtime test error:",
-      error
-    );
+    console.error("J10 AI runtime test error:", error);
 
     return NextResponse.json(
       {
         success: false,
-
-        system:
-          "J10 NEXUS",
-
-        test:
-          "J10 AI runtime failed",
-
+        system: "J10 NEXUS",
+        test: "J10 AI runtime failed",
         error:
           error instanceof Error
             ? error.message

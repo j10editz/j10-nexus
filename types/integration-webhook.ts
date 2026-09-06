@@ -39,6 +39,7 @@ export type IntegrationWebhookProcessingStatus =
 
 export interface IntegrationWebhookEndpoint {
   id: string;
+  workspaceId: string;
   integrationId: string;
   userId: string;
   providerId: IntegrationProviderId;
@@ -54,6 +55,7 @@ export interface IntegrationWebhookEndpoint {
 
 export interface IntegrationWebhookEvent {
   id: string;
+  workspaceId: string;
   endpointId: string;
   integrationId: string;
   userId: string;

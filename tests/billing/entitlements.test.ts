@@ -7,14 +7,18 @@ import {
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 function mockSupabase(subscriptionRow: Record<string, unknown> | null): SupabaseClient {
+  const rowWithProvenance = subscriptionRow
+    ? { provenance: "stripe", ...subscriptionRow }
+    : null;
+
   return {
     from: () => ({
       select: () => ({
         eq: () => ({
-          maybeSingle: async () => ({ data: subscriptionRow, error: null }),
+          maybeSingle: async () => ({ data: rowWithProvenance, error: null }),
           order: () => ({
             limit: () => ({
-              maybeSingle: async () => ({ data: subscriptionRow, error: null }),
+              maybeSingle: async () => ({ data: rowWithProvenance, error: null }),
             }),
           }),
         }),
@@ -24,6 +28,23 @@ function mockSupabase(subscriptionRow: Record<string, unknown> | null): Supabase
 }
 
 describe("J10 NEXUS Subscription & Entitlement Enforcement", () => {
+  it("fails closed when subscription lacks verified billing provenance", async () => {
+    const supabase = mockSupabase({
+      id: "sub-unverified",
+      workspace_id: "ws-123",
+      plan_id: "starter",
+      status: "active",
+      provenance: "none",
+      monthly_message_limit: 1000,
+      messages_used_this_period: 0,
+      current_period_end: new Date(Date.now() + 86400000).toISOString(),
+    });
+
+    await expect(assertWorkspaceEntitlement(supabase, "ws-123")).rejects.toThrow(
+      "Subscription lacks verified billing provenance"
+    );
+  });
+
   it("fails closed when no subscription record exists for workspace", async () => {
     const supabase = mockSupabase(null);
     await expect(assertWorkspaceEntitlement(supabase, "ws-123")).rejects.toThrowError(

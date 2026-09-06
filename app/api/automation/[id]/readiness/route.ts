@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/auth";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 type RouteContext = {
   params: Promise<{
@@ -24,43 +24,6 @@ type Requirement = {
   reason: string;
 };
 
-async function getSupabase() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(
-              ({
-                name,
-                value,
-                options,
-              }) => {
-                cookieStore.set(
-                  name,
-                  value,
-                  options
-                );
-              }
-            );
-          } catch {
-            // Ignore cookie write errors
-            // in read-only server contexts.
-          }
-        },
-      },
-    }
-  );
-}
-
 export async function GET(
   _request: Request,
   context: RouteContext
@@ -69,39 +32,16 @@ export async function GET(
     const { id } =
       await context.params;
 
-    const supabase =
-      await getSupabase();
-
-    /*
-    ============================================================
-    AUTH
-    ============================================================
-    */
-
-    const {
-      data: { user },
-      error: userError,
-    } =
-      await supabase.auth.getUser();
-
-    if (
-      userError ||
-      !user
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized.",
-        },
-        {
-          status: 401,
-        }
-      );
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
     }
+    const { context: wsContext } = auth;
+    const supabase = createServerSupabaseClient();
 
     /*
     ============================================================
-    LOAD WORKFLOW
+    LOAD WORKFLOW / AUTOMATION
     ============================================================
     */
 
@@ -109,7 +49,7 @@ export async function GET(
       data: workflow,
       error: workflowError,
     } = await supabase
-      .from("workflows")
+      .from("automations")
       .select(
         `
         id,
@@ -122,10 +62,10 @@ export async function GET(
       )
       .eq("id", id)
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        wsContext.workspace.id
       )
-      .single();
+      .maybeSingle();
 
     if (
       workflowError ||
@@ -164,8 +104,8 @@ export async function GET(
         `
       )
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        wsContext.workspace.id
       );
 
     if (integrationError) {

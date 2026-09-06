@@ -250,6 +250,30 @@ async function loadActiveEndpoint(
     );
   }
 
+  const { data: integration, error: intError } = await supabase
+    .from("integrations")
+    .select("id, workspace_id, user_id, status")
+    .eq("id", endpoint.integrationId)
+    .maybeSingle();
+
+  if (intError || !integration) {
+    throw new IntegrationWebhookError(
+      "Integration associated with webhook endpoint was not found.",
+      "WEBHOOK_INTEGRATION_NOT_FOUND",
+      404,
+      true,
+    );
+  }
+
+  if (integration.workspace_id !== endpoint.workspaceId) {
+    throw new IntegrationWebhookError(
+      "Tenant mismatch between webhook endpoint and integration.",
+      "WEBHOOK_TENANT_MISMATCH",
+      403,
+      false,
+    );
+  }
+
   return {
     supabase,
     endpoint,
@@ -258,14 +282,16 @@ async function loadActiveEndpoint(
 
 async function loadCredentialValues(
   supabase: WebhookServiceClient,
-  userId: string,
-  integrationId: string,
+  endpoint: IntegrationWebhookEndpoint,
 ) {
   const envelope =
     await getIntegrationCredentials(
       supabase,
-      userId,
-      integrationId,
+      {
+        workspaceId: endpoint.workspaceId,
+        actorUserId: endpoint.userId,
+      },
+      endpoint.integrationId,
     );
 
   return envelope?.values ?? {};
@@ -458,8 +484,7 @@ export async function GET(
     const credentials =
       await loadCredentialValues(
         supabase,
-        endpoint.userId,
-        endpoint.integrationId,
+        endpoint,
       );
 
     const url =
@@ -607,8 +632,7 @@ export async function POST(
     const credentials =
       await loadCredentialValues(
         supabase,
-        endpoint.userId,
-        endpoint.integrationId,
+        endpoint,
       );
 
     const verification =

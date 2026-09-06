@@ -62,7 +62,7 @@ export async function getWorkspaceSubscription(
       planId: data.plan_id,
       status: data.status as SubscriptionStatus,
       provenance: (data.provenance as SubscriptionProvenance) || "none",
-      monthlyMessageLimit: data.monthly_message_limit ?? 1000,
+      monthlyMessageLimit: data.monthly_message_limit ?? 0,
       messagesUsed: data.messages_used_this_period ?? 0,
       currentPeriodEnd: data.current_period_end,
       gracePeriodEnd: data.grace_period_end ?? null,
@@ -76,7 +76,7 @@ export async function getWorkspaceSubscription(
 
 /**
  * Verifies that the workspace has an active, legitimate entitlement before billable actions.
- * Missing subscriptions fail closed with an honest error instead of inventing synthetic trials.
+ * Missing subscriptions and unverified provenance fail closed.
  */
 export async function assertWorkspaceEntitlement(
   supabase: SupabaseClient,
@@ -97,9 +97,18 @@ export async function assertWorkspaceEntitlement(
     );
   }
 
+  // 1. Provenance check: unverified provenance ('none') fails closed
+  if (sub.provenance === "none") {
+    throw new BillingRequiredError(
+      "Subscription lacks verified billing provenance. An active verified plan is required.",
+      "PROVENANCE_UNVERIFIED",
+      sub
+    );
+  }
+
   const now = new Date();
 
-  // 1. Canceled or unpaid subscription
+  // 2. Status check: Canceled, unpaid, or invalid status
   if (sub.status === "canceled" || sub.status === "unpaid" || sub.status === "none") {
     throw new BillingRequiredError(
       "Your workspace subscription is inactive. Activate a plan in Billing Settings to resume automated actions.",
@@ -108,7 +117,7 @@ export async function assertWorkspaceEntitlement(
     );
   }
 
-  // 2. Past due with grace period evaluation
+  // 3. Past due with grace period evaluation
   if (sub.status === "past_due") {
     if (sub.gracePeriodEnd) {
       const graceEnd = new Date(sub.gracePeriodEnd);
@@ -128,9 +137,24 @@ export async function assertWorkspaceEntitlement(
     }
   }
 
-  // 3. Quota limit evaluation
+  // 4. Period boundary expiration check (except for permanent internal founder grants)
+  if (sub.provenance !== "internal_grant") {
+    if (sub.currentPeriodEnd) {
+      const periodEnd = new Date(sub.currentPeriodEnd);
+      const graceEnd = sub.gracePeriodEnd ? new Date(sub.gracePeriodEnd) : null;
+      if (now > periodEnd && (!graceEnd || now > graceEnd)) {
+        throw new BillingRequiredError(
+          "Subscription billing period expired.",
+          "PERIOD_EXPIRED",
+          sub
+        );
+      }
+    }
+  }
+
+  // 5. Quota limit evaluation: monthly_message_limit <= 0 strictly means zero allowance
   const increment = options?.requiredMessages ?? 1;
-  if (sub.monthlyMessageLimit > 0 && sub.messagesUsed + increment > sub.monthlyMessageLimit) {
+  if (sub.monthlyMessageLimit <= 0 || (sub.messagesUsed + increment) > sub.monthlyMessageLimit) {
     throw new BillingRequiredError(
       `Monthly limit of ${sub.monthlyMessageLimit} messages reached for your active plan. Upgrade your plan to increase limits.`,
       "USAGE_LIMIT_REACHED",
@@ -140,6 +164,8 @@ export async function assertWorkspaceEntitlement(
 
   return sub;
 }
+
+export const verifyWorkspaceEntitlement = assertWorkspaceEntitlement;
 
 /**
  * Records billable usage atomically in PostgreSQL using increment_workspace_usage RPC.
@@ -161,12 +187,15 @@ export async function recordWorkspaceMessageUsage(
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row || row.success === false) {
-    throw new Error(row?.error || `Failed to record usage for workspace ${workspaceId}`);
+    throw new BillingRequiredError(
+      row?.error || `Failed to record usage for workspace ${workspaceId}`,
+      row?.limit_reached ? "USAGE_LIMIT_REACHED" : "USAGE_RECORDING_FAILED"
+    );
   }
 
-  const limit = row.monthly_message_limit ?? row.message_limit ?? 1000;
+  const limit = row.monthly_message_limit ?? row.message_limit ?? 0;
   const newUsage = row.messages_used_this_period ?? row.new_usage ?? 0;
-  const isExceeded = Boolean(row.is_exceeded || (limit > 0 && newUsage > limit));
+  const isExceeded = Boolean(row.is_exceeded || (limit <= 0) || (newUsage > limit));
 
   if (isExceeded) {
     throw new BillingRequiredError(
@@ -179,7 +208,6 @@ export async function recordWorkspaceMessageUsage(
     success: true,
     newUsage,
     limit,
-    isExceeded,
+    isExceeded: false,
   };
 }
-

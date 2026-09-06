@@ -32,7 +32,7 @@ export default async function PublicFunnelPage({
 
   const formatted: WebsiteFunnel = {
     id: funnel.id,
-    workspaceId: funnel.workspace_id,
+    workspaceId: "",
     title: stripEmojis(funnel.title),
     slug: funnel.slug,
     theme: funnel.theme || "obsidian",

@@ -3,6 +3,7 @@ import {
   resolveAutomationRequestActor,
 } from "@/lib/automation/bridge-auth";
 import { NextResponse } from "next/server";
+import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 import { runJ10AI } from "@/lib/ai/runtime";
 
@@ -442,6 +443,17 @@ export async function POST(
     );
   }
 
+  let workspaceId: string;
+  if (actor.bridge) {
+    workspaceId = actor.bridge.workspaceId;
+  } else {
+    const auth = await requireApiWorkspaceContext("viewer");
+    if (auth.error) {
+      return auth.error;
+    }
+    workspaceId = auth.context.workspace.id;
+  }
+
   /*
   ============================================================
   LOAD EXACT TASK
@@ -463,8 +475,8 @@ export async function POST(
         taskId
       )
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        workspaceId
       )
       .maybeSingle();
 
@@ -503,29 +515,6 @@ export async function POST(
 
   const task =
     taskData as AITaskRecord;
-
-  if (task.workspace_id) {
-    const { data: membership, error: membershipError } = await supabase
-      .from("workspace_memberships")
-      .select("id, status")
-      .eq("workspace_id", task.workspace_id)
-      .eq("user_id", user.id)
-      .eq("status", "active")
-      .maybeSingle();
-
-    if (membershipError || !membership) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Forbidden. User is not an active member of this workspace.",
-        },
-        {
-          status: 403,
-        }
-      );
-    }
-  }
 
   const workflowScope =
     extractWorkflowCollaborationMetadata(
@@ -614,7 +603,7 @@ export async function POST(
   ============================================================
   */
 
-  let employeeQuery = supabase
+  const employeeQuery = supabase
     .from("employees")
     .select(
       `
@@ -633,16 +622,9 @@ export async function POST(
       task.employee_id
     )
     .eq(
-      "user_id",
-      user.id
-    );
-
-  if (task.workspace_id) {
-    employeeQuery = employeeQuery.eq(
       "workspace_id",
-      task.workspace_id
+      workspaceId
     );
-  }
 
   const {
     data:
@@ -776,8 +758,8 @@ export async function POST(
         task.id
       )
       .eq(
-        "user_id",
-        user.id
+        "workspace_id",
+        workspaceId
       )
       .eq(
         "status",
@@ -1069,8 +1051,8 @@ actually executed them.
           task.id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          workspaceId
         )
         .eq(
           "employee_id",
@@ -1119,8 +1101,8 @@ actually executed them.
           employee.id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          workspaceId
         );
 
     if (
@@ -1542,8 +1524,8 @@ actually executed them.
           task.id
         )
         .eq(
-          "user_id",
-          user.id
+          "workspace_id",
+          workspaceId
         )
         .eq(
           "employee_id",

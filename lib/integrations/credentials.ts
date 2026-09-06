@@ -16,6 +16,7 @@ import type {
 
 import {
   getIntegrationConnectionById,
+  type IntegrationTenantScope,
 } from "./database";
 
 import {
@@ -675,16 +676,21 @@ export async function storeIntegrationCredentials(
   supabase:
     SupabaseClient,
 
-  userId:
-    string,
+  scope:
+    IntegrationTenantScope | string,
 
   input:
     StoreIntegrationCredentialsInput,
 ): Promise<string> {
+  const workspaceId =
+    typeof scope === "string"
+      ? scope
+      : scope.workspaceId;
+
   const connection =
     await getIntegrationConnectionById(
       supabase,
-      userId,
+      workspaceId,
       input.connectionId,
     );
 
@@ -754,8 +760,8 @@ export async function getIntegrationCredentials(
   supabase:
     SupabaseClient,
 
-  userId:
-    string,
+  scope:
+    IntegrationTenantScope | string,
 
   connectionId:
     string,
@@ -763,10 +769,15 @@ export async function getIntegrationCredentials(
   DecryptedIntegrationCredentials |
   null
 > {
+  const workspaceId =
+    typeof scope === "string"
+      ? scope
+      : scope.workspaceId;
+
   const connection =
     await getIntegrationConnectionById(
       supabase,
-      userId,
+      workspaceId,
       connectionId,
     );
 
@@ -889,16 +900,21 @@ export async function deleteIntegrationCredentials(
   supabase:
     SupabaseClient,
 
-  userId:
-    string,
+  scope:
+    IntegrationTenantScope | string,
 
   connectionId:
     string,
 ): Promise<boolean> {
+  const workspaceId =
+    typeof scope === "string"
+      ? scope
+      : scope.workspaceId;
+
   const connection =
     await getIntegrationConnectionById(
       supabase,
-      userId,
+      workspaceId,
       connectionId,
     );
 

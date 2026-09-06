@@ -1,12 +1,49 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import { createAdminSupabaseClient } from "@/lib/auth";
 import { buildWhatsAppClickToChatLink, stripEmojis } from "@/lib/website/service";
 
+const MAX_PAYLOAD_BYTES = 65536; // 64KB
+
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    // 1. Content-Type Header Check
+    const contentType = request.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      return NextResponse.json(
+        { success: false, error: "Content-Type must be application/json." },
+        { status: 415 }
+      );
+    }
 
-    // 1. Abuse Controls: Honeypot check
+    // 2. Payload Size Enforcement
+    const contentLength = request.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) > MAX_PAYLOAD_BYTES) {
+      return NextResponse.json(
+        { success: false, error: "Payload exceeds size limit of 64KB." },
+        { status: 413 }
+      );
+    }
+
+    const rawText = await request.text();
+    if (Buffer.byteLength(rawText, "utf8") > MAX_PAYLOAD_BYTES) {
+      return NextResponse.json(
+        { success: false, error: "Payload exceeds size limit of 64KB." },
+        { status: 413 }
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawText);
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "Invalid JSON payload." },
+        { status: 400 }
+      );
+    }
+
+    // 3. Abuse Controls: Honeypot check
     if (body.honeypot || body.website_hp) {
       return NextResponse.json(
         { success: false, error: "Spam submission rejected." },
@@ -14,7 +51,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 2. Field Length Limits
+    // 4. Field Length Limits and Normalization
     const rawName = String(body.name || "").trim().slice(0, 100);
     const rawPhone = String(body.phone || "").trim().slice(0, 30);
     const rawEmail = String(body.email || "").trim().toLowerCase().slice(0, 120);
@@ -39,7 +76,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. Resolve Destination Funnel & Workspace Server-Side
+    // 5. Resolve Destination Funnel & Workspace Server-Side
     const admin = createAdminSupabaseClient();
 
     const { data: funnel, error: funnelError } = await admin
@@ -56,11 +93,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // 4. Atomic Database Persistence via secure create_website_lead RPC
-    const idempotencyKey =
-      String(body.idempotencyKey || body.idempotency_key || request.headers.get("x-idempotency-key") || "").trim().slice(0, 128) ||
-      `lead_${funnel.id}_${cleanPhone || rawEmail}_${Date.now()}`;
+    // 6. Compute Deterministic Idempotency Key
+    let idempotencyKey = String(
+      body.idempotencyKey ||
+      body.idempotency_key ||
+      request.headers.get("x-idempotency-key") ||
+      ""
+    ).trim().slice(0, 128);
 
+    if (!idempotencyKey) {
+      const basis = `${funnel.id}:${cleanPhone}:${rawEmail}:${name}:${userMessage}`;
+      const hash = crypto.createHash("sha256").update(basis, "utf8").digest("hex").slice(0, 32);
+      idempotencyKey = `lead_${funnel.id}_${hash}`;
+    }
+
+    // 7. Atomic Database Persistence via secure create_website_lead RPC
     const { data: rpcResult, error: rpcError } = await admin.rpc("create_website_lead", {
       p_funnel_id: funnel.id,
       p_name: name,
@@ -75,15 +122,34 @@ export async function POST(request: Request) {
       },
     });
 
-    if (rpcError || !rpcResult?.success) {
-      console.error("create_website_lead RPC error:", rpcError || rpcResult?.error);
+    if (rpcError) {
+      console.error("create_website_lead RPC error:", rpcError);
       return NextResponse.json(
         { success: false, error: "Failed to durably record lead in CRM." },
         { status: 500 }
       );
     }
 
-    // 5. Build WhatsApp Conversational Greeting without Hardcoded Numbers
+    if (rpcResult?.conflict === true) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Duplicate submission conflict detected for this idempotency key.",
+          conflict: true,
+        },
+        { status: 409 }
+      );
+    }
+
+    if (!rpcResult?.success) {
+      console.error("create_website_lead unsuccessful:", rpcResult?.error);
+      return NextResponse.json(
+        { success: false, error: "Failed to durably record lead in CRM." },
+        { status: 500 }
+      );
+    }
+
+    // 8. Build WhatsApp Conversational Greeting without Hardcoded Numbers
     let targetWhatsAppPhone: string | null = null;
     if (funnel.primary_cta_link && funnel.primary_cta_link.includes("wa.me/")) {
       const match = funnel.primary_cta_link.match(/wa\.me\/([0-9+]+)/);
@@ -98,17 +164,19 @@ export async function POST(request: Request) {
       conversationalGreeting
     );
 
+    // 9. Omit Internal UUIDs from Public Response
     return NextResponse.json({
       success: true,
       message: "Lead recorded successfully.",
-      contactId: rpcResult.contact_id,
-      threadId: rpcResult.thread_id,
       whatsappLink,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Website Lead API error:", error);
     return NextResponse.json(
-      { success: false, error: error.message || "Failed to process lead inquiry." },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to process lead inquiry.",
+      },
       { status: 500 }
     );
   }

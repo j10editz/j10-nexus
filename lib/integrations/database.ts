@@ -280,6 +280,11 @@ function normalizeMetadata(
   return value as Readonly<Record<string, unknown>>;
 }
 
+export interface IntegrationTenantScope {
+  workspaceId: string;
+  actorUserId: string;
+}
+
 export function mapIntegrationDatabaseRow(
   row: IntegrationDatabaseRow,
 ): IntegrationConnection | null {
@@ -295,7 +300,7 @@ export function mapIntegrationDatabaseRow(
 
   return {
     id: row.id,
-    workspaceId: row.workspace_id || row.user_id,
+    workspaceId: row.workspace_id || "",
     userId: row.user_id,
     providerId,
 
@@ -523,14 +528,32 @@ export async function getIntegrationConnectionByProvider(
 
 export async function createIntegrationConnection(
   supabase: SupabaseClient,
-  workspaceId: string,
+  scope: IntegrationTenantScope | string,
   input: CreateIntegrationConnectionInput,
   actorUserId?: string,
 ): Promise<IntegrationConnection> {
+  const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
+  const actorId = typeof scope === "string" ? (actorUserId || "") : scope.actorUserId;
+
   const provider =
     getIntegrationProvider(
       input.providerId,
     );
+
+  if (!workspaceId || !actorId) {
+    throw new IntegrationDatabaseError(
+      "Both workspaceId and actorUserId are required to create an integration connection.",
+      "INVALID_TENANT_SCOPE",
+    );
+  }
+
+  // Never write a workspace UUID into a column referencing auth.users(id)
+  if (actorId === workspaceId) {
+    throw new IntegrationDatabaseError(
+      "actorUserId must be an authenticated user identifier, not a workspace identifier.",
+      "INVALID_ACTOR_USER_ID",
+    );
+  }
 
   const existing =
     await getIntegrationConnectionByProvider(
@@ -559,7 +582,7 @@ export async function createIntegrationConnection(
       .from("integrations")
       .insert({
         workspace_id: workspaceId,
-        user_id: actorUserId || workspaceId,
+        user_id: actorId,
         provider:
           input.providerId,
         status: "pending",
@@ -622,6 +645,13 @@ export async function createIntegrationConnection(
     error ||
     !data
   ) {
+    if (error && (error as { code?: string }).code === "23505") {
+      throw new IntegrationDatabaseError(
+        `${provider.name} is already registered.`,
+        "INTEGRATION_ALREADY_EXISTS",
+        error,
+      );
+    }
     throw createDatabaseError(
       `Could not register ${provider.name}.`,
       error,
