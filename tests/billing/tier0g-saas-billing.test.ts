@@ -397,7 +397,7 @@ describe("Tier 0G: SaaS Billing & Subscription Architecture", () => {
       expect(updatedPayload.dunning_status).toBe("grace_period");
       expect(updatedPayload.dunning_attempt_count).toBe(1);
       expect(updatedPayload.grace_period_end).toBeDefined();
-      expect(insertedMessage.content).toContain("⚠️ Payment failed");
+      expect(insertedMessage.content).toContain("Payment failed");
       expect(insertedMessage.content).toContain("7-day grace period");
     });
 
@@ -464,7 +464,7 @@ describe("Tier 0G: SaaS Billing & Subscription Architecture", () => {
       expect(updatedPayload.dunning_status).toBe("none");
       expect(updatedPayload.dunning_attempt_count).toBe(0);
       expect(updatedPayload.grace_period_end).toBeNull();
-      expect(insertedMessage.content).toContain("✅ Payment of $149.00 USD received successfully");
+      expect(insertedMessage.content).toContain("Payment of $149.00 USD received successfully");
     });
 
     it("processes invoice.payment_failed through processStripeSubscriptionEvent with dunning", async () => {

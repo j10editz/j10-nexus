@@ -29,8 +29,8 @@ export async function runOpenAIAI(input: RunJ10AIInput): Promise<RunJ10AIResult>
     input.task === "critical_decision" ||
     input.task === "business_intelligence";
 
-  const model = isComplex ? "gpt-4o" : "gpt-4o-mini";
-  const displayName = isComplex ? "OpenAI GPT-4o" : "OpenAI GPT-4o Mini";
+  const model = input.forceModel || (isComplex ? "gpt-4o" : "gpt-4o-mini");
+  const displayName = input.forceModel ? `OpenAI (${input.forceModel})` : (isComplex ? "OpenAI GPT-4o" : "OpenAI GPT-4o Mini");
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
 

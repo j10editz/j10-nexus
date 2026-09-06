@@ -296,13 +296,16 @@ export async function executeGovernedAgentTask(
     );
   }
 
-  // 3. Budget allowance
-  const budget = await evaluateBudgetAllowance(input.workspaceId, input.agentId, 0.05);
+  // 3. Atomically reserve estimated budget before execution
+  const estimatedPreExecutionCost = 0.05;
+  const budget = await evaluateBudgetAllowance(input.workspaceId, input.agentId, estimatedPreExecutionCost);
   if (!budget.canExecute) {
     throw new Error(
       `Agent execution blocked by budget policy: ${budget.actionRequired}. Daily limit reached.`
     );
   }
+  // Atomically lock the pre-reservation spend into budget ledger
+  await recordAgentExecutionSpend(input.workspaceId, input.agentId, estimatedPreExecutionCost);
 
   // 4. Model route decision
   const route = selectGovernedModel({
@@ -329,17 +332,23 @@ export async function executeGovernedAgentTask(
   let modelUsed = route.primaryModel;
   let providerUsed: string = route.primaryProvider;
   let usedFallback = false;
+  let reportedUsage: { inputTokens: number; outputTokens: number; totalTokens: number } | null = null;
 
-  // 6. Execution with real provider fallback
+  // 6. Execution with real provider fallback and explicit model/provider passing
   try {
     const aiResult = await runJ10AI({
       task: (input.taskType || "crm_analysis") as any,
       input: input.prompt,
       instructions: activeVersion.instructions || activeVersion.systemPrompt,
       temperature: activeVersion.temperature,
+      forceProvider: route.primaryProvider as any,
+      forceModel: route.primaryModel,
     });
     output = aiResult.text || (aiResult as any).output || "";
     providerUsed = aiResult.provider;
+    if (aiResult.usage && (aiResult.usage.inputTokens > 0 || aiResult.usage.outputTokens > 0)) {
+      reportedUsage = aiResult.usage;
+    }
   } catch (primaryError) {
     if (input.allowFallback === false) {
       const latencyMs = Date.now() - startTime;
@@ -356,7 +365,7 @@ export async function executeGovernedAgentTask(
       throw primaryError;
     }
 
-    // Genuine fallback execution
+    // Genuine fallback execution passing fallback provider and model
     try {
       usedFallback = true;
       modelUsed = route.fallbackModel;
@@ -366,9 +375,15 @@ export async function executeGovernedAgentTask(
         task: (input.taskType || "crm_analysis") as any,
         input: input.prompt,
         instructions: activeVersion.instructions || activeVersion.systemPrompt,
+        temperature: activeVersion.temperature,
+        forceProvider: route.fallbackProvider as any,
+        forceModel: route.fallbackModel,
       });
       output = fallbackResult.text || (fallbackResult as any).output || "";
       providerUsed = fallbackResult.provider;
+      if (fallbackResult.usage && (fallbackResult.usage.inputTokens > 0 || fallbackResult.usage.outputTokens > 0)) {
+        reportedUsage = fallbackResult.usage;
+      }
     } catch (fallbackError) {
       const latencyMs = Date.now() - startTime;
       await failAgentTrace(
@@ -393,24 +408,32 @@ export async function executeGovernedAgentTask(
     usedFallback,
   });
 
-  // Calculate actual tokens and cost from versioned pricing table
-  const promptTokens = Math.ceil(input.prompt.length / 4);
-  const completionTokens = Math.ceil(output.length / 4);
+  // Determine actual vs character-based estimated tokens
+  const hasProviderTokens = Boolean(reportedUsage && (reportedUsage.inputTokens > 0 || reportedUsage.outputTokens > 0));
+  const promptTokens = hasProviderTokens ? reportedUsage!.inputTokens : Math.ceil(input.prompt.length / 4);
+  const completionTokens = hasProviderTokens ? reportedUsage!.outputTokens : Math.ceil(output.length / 4);
   const totalTokens = promptTokens + completionTokens;
+  const usageSource: "provider_reported" | "character_estimate" = hasProviderTokens
+    ? "provider_reported"
+    : "character_estimate";
+
   const costUsd = calculateTokenCost(modelUsed, promptTokens, completionTokens);
 
   // Complete trace
   await completeAgentTrace(trace.id, {
     status: "completed",
-    outputPayload: { output },
+    outputPayload: { output, usageSource },
     latencyMs,
     promptTokens,
     completionTokens,
     modelUsed,
   });
 
-  // Record actual spend against budget
-  await recordAgentExecutionSpend(input.workspaceId, input.agentId, costUsd);
+  // Reconcile spend against pre-reserved budget
+  const spendAdjustment = costUsd - estimatedPreExecutionCost;
+  if (spendAdjustment !== 0) {
+    await recordAgentExecutionSpend(input.workspaceId, input.agentId, spendAdjustment);
+  }
 
   return {
     success: true,

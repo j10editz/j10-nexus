@@ -294,6 +294,8 @@ export async function runJ10AI({
   preference = "Automatic",
   maxOutputTokens = 12000,
   temperature = 0.2,
+  forceProvider,
+  forceModel,
 }: RunJ10AIInput): Promise<RunJ10AIResult> {
   const cleanInput = input.trim();
   if (!cleanInput) {
@@ -302,19 +304,10 @@ export async function runJ10AI({
 
   const mode = getJ10AIMode();
 
-  // Development mode is the safe, zero-cost default
-  if (mode === "development") {
-    return runDevelopmentJ10AI({
-      task,
-      input: cleanInput,
-      preference,
-    });
-  }
+  // If forceProvider is explicitly passed (e.g. from governed model router)
+  const targetProvider = forceProvider || (mode === "development" ? "development" : getActiveAIProvider());
 
-  // Live Mode: Resolve provider
-  const provider = getActiveAIProvider();
-
-  if (provider === "gemini") {
+  if (targetProvider === "gemini") {
     return runGeminiAI({
       task,
       input: cleanInput,
@@ -322,10 +315,11 @@ export async function runJ10AI({
       preference,
       maxOutputTokens,
       temperature,
+      forceModel,
     });
   }
 
-  if (provider === "openai") {
+  if (targetProvider === "openai") {
     return runOpenAIAI({
       task,
       input: cleanInput,
@@ -333,10 +327,11 @@ export async function runJ10AI({
       preference,
       maxOutputTokens,
       temperature,
+      forceModel,
     });
   }
 
-  // Fallback if live mode requested but no keys available
+  // Development mode is the safe, zero-cost default
   return runDevelopmentJ10AI({
     task,
     input: cleanInput,

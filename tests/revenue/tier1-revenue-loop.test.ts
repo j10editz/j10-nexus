@@ -8,6 +8,7 @@ import {
 import {
   createWorkspaceBooking,
   updateBookingStatus,
+  confirmExternalCalendarReservation,
 } from "@/lib/revenue/bookings";
 import {
   processInboundWhatsAppRevenueLoop,
@@ -290,6 +291,40 @@ describe("Tier 1: Complete Revenue Loop — Unit & Integration Engine", () => {
       expect(report.attribution.length).toBeGreaterThan(0);
       expect(report.attribution[0].channel).toBe("whatsapp");
       expect(report.attribution[0].wonCount).toBe(1);
+
+      // 4. Verify Retries Do Not Duplicate Payments or Revenue
+      const retryResult = await reconcileRevenueLoopPayment(mockClient, {
+        workspaceId,
+        checkoutId: checkout.id,
+        providerEventId: "evt_test_success_99_duplicate",
+        amount: 2500,
+        currency: "USD",
+      });
+
+      expect(retryResult.success).toBe(true);
+      expect(retryResult.ledgerId).toBe(paymentResult.ledgerId);
+      // Payment ledger still contains exactly 1 entry
+      expect(state.payment_ledger.length).toBe(1);
+
+      // Re-query executive report: total won revenue remains exactly 2500
+      const postRetryReport = await getWorkspaceExecutiveRevenueReport(mockClient, workspaceId);
+      expect(postRetryReport.summary.totalVerifiedWonRevenue).toBe(2500);
+
+      // 5. Distinguish Booking Record from Confirmed External Calendar Reservation
+      expect(leadResult.booking?.external_reservation_status).toBe("pending_confirmation");
+
+      const confirmedBooking = await confirmExternalCalendarReservation(mockClient, {
+        workspaceId,
+        bookingId: leadResult.booking!.id,
+        calendarProvider: "google_calendar",
+        externalEventId: "gcal_event_987654321",
+        confirmedMeetingUrl: "https://calendar.google.com/event?eid=gcal_event_987654321",
+      });
+
+      expect(confirmedBooking.external_reservation_status).toBe("confirmed_external_calendar");
+      expect(confirmedBooking.external_calendar_provider).toBe("google_calendar");
+      expect(confirmedBooking.external_calendar_event_id).toBe("gcal_event_987654321");
+      expect(confirmedBooking.meeting_url).toBe("https://calendar.google.com/event?eid=gcal_event_987654321");
     });
   });
 });

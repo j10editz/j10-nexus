@@ -11,6 +11,10 @@ import {
   recordWorkspaceMessageUsage,
   BillingRequiredError,
 } from "@/lib/billing/entitlements";
+import {
+  evaluateBudgetAllowance,
+  recordAgentExecutionSpend,
+} from "@/lib/governance/budgets";
 
 import {
   buildDevelopmentResearchStructuredData,
@@ -946,6 +950,21 @@ export async function POST(
       throw billingErr;
     }
 
+    // Step 11: Enforce Tier 4 Governance agent budget allowance
+    const agentBudget = await evaluateBudgetAllowance(workspaceId, employee.id, 0.05);
+    if (!agentBudget.canExecute) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Agent execution blocked by budget policy: ${agentBudget.actionRequired}. Daily limit reached.`,
+          code: "BUDGET_EXHAUSTED",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
     const result =
       await runJ10AI({
         task:
@@ -986,6 +1005,9 @@ actually executed them.
         maxOutputTokens:
           6000,
       });
+
+    // Record agent execution spend for governance accounting
+    await recordAgentExecutionSpend(workspaceId, employee.id, result.estimatedCostUSD ?? 0.01).catch(() => null);
 
 
     const baseStructuredResultData =

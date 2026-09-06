@@ -83,7 +83,7 @@ export async function recordDunningPaymentFailure(
       year: "numeric",
     });
 
-    const alertMessage = `⚠️ Payment failed for J10 NEXUS ${formattedAmount} (Attempt #${currentAttempts}). Your workspace has entered a 7-day grace period ending on ${graceFormatted}. Please update your payment method via Billing Settings to maintain uninterrupted autonomous operations.`;
+    const alertMessage = `Payment failed for J10 NEXUS ${formattedAmount} (Attempt #${currentAttempts}). Your workspace has entered a 7-day grace period ending on ${graceFormatted}. Please update your payment method via Billing Settings to maintain uninterrupted autonomous operations.`;
 
     // Check for an existing system notification thread
     const { data: thread } = await supabase
@@ -165,7 +165,7 @@ export async function recordDunningPaymentRecovery(
   // Dispatch confirmation message to inbox
   try {
     const formattedAmount = event.amount != null ? `$${event.amount.toFixed(2)} ${event.currency || "USD"}` : "subscription payment";
-    const recoveryMessage = `✅ Payment of ${formattedAmount} received successfully. Your J10 NEXUS subscription is active and all automated messaging quotas have been verified.`;
+    const recoveryMessage = `Payment of ${formattedAmount} received successfully. Your J10 NEXUS subscription is active and all automated messaging quotas have been verified.`;
 
     const { data: thread } = await supabase
       .from("inbox_threads")

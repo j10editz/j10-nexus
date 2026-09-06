@@ -21,7 +21,11 @@ import {
   recordPresenceHeartbeat,
   verifyReplyCollisionGuard,
 } from "@/lib/omnichannel/collision";
-import { sendChannelProviderMessage } from "@/lib/omnichannel/dispatch";
+import {
+  sendChannelProviderMessage,
+  resolveWorkspaceChannelCredentials,
+  updateOmnichannelDeliveryStatus,
+} from "@/lib/omnichannel/dispatch";
 import { normalizeInboundPayload } from "@/lib/omnichannel/inbound";
 
 describe("Tier 3 — True Omnichannel Operations", () => {
@@ -609,6 +613,125 @@ describe("Tier 3 — True Omnichannel Operations", () => {
       expect(norm.senderName).toContain("David Croft");
       expect(norm.content).toContain("@J10Nexus");
       expect(norm.priority).toBe("urgent");
+    });
+  });
+
+  describe("7. Server-Side Credential Resolution & Real Delivery Callbacks", () => {
+    it("resolves workspace-specific integration credentials when connected", async () => {
+      const mockSupabase = {
+        from: (table: string) => ({
+          select: () => ({
+            eq: () => ({
+              eq: async () => ({
+                data: [
+                  {
+                    provider: "twilio",
+                    status: "connected",
+                    public_configuration: {
+                      twilioAccountSid: "AC_custom_workspace_sid",
+                      twilioAuthToken: "token_custom_workspace",
+                      twilioFromPhone: "+15550001111",
+                    },
+                  },
+                ],
+                error: null,
+              }),
+            }),
+          }),
+        }),
+      } as any;
+
+      const res = await resolveWorkspaceChannelCredentials(mockSupabase, "ws-custom", "sms");
+      expect(res.isSharedPlatform).toBe(false);
+      expect(res.credentials.twilioAccountSid).toBe("AC_custom_workspace_sid");
+      expect(res.credentials.twilioAuthToken).toBe("token_custom_workspace");
+      expect(res.credentials.twilioFromPhone).toBe("+15550001111");
+    });
+
+    it("falls back to shared platform environment when workspace has no custom integration", async () => {
+      const originalSid = process.env.TWILIO_ACCOUNT_SID;
+      const originalToken = process.env.TWILIO_AUTH_TOKEN;
+      process.env.TWILIO_ACCOUNT_SID = "AC_platform_shared_sid";
+      process.env.TWILIO_AUTH_TOKEN = "token_platform_shared";
+
+      try {
+        const mockSupabase = {
+          from: (table: string) => ({
+            select: () => ({
+              eq: () => ({
+                eq: async () => ({
+                  data: [],
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        } as any;
+
+        const res = await resolveWorkspaceChannelCredentials(mockSupabase, "ws-platform", "sms");
+        expect(res.isSharedPlatform).toBe(true);
+        expect(res.credentials.twilioAccountSid).toBe("AC_platform_shared_sid");
+      } finally {
+        process.env.TWILIO_ACCOUNT_SID = originalSid;
+        process.env.TWILIO_AUTH_TOKEN = originalToken;
+      }
+    });
+
+    it("updates message delivery status upon verified provider delivery receipt callback", async () => {
+      let updatedStatus = "";
+      const loggedEvents: any[] = [];
+
+      const mockSupabase = {
+        from: (table: string) => {
+          if (table === "inbox_messages") {
+            return {
+              select: () => ({
+                eq: () => ({
+                  eq: () => ({
+                    maybeSingle: async () => ({
+                      data: { id: "msg-outbound-1", thread_id: "thread-1", delivery_status: "sent" },
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+              update: (updates: any) => ({
+                eq: () => ({
+                  eq: async () => {
+                    updatedStatus = updates.delivery_status;
+                    return { error: null };
+                  },
+                }),
+              }),
+            };
+          }
+          if (table === "omnichannel_dispatch_logs") {
+            return {
+              insert: async (row: any) => {
+                loggedEvents.push(row);
+                return { error: null };
+              },
+            };
+          }
+          throw new Error(`Unexpected table ${table}`);
+        },
+      } as any;
+
+      const callbackResult = await updateOmnichannelDeliveryStatus(mockSupabase, {
+        workspaceId: "ws-test",
+        externalMessageId: "ext-msg-12345",
+        deliveryStatus: "delivered",
+        provider: "whatsapp_cloud",
+        rawPayload: { status: "delivered", timestamp: "1725600000" },
+      });
+
+      expect(callbackResult.success).toBe(true);
+      expect(callbackResult.messageId).toBe("msg-outbound-1");
+      expect(callbackResult.updatedStatus).toBe("delivered");
+      expect(updatedStatus).toBe("delivered");
+      expect(loggedEvents.length).toBe(1);
+      expect(loggedEvents[0].status).toBe("delivered");
+      expect(loggedEvents[0].provider).toBe("whatsapp_cloud");
     });
   });
 });

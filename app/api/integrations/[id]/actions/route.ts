@@ -70,6 +70,15 @@ import {
   getIntegrationProvider,
 } from "../../../../../lib/integrations/registry";
 
+import {
+  checkToolPermission,
+} from "@/lib/governance/permissions";
+
+import {
+  evaluateBudgetAllowance,
+  recordAgentExecutionSpend,
+} from "@/lib/governance/budgets";
+
 type RouteContext = {
   params: Promise<{
     id: string;
@@ -340,6 +349,45 @@ export async function POST(
         connection,
         body.capabilityId,
       );
+
+    // Tier 4 Governance: Capability & Tool Permission Enforcement
+    if (connection.workspaceId) {
+      const agentId = (body.agentId as string) || "integration-runner";
+      const toolPerm = await checkToolPermission(
+        connection.workspaceId,
+        agentId,
+        capability.id
+      );
+
+      if (!toolPerm.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: toolPerm.reason,
+            code: "TOOL_PERMISSION_DENIED",
+          },
+          { status: 403 }
+        );
+      }
+
+      // Tier 4 Governance: Spend Budget Allowance Enforcement
+      const budgetCheck = await evaluateBudgetAllowance(
+        connection.workspaceId,
+        agentId,
+        0.01
+      );
+
+      if (!budgetCheck.canExecute) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Tool execution denied by budget policy: ${budgetCheck.actionRequired}. Daily limit reached.`,
+            code: "BUDGET_EXHAUSTED",
+          },
+          { status: 403 }
+        );
+      }
+    }
 
     const mode =
       parseIntegrationActionMode(

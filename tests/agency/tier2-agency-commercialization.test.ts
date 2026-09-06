@@ -9,6 +9,7 @@ import {
   isValidDomain,
   registerCustomDomain,
   verifyCustomDomainDns,
+  checkHostingCertificateStatus,
   removeCustomDomain,
   resolveWorkspaceByHostname,
 } from "@/lib/agency/domains";
@@ -259,8 +260,8 @@ describe("Tier 2: Agency & Client Commercialization Engine", () => {
       expect(pendingCheck.ssl_status).toBe("pending");
       expect(state.workspaces[0].custom_domain_status).toBe("pending_verification");
 
-      // 2b. When genuine DNS TXT ownership challenge and CNAME target match: advance to active & SSL issued
-      const verified = await verifyCustomDomainDns(
+      // 2b. DNS ownership verification must not mark SSL issued: domain advances to active but SSL remains pending
+      const verifiedDnsOnly = await verifyCustomDomainDns(
         mockClient,
         "ws-agency-1",
         regResult.domain.id,
@@ -269,9 +270,18 @@ describe("Tier 2: Agency & Client Commercialization Engine", () => {
         }
       );
 
-      expect(verified.status).toBe("active");
-      expect(verified.ssl_status).toBe("issued");
+      expect(verifiedDnsOnly.status).toBe("active");
+      expect(verifiedDnsOnly.ssl_status).toBe("pending");
       expect(state.workspaces[0].custom_domain_status).toBe("verified");
+
+      // 2c. Obtain certificate/hosting status from configured hosting provider: advances SSL to issued
+      const verifiedWithHosting = await checkHostingCertificateStatus(
+        mockClient,
+        "ws-agency-1",
+        regResult.domain.id,
+        async () => "issued"
+      );
+      expect(verifiedWithHosting.ssl_status).toBe("issued");
 
       // 3. Resolve workspace by custom domain
       const resolved = await resolveWorkspaceByHostname(mockClient, "portal.omnimedia.com");

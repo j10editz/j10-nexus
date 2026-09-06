@@ -22,6 +22,15 @@ export type DunningStatus = "none" | "warning" | "grace_period" | "suspended" | 
 export type BillableMetricName =
   | "whatsapp_outbound"
   | "whatsapp_inbound"
+  | "sms_outbound"
+  | "email_outbound"
+  | "instagram_outbound"
+  | "messenger_outbound"
+  | "webchat_outbound"
+  | "website_outbound"
+  | "crm_outbound"
+  | "whatsapp_group_outbound"
+  | "omnichannel_outbound"
   | "ai_tokens"
   | "ai_agent_run"
   | "campaign_broadcast"
@@ -367,6 +376,102 @@ export async function recordWorkspaceMessageUsage(
     const newUsage = row.messages_used_this_period ?? row.new_usage ?? 0;
     return { success: true, newUsage, limit, isExceeded: false };
   }
+}
+
+export interface ReserveQuotaOptions {
+  workspaceId: string;
+  metricName: BillableMetricName;
+  quantity: number;
+  reservationId?: string;
+  resourceId?: string;
+  actorUserId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface QuotaReservationResult {
+  success: boolean;
+  reservationId: string;
+  recordId?: string;
+  quantityReserved: number;
+  newUsage: number;
+  remainingQuota: number;
+  monthlyLimit: number;
+  isExceeded: boolean;
+  idempotent?: boolean;
+}
+
+/**
+ * Atomically reserves quota BEFORE executing a billable external action.
+ * Throws BillingRequiredError if quota is insufficient or subscription is inactive.
+ */
+export async function reserveWorkspaceQuota(
+  supabase: SupabaseClient,
+  options: ReserveQuotaOptions
+): Promise<QuotaReservationResult> {
+  const reservationId =
+    options.reservationId ||
+    `res-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+  const res = await recordVerifiedWorkspaceUsage(supabase, {
+    workspaceId: options.workspaceId,
+    metricName: options.metricName,
+    quantity: options.quantity,
+    idempotencyKey: reservationId,
+    resourceId: options.resourceId || reservationId,
+    actorUserId: options.actorUserId,
+    metadata: {
+      isPreReservation: true,
+      reservationId,
+      ...(options.metadata || {}),
+    },
+  });
+
+  return {
+    success: true,
+    reservationId,
+    recordId: res.recordId,
+    quantityReserved: options.quantity,
+    newUsage: res.newUsage,
+    remainingQuota: res.remaining,
+    monthlyLimit: res.limit,
+    isExceeded: res.isExceeded,
+    idempotent: res.idempotent,
+  };
+}
+
+/**
+ * Releases or refunds previously reserved quota if an action fails.
+ */
+export async function releaseWorkspaceQuota(
+  supabase: SupabaseClient,
+  options: {
+    workspaceId: string;
+    quantity: number;
+    reservationId?: string;
+    reason?: string;
+  }
+): Promise<{ success: boolean; newUsage: number }> {
+  const { data: sub } = await supabase
+    .from("workspace_subscriptions")
+    .select("id, messages_used_this_period")
+    .eq("workspace_id", options.workspaceId)
+    .single();
+
+  if (!sub) return { success: false, newUsage: 0 };
+
+  const updatedUsage = Math.max(
+    0,
+    (sub.messages_used_this_period || 0) - options.quantity
+  );
+  await supabase
+    .from("workspace_subscriptions")
+    .update({
+      messages_used_this_period: updatedUsage,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", sub.id);
+
+  return { success: true, newUsage: updatedUsage };
 }
 
 /**

@@ -17,6 +17,8 @@ export type RunJ10AIInput = {
   preference?: J10ModelPreference;
   maxOutputTokens?: number;
   temperature?: number;
+  forceProvider?: J10AIProviderName;
+  forceModel?: string;
 };
 
 export type RunJ10AIResult = {

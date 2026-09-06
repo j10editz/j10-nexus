@@ -24,12 +24,12 @@ export function selectGeminiModel(input: RunJ10AIInput): {
   reason: string;
   workload: "fast" | "standard" | "complex" | "critical";
 } {
-  const override = process.env.GEMINI_MODEL?.trim() as GeminiModelId | undefined;
+  const override = ((input.forceModel as GeminiModelId) || (process.env.GEMINI_MODEL?.trim() as GeminiModelId | undefined));
   if (override) {
     return {
       model: override,
       displayName: `Gemini (${override})`,
-      reason: "Configured via GEMINI_MODEL environment variable.",
+      reason: input.forceModel ? "Selected by governed model router." : "Configured via GEMINI_MODEL environment variable.",
       workload: "standard",
     };
   }

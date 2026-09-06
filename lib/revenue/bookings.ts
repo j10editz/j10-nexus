@@ -15,6 +15,12 @@ export type BookingStatus =
   | "rescheduled"
   | "no_show";
 
+export type ExternalReservationStatus =
+  | "unlinked"
+  | "pending_confirmation"
+  | "confirmed_external_calendar"
+  | "failed_to_reserve";
+
 export interface BookingRecord {
   id: string;
   workspace_id: string;
@@ -27,6 +33,9 @@ export interface BookingRecord {
   duration_minutes: number;
   meeting_url: string | null;
   status: BookingStatus;
+  external_reservation_status?: ExternalReservationStatus;
+  external_calendar_provider?: string | null;
+  external_calendar_event_id?: string | null;
   notes: string | null;
   host_user_id: string | null;
   metadata: Record<string, unknown>;
@@ -76,7 +85,11 @@ export async function createWorkspaceBooking(
       status: "scheduled",
       notes: input.notes?.trim() || null,
       host_user_id: input.hostUserId || null,
-      metadata: input.metadata || {},
+      metadata: {
+        ...(input.metadata || {}),
+        external_reservation_status: "pending_confirmation",
+        is_external_calendar_confirmed: false,
+      },
     })
     .select("*")
     .single();
@@ -85,7 +98,10 @@ export async function createWorkspaceBooking(
     throw new Error(`Failed to create booking: ${error?.message || "Unknown error"}`);
   }
 
-  return booking as BookingRecord;
+  return {
+    ...(booking as BookingRecord),
+    external_reservation_status: "pending_confirmation",
+  };
 }
 
 /**
@@ -159,4 +175,68 @@ export async function updateBookingStatus(
   }
 
   return data as BookingRecord;
+}
+
+/**
+ * Confirms an external calendar reservation (Google Calendar, Outlook, Cal.com)
+ * explicitly distinguishing internal CRM booking records from confirmed external reservations.
+ */
+export async function confirmExternalCalendarReservation(
+  supabase: SupabaseClient,
+  input: {
+    workspaceId: string;
+    bookingId: string;
+    calendarProvider: "google_calendar" | "cal_com" | "outlook";
+    externalEventId: string;
+    confirmedMeetingUrl?: string;
+  }
+): Promise<BookingRecord> {
+  const { data: existing, error: getErr } = await supabase
+    .from("crm_bookings")
+    .select("*")
+    .eq("id", input.bookingId)
+    .eq("workspace_id", input.workspaceId)
+    .single();
+
+  if (getErr || !existing) {
+    throw new Error(`Booking ${input.bookingId} not found: ${getErr?.message || "Not found"}`);
+  }
+
+  const existingMeta = (existing.metadata || {}) as Record<string, unknown>;
+  const updatedMeta = {
+    ...existingMeta,
+    external_reservation_status: "confirmed_external_calendar",
+    external_calendar_provider: input.calendarProvider,
+    external_calendar_event_id: input.externalEventId,
+    is_external_calendar_confirmed: true,
+    confirmed_at: new Date().toISOString(),
+  };
+
+  const updates: Record<string, unknown> = {
+    metadata: updatedMeta,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (input.confirmedMeetingUrl) {
+    updates.meeting_url = input.confirmedMeetingUrl;
+  }
+
+  const { data, error } = await supabase
+    .from("crm_bookings")
+    .update(updates)
+    .eq("id", input.bookingId)
+    .eq("workspace_id", input.workspaceId)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to confirm external calendar reservation: ${error?.message}`);
+  }
+
+  return {
+    ...(data as BookingRecord),
+    external_reservation_status: "confirmed_external_calendar",
+    external_calendar_provider: input.calendarProvider,
+    external_calendar_event_id: input.externalEventId,
+  };
 }

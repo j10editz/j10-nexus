@@ -212,7 +212,9 @@ function mapBudgetRow(row: any): AgentBudget {
     currentDailySpendUsd: Number(row.current_daily_spend_usd || 0),
     currentMonthlySpendUsd: Number(row.current_monthly_spend_usd || 0),
     overBudgetPolicy: row.over_budget_policy as OverBudgetPolicy,
-    lastResetDate: row.last_reset_date || new Date().toISOString().split("T")[0],
+    lastResetDate: row.last_reset_date
+      ? String(row.last_reset_date).split("T")[0]
+      : new Date().toISOString().split("T")[0],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

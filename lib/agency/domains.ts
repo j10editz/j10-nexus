@@ -125,12 +125,13 @@ export async function verifyCustomDomainDns(
   supabase: SupabaseClient,
   workspaceId: string,
   domainId: string,
-  options?: {
+    options?: {
     dnsChecker?: (
       domain: string,
       token: string,
       cname: string
     ) => Promise<{ txtVerified: boolean; cnameVerified: boolean }>;
+    hostingCertificateChecker?: (domain: string) => Promise<"pending" | "issued" | "error">;
   }
 ): Promise<DomainRecord> {
   const { data: existing, error: fetchError } = await supabase
@@ -213,12 +214,19 @@ export async function verifyCustomDomainDns(
     return (updatedPending || existing) as DomainRecord;
   }
 
-  // Both TXT and CNAME verified: advance to active and SSL to issued
+  // DNS verified: advance domain status to active.
+  // CRITICAL RULE: DNS ownership verification must not mark SSL issued.
+  // Obtain certificate/hosting status from configured hosting provider; otherwise keep SSL pending.
+  let resolvedSslStatus: "pending" | "issued" | "error" = "pending";
+  if (options?.hostingCertificateChecker) {
+    resolvedSslStatus = await options.hostingCertificateChecker(existing.domain);
+  }
+
   const { data: updated, error: updateError } = await supabase
     .from("workspace_domains")
     .update({
       status: "active",
-      ssl_status: "issued",
+      ssl_status: resolvedSslStatus,
       verified_at: now,
       updated_at: now,
     })
@@ -237,6 +245,46 @@ export async function verifyCustomDomainDns(
       updated_at: now,
     })
     .eq("id", workspaceId);
+
+  return updated as DomainRecord;
+}
+
+/**
+ * Queries the hosting provider for certificate issuance and updates the domain SSL status.
+ */
+export async function checkHostingCertificateStatus(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  domainId: string,
+  hostingCertificateChecker: (domain: string) => Promise<"pending" | "issued" | "error">
+): Promise<DomainRecord> {
+  const { data: existing, error: fetchError } = await supabase
+    .from("workspace_domains")
+    .select("*")
+    .eq("id", domainId)
+    .eq("workspace_id", workspaceId)
+    .single();
+
+  if (fetchError || !existing) {
+    throw new Error(`Custom domain record not found in workspace.`);
+  }
+
+  const sslStatus = await hostingCertificateChecker(existing.domain);
+  const now = new Date().toISOString();
+
+  const { data: updated, error: updateError } = await supabase
+    .from("workspace_domains")
+    .update({
+      ssl_status: sslStatus,
+      updated_at: now,
+    })
+    .eq("id", domainId)
+    .select("*")
+    .single();
+
+  if (updateError || !updated) {
+    throw new Error(`Failed to update SSL status: ${updateError?.message}`);
+  }
 
   return updated as DomainRecord;
 }
