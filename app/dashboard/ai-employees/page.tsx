@@ -46,6 +46,7 @@ import CreateEmployeeModal from "@/components/ai-employees/CreateEmployeeModal";
 import EmployeeDetailsModal from "@/components/ai-employees/EmployeeDetailsModal";
 import SalesAgentCRMPanel from "@/components/ai-employees/SalesAgentCRMPanel";
 import WorkforceTaskDispatcher from "@/components/ai-employees/WorkforceTaskDispatcher";
+import GovernanceControlCenter from "@/components/governance/GovernanceControlCenter";
 
 import { createClient } from "@/lib/supabase";
 
@@ -353,8 +354,11 @@ export default function AIEmployeesPage() {
 
   const [activeTab, setActiveTab] =
     useState<
-      "specialists" | "operations" | "intelligence" | "crm"
+      "specialists" | "operations" | "intelligence" | "crm" | "governance"
     >("specialists");
+
+  const [governanceOpen, setGovernanceOpen] = useState(false);
+  const [governanceEmployee, setGovernanceEmployee] = useState<Employee | null>(null);
 
   const [taskDispatcherOpen, setTaskDispatcherOpen] =
     useState(false);
@@ -2075,6 +2079,22 @@ export default function AIEmployeesPage() {
               />
               Sales Agent & CRM Pipeline
             </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("governance")}
+              className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition shrink-0 ${
+                activeTab === "governance"
+                  ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25"
+                  : "border border-white/[0.08] bg-[#111216] text-zinc-400 hover:text-white hover:bg-white/[0.04]"
+              }`}
+            >
+              <ShieldCheck
+                size={14}
+                className={activeTab === "governance" ? "text-white" : "text-blue-400"}
+              />
+              Governed AI Platform
+            </button>
           </div>
         </div>
 
@@ -2536,7 +2556,29 @@ export default function AIEmployeesPage() {
             </div>
           </div>
         )}
+
+        {/* TAB 5: GOVERNED AI PLATFORM */}
+        {activeTab === "governance" && (
+          <div className="relative rounded-2xl border border-white/[0.08] bg-[#0c0d12] overflow-hidden min-h-[680px]">
+            <GovernanceControlCenter
+              agentId={selectedEmployee?.id || employeeList[0]?.id || "sales-agent"}
+              agentName={selectedEmployee?.name || employeeList[0]?.name || "Autonomous AI Workforce"}
+              onClose={() => setActiveTab("specialists")}
+            />
+          </div>
+        )}
       </div>
+
+      {governanceOpen && governanceEmployee && (
+        <GovernanceControlCenter
+          agentId={governanceEmployee.id}
+          agentName={governanceEmployee.name}
+          onClose={() => {
+            setGovernanceOpen(false);
+            setGovernanceEmployee(null);
+          }}
+        />
+      )}
 
       <CreateEmployeeModal
         open={
