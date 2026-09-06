@@ -200,6 +200,16 @@ describe("Stripe Webhook Idempotency, Tenant Isolation & Payment Ledger", () => 
             };
           }
 
+          if (table === "crm_proposals") {
+            return {
+              update: () => ({
+                eq: () => ({
+                  eq: () => Promise.resolve({ error: null }),
+                }),
+              }),
+            };
+          }
+
           throw new Error(`Unexpected table: ${table}`);
         },
       };

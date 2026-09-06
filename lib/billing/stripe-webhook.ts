@@ -658,6 +658,30 @@ export async function processStripeWebhookEvent(
             .eq("id", resolvedContactId)
             .eq("workspace_id", resolvedWsId);
         }
+
+        // Update linked proposal status to paid if present
+        const resolvedProposalId = metadata.proposal_id || checkout.metadata?.proposal_id;
+        if (resolvedProposalId) {
+          await supabase
+            .from("crm_proposals")
+            .update({
+              status: "paid",
+              accepted_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", resolvedProposalId)
+            .eq("workspace_id", resolvedWsId);
+        } else {
+          await supabase
+            .from("crm_proposals")
+            .update({
+              status: "paid",
+              accepted_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("checkout_id", checkout.id)
+            .eq("workspace_id", resolvedWsId);
+        }
       }
 
       // Mark webhook event as processed
