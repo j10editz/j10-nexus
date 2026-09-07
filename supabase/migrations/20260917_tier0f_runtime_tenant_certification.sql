@@ -613,6 +613,7 @@ $$;
 REVOKE ALL ON FUNCTION public.store_integration_credential_envelope(UUID, TEXT, TEXT, TEXT, TEXT, INTEGER) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.store_integration_credential_envelope(UUID, TEXT, TEXT, TEXT, TEXT, INTEGER) TO authenticated, service_role;
 
+DROP FUNCTION IF EXISTS public.get_integration_credential_envelope(UUID);
 CREATE OR REPLACE FUNCTION public.get_integration_credential_envelope(
   p_integration_id UUID
 )
