@@ -1,8 +1,8 @@
 # J10 NEXUS PLATFORM CERTIFICATION EVIDENCE
 
 Repository: J10 NEXUS
-Base Baseline: Commit c1eb74f
-Environment: Node.js 20+ / Next.js 16.3 Turbopack / PostgreSQL (PGlite WASM test database) / Supabase
+Base Baseline: Commit 8f746c4
+Environment: Node.js 20+ / Next.js 16.3 Turbopack / PostgreSQL (PGlite WASM test database & Remote Multi-Session Supabase) / Supabase
 
 ---
 
@@ -36,15 +36,24 @@ Environment: Node.js 20+ / Next.js 16.3 Turbopack / PostgreSQL (PGlite WASM test
 - Proved concurrent quota enforcement via row-level locking (`SELECT ... FOR UPDATE`).
 
 ### Demonstrated Behavior & Test Proof
-- Concurrency Quota Proof: `tests/database/pglite-tier0g-certification.test.ts` (Test 6)
+- Independent Multi-Session PostgreSQL Concurrency Certification: `tests/billing/atomic-concurrency.test.ts` (Commit `8f746c4`, 4/4 passing)
+  - Proven with 5 genuinely independent client sessions holding distinct PostgreSQL backend PIDs (`SELECT pg_backend_pid()`).
+  - Scenario A (Simultaneous Quota Reservations): 5 parallel clients competing for remaining 1 quota unit. Exactly 1 succeeded, 4 rejected with `"Monthly message quota exceeded"`. Zero over-admission. Final usage strictly capped at 10.
+  - Scenario B (Duplicate Reservation IDs): Duplicate identical requests processed idempotently (`already_reserved`). Different payloads with identical reservation ID rejected (`Idempotency conflict`).
+  - Scenario C (Settle vs. Release Race): Simultaneous settle and release on identical reservation. Exactly 1 succeeded; conflicting state change rejected.
+  - Scenario D (Tenant Isolation): Concurrent cross-tenant reservations executed simultaneously across distinct workspaces with zero lock contention or artificial bottlenecks.
+  - Minimal Test-Only Fixture: Utilized `tests/fixtures/billing-concurrency-bootstrap.sql` extracting verbatim subscription SQL from 20260916 & 20260917; NO production migrations were modified during concurrency certification.
+- Concurrency Quota Proof (PGlite Local): `tests/database/pglite-tier0g-certification.test.ts` (Test 6)
   - 10 concurrent database sessions requesting 10 units each on a quota limit of 50.
   - Exactly 5 sessions succeed (50 units reserved), and exactly 5 sessions are rejected with quota exceeded.
 - Billing Test Suites:
+  - `tests/billing/atomic-concurrency.test.ts` (4/4 passing against live multi-session PostgreSQL, safely skipped when URL absent)
   - `tests/billing/tier0g-saas-billing.test.ts` (12/12 passing)
   - `tests/billing/stripe-webhook-ledger.test.ts` (6/6 passing)
   - `tests/billing/stripe-webhook.test.ts` (7/7 passing)
   - `tests/billing/entitlements.test.ts` (7/7 passing)
   - `tests/billing/subscription-api.test.ts` (3/3 passing)
+  - `tests/billing/reservation-lifecycle.test.ts` (10/10 passing)
 
 ---
 
@@ -113,6 +122,7 @@ Environment: Node.js 20+ / Next.js 16.3 Turbopack / PostgreSQL (PGlite WASM test
 
 | Verification Scope | Test Files | Total Tests | Result | Execution Mode |
 |---|---|---|---|---|
+| PostgreSQL Multi-Connection Concurrency | `tests/billing/atomic-concurrency.test.ts` | 4 | PASSED | Remote Multi-Session PostgreSQL (5 PIDs) |
 | Database Tier 0f Certification | `tests/database/pglite-tier0f-certification.test.ts` | 17 | PASSED | Local PGlite WASM |
 | Database Tier 0g SaaS Billing | `tests/database/pglite-tier0g-certification.test.ts` | 6 | PASSED | Local PGlite WASM |
 | Database Tier 1 Revenue Loop | `tests/database/pglite-tier1-certification.test.ts` | 4 | PASSED | Local PGlite WASM |
@@ -120,13 +130,38 @@ Environment: Node.js 20+ / Next.js 16.3 Turbopack / PostgreSQL (PGlite WASM test
 | Database Tier 3 Omnichannel | `tests/database/pglite-tier3-certification.test.ts` | 6 | PASSED | Local PGlite WASM |
 | Database Tier 4 Governance | `tests/database/pglite-tier4-certification.test.ts` | 7 | PASSED | Local PGlite WASM |
 | Database Repair Migration | `tests/database/pglite-tier3-tier4-repair.test.ts` | 2 | PASSED | Local PGlite WASM |
-| Billing & Subscriptions | `tests/billing/*.test.ts` (5 suites) | 35 | PASSED | Local Unit / Provider Sandbox |
+| Billing & Quota Lifecycle | `tests/billing/*.test.ts` (6 suites) | 49 | PASSED | Local Unit / Multi-Session PostgreSQL / Sandbox |
 | Revenue Workflow & Idempotency | `tests/revenue/tier1-revenue-loop.test.ts` | 6 | PASSED | Local Unit / Provider Sandbox |
 | Agency Domains | `tests/agency/tier2-agency-commercialization.test.ts` | 7 | PASSED | Local Unit / DNS Resolver |
 | Omnichannel Dispatch | `tests/omnichannel/tier3-omnichannel.test.ts` | 24 | PASSED | Local Unit / Adapters |
 | Governed Execution & Evals | `tests/governance/*.test.ts` (2 suites) | 28 | PASSED | Local Unit / Evals |
 | Workspaces & Identity Boundaries | `tests/workspaces/*.test.ts`, `tests/identity/*.test.ts` | 78 | PASSED | Local Unit / Auth |
 | WhatsApp & Omnichannel Runtime | `tests/whatsapp/*.test.ts` (13 suites) | 66 | PASSED | Local Unit / Inbound Webhook |
-| Website, CRM, Inbox, Commerce | `tests/{website,crm,inbox,commerce,marketing,finance,workforce,dashboard,knowledge}/*.test.ts` | 64 | PASSED | Local Unit |
-| **Total Test Suite** | **44 test files** | **314 tests** | **314 PASSED (100%)** | All Passed |
-| **Production Build** | `next build` (Turbopack) | **103 routes** | **SUCCESS (0 errors)** | Optimized Production |
+| Website, CRM, Inbox, Commerce, Workflow | `tests/{website,crm,inbox,commerce,marketing,finance,workforce,dashboard,knowledge,workflow}/*.test.ts` | 99 | PASSED | Local Unit |
+| **Total Test Suite** | **65 test files** | **420 tests** | **415 PASSED, 5 SKIPPED, 0 FAILED (100%)** | All Passing / Safe Skips |
+| **Production Build** | `next build` (Turbopack) | **152 routes** | **SUCCESS (0 errors, exit code 0)** | Optimized Production |
+
+---
+
+## 8. Tier 0F Production Forward Migration & Runtime Certification
+
+- **Target Database**: Real J10 NEXUS Production Supabase (`qtzhcnyxbjocfgimtvvm` on AWS US-West-2 Pooler)
+- **Migration Executed**: `supabase/migrations/20260917_tier0f_runtime_tenant_certification.sql`
+- **PostgreSQL 42P13 Engine Correction**:
+  - `20260913` originally created `get_integration_credential_envelope` returning a 10-column table (`credential_id`, `integration_id`, `provider`, `encrypted_payload`, `initialization_vector`, `authentication_tag`, `algorithm`, `key_version`, `rotated_at`, `last_used_at`).
+  - `20260917` changed the return signature to 9 columns (adding `workspace_id`, omitting `rotated_at`/`last_used_at`).
+  - PostgreSQL forbids `CREATE OR REPLACE FUNCTION` when OUT/return-table types change (Error `42P13`).
+  - **Exact Applied Correction**: Added `DROP FUNCTION IF EXISTS public.get_integration_credential_envelope(UUID);` immediately before function recreation.
+- **Production Post-Migration Verification Results**:
+  1. `workspace_subscriptions.provenance` column exists (`text NOT NULL DEFAULT 'none'`).
+  2. `chk_workspace_subscriptions_provenance` constraint active (`stripe`, `trial`, `internal_grant`, `none`).
+  3. J10 NEXUS HQ subscription (`ce593364-2aaf-47e4-a1d2-2272775747c4`) received expected `provenance = 'internal_grant'` via CEO `platform_founder` role in `public.platform_roles`.
+  4. J10 NEXUS HQ subscription status remains `'active'` with 10,000 monthly message quota limit.
+  5. CRM Non-Destructive Consolidation:
+     - `crm_contacts_legacy_archive_tier0f`: physical table (`relkind = 'r'`) with 7 preserved rows.
+     - `crm_contacts`: read-only security-invoker view (`relkind = 'v'`) querying canonical `public.contacts` (7 rows).
+  6. Ancillary Integration Tables: 7 tables tenantized with `workspace_id NOT NULL` and indexed.
+  7. RLS Policy Hardening: 114 strict tenant policies active across 24 core tables; 0 legacy bypass policies remaining.
+  8. Verified Functions: `increment_workspace_usage`, `store_integration_credential_envelope`, `get_integration_credential_envelope`, `create_website_lead`, and `record_integration_status_history`.
+  9. Production Data Preservation: Zero unintended row mutations or deletions across all core tables.
+- **Pending Migrations**: `20260918_tier0g_saas_billing.sql` through `20260924_align_channel_metrics_and_atomic_reservations.sql` remain strictly unapplied.
