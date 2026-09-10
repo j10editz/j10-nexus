@@ -14,6 +14,8 @@ describe("Tier 1: PostgreSQL Database Certification (PGlite)", () => {
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
           CREATE ROLE authenticated;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
       END $$;
 
       CREATE SCHEMA IF NOT EXISTS auth;
@@ -170,6 +172,10 @@ describe("Tier 1: PostgreSQL Database Certification (PGlite)", () => {
         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+
+      ALTER TABLE public.contacts ADD CONSTRAINT uq_contacts_workspace_id UNIQUE (workspace_id, id);
+      ALTER TABLE public.inbox_threads ADD CONSTRAINT uq_inbox_threads_workspace_id UNIQUE (workspace_id, id);
+      ALTER TABLE public.payment_checkouts ADD CONSTRAINT uq_payment_checkouts_workspace_id UNIQUE (workspace_id, id);
     `);
 
     // 4. Apply Tier 1 Migration
@@ -372,5 +378,24 @@ describe("Tier 1: PostgreSQL Database Certification (PGlite)", () => {
 
     const booksB = await db.query(`SELECT id FROM public.crm_bookings WHERE workspace_id = $1`, [wsB]);
     expect(booksB.rows.length).toBe(1);
+  });
+
+  it("rejects cross-workspace proposal and booking references at the database layer", async () => {
+    const db = await setupDatabase();
+    const [a, b] = await Promise.all(["a", "b"].map(async (slug) => (
+      await db.query<{ id: string }>("INSERT INTO public.workspaces (name, slug) VALUES ($1, $2) RETURNING id", [slug, `tenant-${slug}`])
+    )));
+    const wsA = a.rows[0].id; const wsB = b.rows[0].id;
+    const contact = await db.query<{ id: string }>("INSERT INTO public.contacts (workspace_id, name) VALUES ($1, 'Contact') RETURNING id", [wsB]);
+    const thread = await db.query<{ id: string }>("INSERT INTO public.inbox_threads (workspace_id) VALUES ($1) RETURNING id", [wsB]);
+    const checkout = await db.query<{ id: string }>("INSERT INTO public.payment_checkouts (workspace_id, amount, checkout_url) VALUES ($1, 1, 'https://example.test') RETURNING id", [wsB]);
+    await expect(db.query("INSERT INTO public.crm_proposals (workspace_id, contact_id, proposal_number, title, amount) VALUES ($1,$2,'p-contact','x',1)", [wsA, contact.rows[0].id])).rejects.toThrow();
+    await expect(db.query("INSERT INTO public.crm_proposals (workspace_id, thread_id, proposal_number, title, amount) VALUES ($1,$2,'p-thread','x',1)", [wsA, thread.rows[0].id])).rejects.toThrow();
+    await expect(db.query("INSERT INTO public.crm_proposals (workspace_id, checkout_id, proposal_number, title, amount) VALUES ($1,$2,'p-checkout','x',1)", [wsA, checkout.rows[0].id])).rejects.toThrow();
+    const proposal = await db.query<{ id: string }>("INSERT INTO public.crm_proposals (workspace_id, proposal_number, title, amount) VALUES ($1,'p-valid','x',1) RETURNING id", [wsB]);
+    await db.query("INSERT INTO public.crm_bookings (workspace_id, contact_id, thread_id, proposal_id, title, scheduled_at) VALUES ($1,$2,$3,$4,'valid',now())", [wsB, contact.rows[0].id, thread.rows[0].id, proposal.rows[0].id]);
+    await expect(db.query("INSERT INTO public.crm_bookings (workspace_id, contact_id, title, scheduled_at) VALUES ($1,$2,'bad',now())", [wsA, contact.rows[0].id])).rejects.toThrow();
+    await expect(db.query("INSERT INTO public.crm_bookings (workspace_id, thread_id, title, scheduled_at) VALUES ($1,$2,'bad',now())", [wsA, thread.rows[0].id])).rejects.toThrow();
+    await expect(db.query("INSERT INTO public.crm_bookings (workspace_id, proposal_id, title, scheduled_at) VALUES ($1,$2,'bad',now())", [wsA, proposal.rows[0].id])).rejects.toThrow();
   });
 });

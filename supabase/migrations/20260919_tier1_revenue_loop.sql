@@ -1,3 +1,5 @@
+BEGIN;
+
 -- ============================================================================
 -- J10 NEXUS: Tier 1 — Complete Revenue Loop Migration
 -- Migration: 20260919_tier1_revenue_loop.sql
@@ -14,8 +16,8 @@
 CREATE TABLE IF NOT EXISTS public.crm_proposals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  contact_id UUID REFERENCES public.contacts(id) ON DELETE SET NULL,
-  thread_id UUID REFERENCES public.inbox_threads(id) ON DELETE SET NULL,
+  contact_id UUID,
+  thread_id UUID,
   proposal_number TEXT NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
@@ -23,13 +25,20 @@ CREATE TABLE IF NOT EXISTS public.crm_proposals (
   currency TEXT NOT NULL DEFAULT 'USD',
   status TEXT NOT NULL DEFAULT 'draft',
   line_items JSONB NOT NULL DEFAULT '[]'::jsonb,
-  checkout_id UUID REFERENCES public.payment_checkouts(id) ON DELETE SET NULL,
+  checkout_id UUID,
   checkout_url TEXT,
   valid_until TIMESTAMPTZ,
   sent_at TIMESTAMPTZ,
   accepted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT fk_crm_proposals_workspace_contact FOREIGN KEY (workspace_id, contact_id)
+    REFERENCES public.contacts(workspace_id, id) ON DELETE SET NULL (contact_id),
+  CONSTRAINT fk_crm_proposals_workspace_thread FOREIGN KEY (workspace_id, thread_id)
+    REFERENCES public.inbox_threads(workspace_id, id) ON DELETE SET NULL (thread_id),
+  CONSTRAINT fk_crm_proposals_workspace_checkout FOREIGN KEY (workspace_id, checkout_id)
+    REFERENCES public.payment_checkouts(workspace_id, id) ON DELETE SET NULL (checkout_id),
+  CONSTRAINT uq_crm_proposals_workspace_id UNIQUE (workspace_id, id)
 );
 
 DO $$
@@ -71,9 +80,9 @@ CREATE INDEX IF NOT EXISTS idx_crm_proposals_ws_created
 CREATE TABLE IF NOT EXISTS public.crm_bookings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  contact_id UUID REFERENCES public.contacts(id) ON DELETE SET NULL,
-  thread_id UUID REFERENCES public.inbox_threads(id) ON DELETE SET NULL,
-  proposal_id UUID REFERENCES public.crm_proposals(id) ON DELETE SET NULL,
+  contact_id UUID,
+  thread_id UUID,
+  proposal_id UUID,
   title TEXT NOT NULL,
   booking_type TEXT NOT NULL DEFAULT 'executive_walkthrough',
   scheduled_at TIMESTAMPTZ NOT NULL,
@@ -84,7 +93,13 @@ CREATE TABLE IF NOT EXISTS public.crm_bookings (
   host_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT fk_crm_bookings_workspace_contact FOREIGN KEY (workspace_id, contact_id)
+    REFERENCES public.contacts(workspace_id, id) ON DELETE SET NULL (contact_id),
+  CONSTRAINT fk_crm_bookings_workspace_thread FOREIGN KEY (workspace_id, thread_id)
+    REFERENCES public.inbox_threads(workspace_id, id) ON DELETE SET NULL (thread_id),
+  CONSTRAINT fk_crm_bookings_workspace_proposal FOREIGN KEY (workspace_id, proposal_id)
+    REFERENCES public.crm_proposals(workspace_id, id) ON DELETE SET NULL (proposal_id)
 );
 
 DO $$
@@ -208,8 +223,15 @@ CREATE POLICY crm_bookings_delete_admin ON public.crm_bookings
 -- ----------------------------------------------------------------------------
 -- 4. ROLE GRANTS (Safe for PGlite and Remote Supabase)
 -- ----------------------------------------------------------------------------
+REVOKE ALL ON public.crm_proposals FROM PUBLIC;
+REVOKE ALL ON public.crm_bookings FROM PUBLIC;
+
 DO $$
 BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON public.crm_proposals FROM anon';
+    EXECUTE 'REVOKE ALL ON public.crm_bookings FROM anon';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
     EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.crm_proposals TO authenticated';
     EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.crm_bookings TO authenticated';
@@ -220,3 +242,5 @@ BEGIN
     EXECUTE 'GRANT ALL ON public.crm_bookings TO service_role';
   END IF;
 END $$;
+
+COMMIT;
