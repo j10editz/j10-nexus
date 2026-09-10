@@ -1,3 +1,5 @@
+BEGIN;
+
 -- ============================================================================
 -- J10 NEXUS: Tier 0G — Real SaaS Billing Migration
 -- Migration: 20260918_tier0g_saas_billing.sql
@@ -54,13 +56,15 @@ CREATE TABLE IF NOT EXISTS public.workspace_usage_records (
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
   metric_name TEXT NOT NULL,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
-  idempotency_key TEXT UNIQUE,
+  idempotency_key TEXT,
   resource_id TEXT,
   actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   billing_period_start TIMESTAMPTZ NOT NULL,
   billing_period_end TIMESTAMPTZ NOT NULL,
   recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  metadata JSONB DEFAULT '{}'::jsonb
+  metadata JSONB DEFAULT '{}'::jsonb,
+  CONSTRAINT uq_workspace_usage_records_workspace_idempotency
+    UNIQUE (workspace_id, idempotency_key)
 );
 
 DO $$
@@ -87,10 +91,6 @@ CREATE INDEX IF NOT EXISTS idx_usage_records_ws_time
 
 CREATE INDEX IF NOT EXISTS idx_usage_records_metric
   ON public.workspace_usage_records(workspace_id, metric_name);
-
-CREATE INDEX IF NOT EXISTS idx_usage_records_idempotency
-  ON public.workspace_usage_records(idempotency_key)
-  WHERE idempotency_key IS NOT NULL;
 
 -- Enable Row-Level Security
 ALTER TABLE public.workspace_usage_records ENABLE ROW LEVEL SECURITY;
@@ -146,9 +146,11 @@ AS $$
 DECLARE
   v_sub public.workspace_subscriptions%ROWTYPE;
   v_is_authorized BOOLEAN := false;
-  v_existing_record_id UUID;
+  v_existing_record public.workspace_usage_records%ROWTYPE;
   v_new_record_id UUID;
   v_new_usage INT;
+  v_normalized_idempotency_key TEXT;
+  v_normalized_metadata JSONB;
 BEGIN
   -- 1. Input sanitization
   IF p_quantity IS NULL OR p_quantity <= 0 THEN
@@ -201,29 +203,11 @@ BEGIN
     );
   END IF;
 
-  -- 3. Idempotency Check: if idempotency key was already recorded, return success without re-billing
-  IF p_idempotency_key IS NOT NULL AND trim(p_idempotency_key) != '' THEN
-    SELECT id INTO v_existing_record_id
-    FROM public.workspace_usage_records
-    WHERE idempotency_key = p_idempotency_key;
+  v_normalized_idempotency_key := nullif(trim(p_idempotency_key), '');
+  v_normalized_metadata := COALESCE(p_metadata, '{}'::jsonb);
 
-    IF FOUND THEN
-      SELECT messages_used_this_period INTO v_new_usage
-      FROM public.workspace_subscriptions
-      WHERE workspace_id = p_workspace_id;
-
-      RETURN jsonb_build_object(
-        'success', true,
-        'idempotent', true,
-        'record_id', v_existing_record_id,
-        'workspace_id', p_workspace_id,
-        'messages_used_this_period', COALESCE(v_new_usage, 0),
-        'action', 'already_recorded'
-      );
-    END IF;
-  END IF;
-
-  -- 4. Lock subscription row exclusively for atomic evaluation
+  -- 3. Lock subscription row exclusively before checking idempotency. This
+  -- serializes same-workspace retries so a duplicate cannot double-account.
   SELECT * INTO v_sub
   FROM public.workspace_subscriptions
   WHERE workspace_id = p_workspace_id
@@ -236,6 +220,43 @@ BEGIN
       'limit_reached', true,
       'is_exceeded', true
     );
+  END IF;
+
+  -- 4. Idempotency is strictly workspace-scoped. Reused keys must represent
+  -- the same immutable usage payload; otherwise fail closed.
+  IF v_normalized_idempotency_key IS NOT NULL THEN
+    SELECT * INTO v_existing_record
+    FROM public.workspace_usage_records
+    WHERE workspace_id = p_workspace_id
+      AND idempotency_key = v_normalized_idempotency_key
+    FOR UPDATE;
+
+    IF FOUND THEN
+      IF v_existing_record.metric_name IS DISTINCT FROM p_metric_name
+        OR v_existing_record.quantity IS DISTINCT FROM p_quantity
+        OR v_existing_record.resource_id IS DISTINCT FROM p_resource_id
+        OR v_existing_record.actor_user_id IS DISTINCT FROM p_actor_user_id
+        OR v_existing_record.metadata IS DISTINCT FROM v_normalized_metadata THEN
+        RETURN jsonb_build_object(
+          'success', false,
+          'error', 'Idempotency conflict: idempotency key already used with different payload',
+          'idempotency_conflict', true,
+          'limit_reached', false,
+          'is_exceeded', false
+        );
+      END IF;
+
+      RETURN jsonb_build_object(
+        'success', true,
+        'idempotent', true,
+        'record_id', v_existing_record.id,
+        'workspace_id', p_workspace_id,
+        'messages_used_this_period', v_sub.messages_used_this_period,
+        'monthly_message_limit', v_sub.monthly_message_limit,
+        'remaining', (v_sub.monthly_message_limit - v_sub.messages_used_this_period),
+        'action', 'already_recorded'
+      );
+    END IF;
   END IF;
 
   -- 5. Provenance validation: unverified provenance fails closed
@@ -307,12 +328,12 @@ BEGIN
     p_workspace_id,
     p_metric_name,
     p_quantity,
-    nullif(trim(p_idempotency_key), ''),
+    v_normalized_idempotency_key,
     p_resource_id,
     p_actor_user_id,
     v_sub.current_period_start,
     v_sub.current_period_end,
-    p_metadata
+    v_normalized_metadata
   )
   RETURNING id INTO v_new_record_id;
 
@@ -490,3 +511,5 @@ BEGIN
     EXECUTE 'GRANT EXECUTE ON FUNCTION public.activate_workspace_trial TO service_role';
   END IF;
 END $$;
+
+COMMIT;

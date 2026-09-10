@@ -162,6 +162,14 @@ describe("Tier 0G: PostgreSQL Database Certification (PGlite)", () => {
     expect(cols.rows).toHaveLength(6);
   });
 
+  it("executes 20260918 as one explicit transaction", async () => {
+    expect(migrationSql.trimStart()).toMatch(/^BEGIN;\s/);
+    expect(migrationSql.trimEnd()).toMatch(/COMMIT;$/);
+
+    const db = await setupDatabase();
+    await expect(db.exec(migrationSql)).resolves.not.toThrow();
+  });
+
   it("2. Validates migration idempotency: running twice causes no errors", async () => {
     const db = await setupDatabase();
     const migrationPath = resolve(
@@ -329,6 +337,97 @@ describe("Tier 0G: PostgreSQL Database Certification (PGlite)", () => {
       [wsId]
     );
     expect(finalSub.rows[0].messages_used_this_period).toBe(40);
+  });
+
+  it("scopes usage idempotency to a workspace and rejects mismatched duplicate payloads", async () => {
+    const db = await setupDatabase();
+    await db.exec(migrationSql);
+
+    const createWorkspace = async (label: string, slug: string) => {
+      const user = await db.query<{ id: string }>(
+        "INSERT INTO auth.users (email) VALUES ($1) RETURNING id",
+        [`${slug}@example.com`]
+      );
+      const userId = user.rows[0].id;
+      const workspace = await db.query<{ id: string }>(
+        "INSERT INTO public.workspaces (name, slug, owner_user_id) VALUES ($1, $2, $3) RETURNING id",
+        [label, slug, userId]
+      );
+      const workspaceId = workspace.rows[0].id;
+      await db.query(
+        "INSERT INTO public.workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'agent')",
+        [workspaceId, userId]
+      );
+      await db.query(
+        "INSERT INTO public.workspace_subscriptions (workspace_id, plan_id, status, provenance, monthly_message_limit, messages_used_this_period) VALUES ($1, 'starter', 'active', 'stripe', 100, 0)",
+        [workspaceId]
+      );
+      return { userId, workspaceId };
+    };
+
+    const tenantA = await createWorkspace("Idempotency A", "idempotency-a");
+    const tenantB = await createWorkspace("Idempotency B", "idempotency-b");
+
+    const setActor = async (userId: string) => {
+      await db.exec(`
+        SET request.jwt.claim.sub = '${userId}';
+        SET request.jwt.claims = '{"role":"authenticated","sub":"${userId}"}';
+      `);
+    };
+
+    await setActor(tenantA.userId);
+    const firstA = await db.query<{ record_verified_workspace_usage: any }>(
+      "SELECT public.record_verified_workspace_usage($1, 'whatsapp_outbound', 10, 'shared-key', 'message-a', $2, '{\"source\":\"test\"}'::jsonb)",
+      [tenantA.workspaceId, tenantA.userId]
+    );
+    expect(firstA.rows[0].record_verified_workspace_usage.success).toBe(true);
+    expect(firstA.rows[0].record_verified_workspace_usage.idempotent).not.toBe(true);
+
+    const duplicateA = await db.query<{ record_verified_workspace_usage: any }>(
+      "SELECT public.record_verified_workspace_usage($1, 'whatsapp_outbound', 10, 'shared-key', 'message-a', $2, '{\"source\":\"test\"}'::jsonb)",
+      [tenantA.workspaceId, tenantA.userId]
+    );
+    expect(duplicateA.rows[0].record_verified_workspace_usage.success).toBe(true);
+    expect(duplicateA.rows[0].record_verified_workspace_usage.idempotent).toBe(true);
+    expect(duplicateA.rows[0].record_verified_workspace_usage.record_id).toBe(
+      firstA.rows[0].record_verified_workspace_usage.record_id
+    );
+
+    const mismatchA = await db.query<{ record_verified_workspace_usage: any }>(
+      "SELECT public.record_verified_workspace_usage($1, 'whatsapp_outbound', 11, 'shared-key', 'message-a', $2, '{\"source\":\"test\"}'::jsonb)",
+      [tenantA.workspaceId, tenantA.userId]
+    );
+    expect(mismatchA.rows[0].record_verified_workspace_usage.success).toBe(false);
+    expect(mismatchA.rows[0].record_verified_workspace_usage.idempotency_conflict).toBe(true);
+
+    const metricMismatchA = await db.query<{ record_verified_workspace_usage: any }>(
+      "SELECT public.record_verified_workspace_usage($1, 'ai_tokens', 10, 'shared-key', 'message-a', $2, '{\"source\":\"test\"}'::jsonb)",
+      [tenantA.workspaceId, tenantA.userId]
+    );
+    expect(metricMismatchA.rows[0].record_verified_workspace_usage.idempotency_conflict).toBe(true);
+
+    const metadataMismatchA = await db.query<{ record_verified_workspace_usage: any }>(
+      "SELECT public.record_verified_workspace_usage($1, 'whatsapp_outbound', 10, 'shared-key', 'message-a', $2, '{\"source\":\"different\"}'::jsonb)",
+      [tenantA.workspaceId, tenantA.userId]
+    );
+    expect(metadataMismatchA.rows[0].record_verified_workspace_usage.idempotency_conflict).toBe(true);
+
+    await setActor(tenantB.userId);
+    const firstB = await db.query<{ record_verified_workspace_usage: any }>(
+      "SELECT public.record_verified_workspace_usage($1, 'whatsapp_outbound', 20, 'shared-key', 'message-b', $2, '{\"source\":\"test\"}'::jsonb)",
+      [tenantB.workspaceId, tenantB.userId]
+    );
+    expect(firstB.rows[0].record_verified_workspace_usage.success).toBe(true);
+    expect(firstB.rows[0].record_verified_workspace_usage.idempotent).not.toBe(true);
+    expect(firstB.rows[0].record_verified_workspace_usage.workspace_id).toBe(tenantB.workspaceId);
+    expect(firstB.rows[0].record_verified_workspace_usage.record_id).not.toBe(
+      firstA.rows[0].record_verified_workspace_usage.record_id
+    );
+
+    const counts = await db.query<{ workspace_id: string; count: string }>(
+      "SELECT workspace_id, count(*) FROM public.workspace_usage_records WHERE idempotency_key = 'shared-key' GROUP BY workspace_id ORDER BY workspace_id"
+    );
+    expect(counts.rows).toHaveLength(2);
   });
 
   it("5. Verifies multi-tenant RLS isolation on workspace_usage_records", async () => {
