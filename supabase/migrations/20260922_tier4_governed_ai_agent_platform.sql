@@ -1,3 +1,5 @@
+BEGIN;
+
 -- ============================================================
 -- J10 NEXUS TIER 4 — GOVERNED AI AGENT PLATFORM SCHEMA
 -- Migration: 20260922_tier4_governed_ai_agent_platform.sql
@@ -18,10 +20,11 @@ CREATE TABLE IF NOT EXISTS public.ai_agent_versions (
   tools_enabled text[] NOT NULL DEFAULT '{}',
   changelog text NOT NULL DEFAULT 'Initial version',
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('draft', 'active', 'archived', 'rollback')),
-  created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_by uuid,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT uq_ai_agent_versions UNIQUE (workspace_id, agent_id, version_number)
+  CONSTRAINT uq_ai_agent_versions UNIQUE (workspace_id, agent_id, version_number),
+  CONSTRAINT uq_ai_agent_versions_ws_id UNIQUE (workspace_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_agent_versions_workspace_agent
@@ -32,7 +35,7 @@ CREATE TABLE IF NOT EXISTS public.ai_agent_traces (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
   agent_id text NOT NULL,
-  version_id uuid REFERENCES public.ai_agent_versions(id) ON DELETE SET NULL,
+  version_id uuid,
   task_id uuid,
   session_id text,
   status text NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'waiting_approval', 'rejected')),
@@ -48,7 +51,8 @@ CREATE TABLE IF NOT EXISTS public.ai_agent_traces (
   error_message text,
   started_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_ai_agent_traces_ws_id UNIQUE (workspace_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_agent_traces_workspace_agent
@@ -117,14 +121,14 @@ CREATE INDEX IF NOT EXISTS idx_ai_agent_budgets_workspace_agent
 CREATE TABLE IF NOT EXISTS public.ai_agent_approval_gates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  trace_id uuid REFERENCES public.ai_agent_traces(id) ON DELETE CASCADE,
+  trace_id uuid,
   agent_id text NOT NULL,
   action_type text NOT NULL,
   action_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   estimated_risk text NOT NULL DEFAULT 'medium' CHECK (estimated_risk IN ('low', 'medium', 'high', 'critical')),
   reason text NOT NULL,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
-  reviewed_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  reviewed_by uuid,
   reviewed_at timestamptz,
   review_notes text,
   expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours'),
@@ -140,7 +144,7 @@ CREATE TABLE IF NOT EXISTS public.ai_agent_evaluations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
   agent_id text NOT NULL,
-  version_id uuid REFERENCES public.ai_agent_versions(id) ON DELETE CASCADE,
+  version_id uuid,
   benchmark_name text NOT NULL,
   test_cases_count integer NOT NULL DEFAULT 0,
   passed_count integer NOT NULL DEFAULT 0,
@@ -161,9 +165,9 @@ CREATE TABLE IF NOT EXISTS public.ai_agent_roi_attributions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
   agent_id text NOT NULL,
-  trace_id uuid REFERENCES public.ai_agent_traces(id) ON DELETE SET NULL,
+  trace_id uuid,
   task_id uuid,
-  contact_id uuid REFERENCES public.contacts(id) ON DELETE SET NULL,
+  contact_id uuid,
   deal_value_usd numeric(12,2) NOT NULL DEFAULT 0.00,
   hours_saved numeric(6,2) NOT NULL DEFAULT 0.00,
   labor_savings_usd numeric(10,2) NOT NULL DEFAULT 0.00,
@@ -189,26 +193,32 @@ ALTER TABLE public.ai_agent_budgets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_agent_approval_gates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_agent_evaluations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_agent_roi_attributions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agent_versions FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agent_traces FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agent_trace_steps FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agent_permissions FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agent_budgets FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agent_approval_gates FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agent_evaluations FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agent_roi_attributions FORCE ROW LEVEL SECURITY;
 
---- 9. Composite Foreign Keys & Constraints for Cross-Tenant Integrity
+-- 9. Composite Foreign Keys & Constraints for Cross-Tenant Integrity
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_ai_agent_versions_ws_id') THEN
-    ALTER TABLE public.ai_agent_versions ADD CONSTRAINT uq_ai_agent_versions_ws_id UNIQUE (workspace_id, id);
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_versions_created_by_workspace') THEN
+    ALTER TABLE public.ai_agent_versions
+      ADD CONSTRAINT fk_ai_agent_versions_created_by_workspace
+      FOREIGN KEY (workspace_id, created_by)
+      REFERENCES public.workspace_memberships(workspace_id, user_id)
+      ON DELETE SET NULL (created_by);
   END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_ai_agent_traces_ws_id') THEN
-    ALTER TABLE public.ai_agent_traces ADD CONSTRAINT uq_ai_agent_traces_ws_id UNIQUE (workspace_id, id);
-  END IF;
-
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_traces_version_ws') THEN
     ALTER TABLE public.ai_agent_traces
       ADD CONSTRAINT fk_ai_agent_traces_version_ws
       FOREIGN KEY (workspace_id, version_id)
       REFERENCES public.ai_agent_versions(workspace_id, id)
-      ON DELETE SET NULL;
+      ON DELETE SET NULL (version_id);
   END IF;
-
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_approval_gates_trace_ws') THEN
     ALTER TABLE public.ai_agent_approval_gates
       ADD CONSTRAINT fk_ai_agent_approval_gates_trace_ws
@@ -216,7 +226,13 @@ BEGIN
       REFERENCES public.ai_agent_traces(workspace_id, id)
       ON DELETE CASCADE;
   END IF;
-
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_approval_gates_reviewer_workspace') THEN
+    ALTER TABLE public.ai_agent_approval_gates
+      ADD CONSTRAINT fk_ai_agent_approval_gates_reviewer_workspace
+      FOREIGN KEY (workspace_id, reviewed_by)
+      REFERENCES public.workspace_memberships(workspace_id, user_id)
+      ON DELETE SET NULL (reviewed_by);
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_evaluations_version_ws') THEN
     ALTER TABLE public.ai_agent_evaluations
       ADD CONSTRAINT fk_ai_agent_evaluations_version_ws
@@ -224,8 +240,20 @@ BEGIN
       REFERENCES public.ai_agent_versions(workspace_id, id)
       ON DELETE CASCADE;
   END IF;
-EXCEPTION
-  WHEN OTHERS THEN NULL;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_roi_attributions_trace_ws') THEN
+    ALTER TABLE public.ai_agent_roi_attributions
+      ADD CONSTRAINT fk_ai_agent_roi_attributions_trace_ws
+      FOREIGN KEY (workspace_id, trace_id)
+      REFERENCES public.ai_agent_traces(workspace_id, id)
+      ON DELETE SET NULL (trace_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_roi_attributions_contact_ws') THEN
+    ALTER TABLE public.ai_agent_roi_attributions
+      ADD CONSTRAINT fk_ai_agent_roi_attributions_contact_ws
+      FOREIGN KEY (workspace_id, contact_id)
+      REFERENCES public.contacts(workspace_id, id)
+      ON DELETE SET NULL (contact_id);
+  END IF;
 END $$;
 
 -- 10. Canonical Row Level Security (RLS) Policies
@@ -234,18 +262,18 @@ DROP POLICY IF EXISTS "ai_agent_versions_select" ON public.ai_agent_versions;
 CREATE POLICY "ai_agent_versions_select" ON public.ai_agent_versions FOR SELECT
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 DROP POLICY IF EXISTS "ai_agent_versions_manage" ON public.ai_agent_versions;
 CREATE POLICY "ai_agent_versions_manage" ON public.ai_agent_versions FOR ALL
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   )
   WITH CHECK (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 -- ai_agent_traces RLS
@@ -253,18 +281,18 @@ DROP POLICY IF EXISTS "ai_agent_traces_select" ON public.ai_agent_traces;
 CREATE POLICY "ai_agent_traces_select" ON public.ai_agent_traces FOR SELECT
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 DROP POLICY IF EXISTS "ai_agent_traces_manage" ON public.ai_agent_traces;
 CREATE POLICY "ai_agent_traces_manage" ON public.ai_agent_traces FOR ALL
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   )
   WITH CHECK (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 -- ai_agent_trace_steps RLS
@@ -276,7 +304,7 @@ CREATE POLICY "ai_agent_trace_steps_select" ON public.ai_agent_trace_steps FOR S
       WHERE t.id = ai_agent_trace_steps.trace_id
         AND (
           has_workspace_role(t.workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
-          OR is_platform_admin()
+          OR is_platform_admin(auth.uid())
         )
     )
   );
@@ -289,7 +317,7 @@ CREATE POLICY "ai_agent_trace_steps_manage" ON public.ai_agent_trace_steps FOR A
       WHERE t.id = ai_agent_trace_steps.trace_id
         AND (
           has_workspace_role(t.workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
-          OR is_platform_admin()
+          OR is_platform_admin(auth.uid())
         )
     )
   )
@@ -299,7 +327,7 @@ CREATE POLICY "ai_agent_trace_steps_manage" ON public.ai_agent_trace_steps FOR A
       WHERE t.id = ai_agent_trace_steps.trace_id
         AND (
           has_workspace_role(t.workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
-          OR is_platform_admin()
+          OR is_platform_admin(auth.uid())
         )
     )
   );
@@ -309,18 +337,18 @@ DROP POLICY IF EXISTS "ai_agent_permissions_select" ON public.ai_agent_permissio
 CREATE POLICY "ai_agent_permissions_select" ON public.ai_agent_permissions FOR SELECT
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 DROP POLICY IF EXISTS "ai_agent_permissions_manage" ON public.ai_agent_permissions;
 CREATE POLICY "ai_agent_permissions_manage" ON public.ai_agent_permissions FOR ALL
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   )
   WITH CHECK (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 -- ai_agent_budgets RLS
@@ -328,18 +356,18 @@ DROP POLICY IF EXISTS "ai_agent_budgets_select" ON public.ai_agent_budgets;
 CREATE POLICY "ai_agent_budgets_select" ON public.ai_agent_budgets FOR SELECT
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 DROP POLICY IF EXISTS "ai_agent_budgets_manage" ON public.ai_agent_budgets;
 CREATE POLICY "ai_agent_budgets_manage" ON public.ai_agent_budgets FOR ALL
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   )
   WITH CHECK (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 -- ai_agent_approval_gates RLS
@@ -347,18 +375,18 @@ DROP POLICY IF EXISTS "ai_agent_approval_gates_select" ON public.ai_agent_approv
 CREATE POLICY "ai_agent_approval_gates_select" ON public.ai_agent_approval_gates FOR SELECT
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 DROP POLICY IF EXISTS "ai_agent_approval_gates_manage" ON public.ai_agent_approval_gates;
 CREATE POLICY "ai_agent_approval_gates_manage" ON public.ai_agent_approval_gates FOR ALL
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   )
   WITH CHECK (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 -- ai_agent_evaluations RLS
@@ -366,18 +394,18 @@ DROP POLICY IF EXISTS "ai_agent_evaluations_select" ON public.ai_agent_evaluatio
 CREATE POLICY "ai_agent_evaluations_select" ON public.ai_agent_evaluations FOR SELECT
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 DROP POLICY IF EXISTS "ai_agent_evaluations_manage" ON public.ai_agent_evaluations;
 CREATE POLICY "ai_agent_evaluations_manage" ON public.ai_agent_evaluations FOR ALL
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   )
   WITH CHECK (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 -- ai_agent_roi_attributions RLS
@@ -385,27 +413,35 @@ DROP POLICY IF EXISTS "ai_agent_roi_attributions_select" ON public.ai_agent_roi_
 CREATE POLICY "ai_agent_roi_attributions_select" ON public.ai_agent_roi_attributions FOR SELECT
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
 DROP POLICY IF EXISTS "ai_agent_roi_attributions_manage" ON public.ai_agent_roi_attributions;
 CREATE POLICY "ai_agent_roi_attributions_manage" ON public.ai_agent_roi_attributions FOR ALL
   USING (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   )
   WITH CHECK (
     has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager'])
-    OR is_platform_admin()
+    OR is_platform_admin(auth.uid())
   );
 
--- Grant table access to authenticated role
-GRANT ALL ON TABLE public.ai_agent_versions TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_traces TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_trace_steps TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_permissions TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_budgets TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_approval_gates TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_evaluations TO authenticated;
-GRANT ALL ON TABLE public.ai_agent_roi_attributions TO authenticated;
+REVOKE ALL ON public.ai_agent_versions, public.ai_agent_traces, public.ai_agent_trace_steps,
+  public.ai_agent_permissions, public.ai_agent_budgets, public.ai_agent_approval_gates,
+  public.ai_agent_evaluations, public.ai_agent_roi_attributions FROM PUBLIC;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON public.ai_agent_versions, public.ai_agent_traces, public.ai_agent_trace_steps, public.ai_agent_permissions, public.ai_agent_budgets, public.ai_agent_approval_gates, public.ai_agent_evaluations, public.ai_agent_roi_attributions FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON public.ai_agent_versions, public.ai_agent_traces, public.ai_agent_trace_steps, public.ai_agent_permissions, public.ai_agent_budgets, public.ai_agent_approval_gates, public.ai_agent_evaluations, public.ai_agent_roi_attributions FROM authenticated';
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.ai_agent_versions, public.ai_agent_traces, public.ai_agent_trace_steps, public.ai_agent_permissions, public.ai_agent_budgets, public.ai_agent_approval_gates, public.ai_agent_evaluations, public.ai_agent_roi_attributions TO authenticated';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT ALL ON public.ai_agent_versions, public.ai_agent_traces, public.ai_agent_trace_steps, public.ai_agent_permissions, public.ai_agent_budgets, public.ai_agent_approval_gates, public.ai_agent_evaluations, public.ai_agent_roi_attributions TO service_role';
+  END IF;
+END $$;
 
+COMMIT;

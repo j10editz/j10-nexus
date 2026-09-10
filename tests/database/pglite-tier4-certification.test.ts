@@ -11,9 +11,9 @@ describe("Tier 4: Governed AI Agent Platform Database Certification (PGlite)", (
     await db.exec(`
       DO $$
       BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-          CREATE ROLE authenticated;
-        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
       END $$;
 
       CREATE SCHEMA IF NOT EXISTS auth;
@@ -87,7 +87,7 @@ describe("Tier 4: Governed AI Agent Platform Database Certification (PGlite)", (
       END;
       $$;
 
-      CREATE OR REPLACE FUNCTION public.is_platform_admin()
+      CREATE OR REPLACE FUNCTION public.is_platform_admin(p_user_id UUID)
       RETURNS BOOLEAN
       LANGUAGE plpgsql
       STABLE
@@ -96,7 +96,7 @@ describe("Tier 4: Governed AI Agent Platform Database Certification (PGlite)", (
       DECLARE
         v_user_id UUID;
       BEGIN
-        v_user_id := auth.uid();
+        v_user_id := p_user_id;
         IF v_user_id IS NULL THEN
           RETURN false;
         END IF;
@@ -114,7 +114,8 @@ describe("Tier 4: Governed AI Agent Platform Database Certification (PGlite)", (
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         email TEXT,
-        created_at TIMESTAMPTZ DEFAULT now()
+        created_at TIMESTAMPTZ DEFAULT now(),
+        CONSTRAINT uq_contacts_workspace_id UNIQUE (workspace_id, id)
       );
 
       GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
@@ -430,5 +431,43 @@ describe("Tier 4: Governed AI Agent Platform Database Certification (PGlite)", (
       INSERT INTO public.ai_agent_traces (workspace_id, agent_id, version_id)
       VALUES ($1, 'agent-a', $2);
     `, [wsA, verA])).resolves.not.toThrow();
+  });
+
+  it("enforces Tier 4 workspace ownership, FORCE RLS, and least-privilege grants", async () => {
+    const db = await setupDatabase();
+    const migration = readFileSync(resolve(__dirname, "../../supabase/migrations/20260922_tier4_governed_ai_agent_platform.sql"), "utf-8");
+    expect(migration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(migration.trimEnd().endsWith("COMMIT;")).toBe(true);
+    expect(migration).toContain("is_platform_admin(auth.uid())");
+    await db.exec(migration);
+
+    const wsA = (await db.query<{ id: string }>(`INSERT INTO public.workspaces (name, slug) VALUES ('Owner A', 'owner-a') RETURNING id`)).rows[0].id;
+    const wsB = (await db.query<{ id: string }>(`INSERT INTO public.workspaces (name, slug) VALUES ('Owner B', 'owner-b') RETURNING id`)).rows[0].id;
+    const userA = (await db.query<{ id: string }>(`INSERT INTO auth.users (email) VALUES ('owner-a@test') RETURNING id`)).rows[0].id;
+    const userB = (await db.query<{ id: string }>(`INSERT INTO auth.users (email) VALUES ('owner-b@test') RETURNING id`)).rows[0].id;
+    await db.query(`INSERT INTO public.workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'owner'), ($3, $4, 'owner')`, [wsA, userA, wsB, userB]);
+    const contactA = (await db.query<{ id: string }>(`INSERT INTO public.contacts (workspace_id, name) VALUES ($1, 'Contact A') RETURNING id`, [wsA])).rows[0].id;
+    const contactB = (await db.query<{ id: string }>(`INSERT INTO public.contacts (workspace_id, name) VALUES ($1, 'Contact B') RETURNING id`, [wsB])).rows[0].id;
+    const versionA = (await db.query<{ id: string }>(`INSERT INTO public.ai_agent_versions (workspace_id, agent_id, version_number, system_prompt, created_by) VALUES ($1, 'agent', 1, 'A', $2) RETURNING id`, [wsA, userA])).rows[0].id;
+    await expect(db.query(`INSERT INTO public.ai_agent_versions (workspace_id, agent_id, version_number, system_prompt, created_by) VALUES ($1, 'agent', 1, 'bad', $2)`, [wsA, userB])).rejects.toThrow();
+    const traceA = (await db.query<{ id: string }>(`INSERT INTO public.ai_agent_traces (workspace_id, agent_id, version_id) VALUES ($1, 'agent', $2) RETURNING id`, [wsA, versionA])).rows[0].id;
+    await expect(db.query(`INSERT INTO public.ai_agent_traces (workspace_id, agent_id, version_id) VALUES ($1, 'agent', $2)`, [wsB, versionA])).rejects.toThrow();
+    const gateA = (await db.query<{ id: string }>(`INSERT INTO public.ai_agent_approval_gates (workspace_id, trace_id, agent_id, action_type, reason) VALUES ($1, $2, 'agent', 'send', 'review') RETURNING id`, [wsA, traceA])).rows[0].id;
+    await expect(db.query(`INSERT INTO public.ai_agent_approval_gates (workspace_id, trace_id, agent_id, action_type, reason) VALUES ($1, $2, 'agent', 'send', 'bad')`, [wsB, traceA])).rejects.toThrow();
+    await expect(db.query(`UPDATE public.ai_agent_approval_gates SET reviewed_by = $1 WHERE id = $2`, [userB, gateA])).rejects.toThrow();
+    await expect(db.query(`INSERT INTO public.ai_agent_evaluations (workspace_id, agent_id, version_id, benchmark_name) VALUES ($1, 'agent', $2, 'bad')`, [wsB, versionA])).rejects.toThrow();
+    await expect(db.query(`INSERT INTO public.ai_agent_roi_attributions (workspace_id, agent_id, trace_id, contact_id) VALUES ($1, 'agent', $2, $3)`, [wsB, traceA, contactB])).rejects.toThrow();
+    await expect(db.query(`INSERT INTO public.ai_agent_roi_attributions (workspace_id, agent_id, contact_id) VALUES ($1, 'agent', $2)`, [wsA, contactB])).rejects.toThrow();
+    await expect(db.query(`INSERT INTO public.ai_agent_trace_steps (trace_id, step_number, step_type) VALUES ($1, 1, 'reasoning')`, [traceA])).resolves.not.toThrow();
+    const stepOwner = await db.query<{ workspace_id: string }>(`SELECT t.workspace_id FROM public.ai_agent_trace_steps s JOIN public.ai_agent_traces t ON t.id = s.trace_id WHERE s.trace_id = $1`, [traceA]);
+    expect(stepOwner.rows[0].workspace_id).toBe(wsA);
+
+    const security = await db.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(`SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname LIKE 'ai_agent_%' AND relkind = 'r'`);
+    expect(security.rows).toHaveLength(8);
+    expect(security.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
+    const grants = await db.query<{ grantee: string; privilege_type: string }>(`SELECT grantee, privilege_type FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name IN ('ai_agent_versions', 'ai_agent_traces', 'ai_agent_trace_steps', 'ai_agent_permissions', 'ai_agent_budgets', 'ai_agent_approval_gates', 'ai_agent_evaluations', 'ai_agent_roi_attributions') AND grantee IN ('PUBLIC', 'anon', 'authenticated', 'service_role')`);
+    expect(grants.rows.filter((row) => row.grantee === 'PUBLIC' || row.grantee === 'anon')).toEqual([]);
+    expect([...new Set(grants.rows.filter((row) => row.grantee === 'authenticated').map((row) => row.privilege_type))].sort()).toEqual(['DELETE', 'INSERT', 'SELECT', 'UPDATE']);
+    expect([...new Set(grants.rows.filter((row) => row.grantee === 'service_role').map((row) => row.privilege_type))].sort()).toEqual(['DELETE', 'INSERT', 'REFERENCES', 'SELECT', 'TRIGGER', 'TRUNCATE', 'UPDATE']);
   });
 });

@@ -118,6 +118,22 @@ describe("Accounting & Reservation Lifecycle Certification (PGlite)", () => {
       END;
       $$;
 
+      CREATE OR REPLACE FUNCTION public.is_platform_admin(p_user_id UUID)
+      RETURNS BOOLEAN
+      LANGUAGE plpgsql
+      STABLE
+      SECURITY DEFINER
+      AS $$
+      BEGIN
+        RETURN p_user_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM public.platform_roles
+          WHERE user_id = p_user_id
+            AND role IN ('platform_founder', 'platform_admin')
+            AND revoked_at IS NULL
+        );
+      END;
+      $$;
+
       -- Base workspace_subscriptions from Tier 0F
       CREATE TABLE IF NOT EXISTS public.workspace_subscriptions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -141,7 +157,8 @@ describe("Accounting & Reservation Lifecycle Certification (PGlite)", () => {
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         email TEXT,
-        created_at TIMESTAMPTZ DEFAULT now()
+        created_at TIMESTAMPTZ DEFAULT now(),
+        CONSTRAINT uq_contacts_workspace_id UNIQUE (workspace_id, id)
       );
     `);
 

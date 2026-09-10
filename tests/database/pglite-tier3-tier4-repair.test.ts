@@ -141,7 +141,8 @@ describe("Tier 3 & Tier 4 Canonical Authorization & Referential Integrity Repair
         email TEXT,
         phone TEXT,
         created_at TIMESTAMPTZ DEFAULT now(),
-        updated_at TIMESTAMPTZ DEFAULT now()
+        updated_at TIMESTAMPTZ DEFAULT now(),
+        CONSTRAINT uq_contacts_workspace_id UNIQUE (workspace_id, id)
       );
 
       CREATE TABLE IF NOT EXISTS public.inbox_threads (
