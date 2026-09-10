@@ -11,9 +11,9 @@ describe("Tier 3: Omnichannel Operations Database Certification (PGlite)", () =>
     await db.exec(`
       DO $$
       BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-          CREATE ROLE authenticated;
-        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
       END $$;
 
       CREATE SCHEMA IF NOT EXISTS auth;
@@ -87,7 +87,7 @@ describe("Tier 3: Omnichannel Operations Database Certification (PGlite)", () =>
       END;
       $$;
 
-      CREATE OR REPLACE FUNCTION public.is_platform_admin()
+      CREATE OR REPLACE FUNCTION public.is_platform_admin(p_user_id UUID)
       RETURNS BOOLEAN
       LANGUAGE plpgsql
       STABLE
@@ -96,7 +96,7 @@ describe("Tier 3: Omnichannel Operations Database Certification (PGlite)", () =>
       DECLARE
         v_user_id UUID;
       BEGIN
-        v_user_id := auth.uid();
+        v_user_id := p_user_id;
         IF v_user_id IS NULL THEN
           RETURN false;
         END IF;
@@ -109,7 +109,7 @@ describe("Tier 3: Omnichannel Operations Database Certification (PGlite)", () =>
       END;
       $$;
 
-      CREATE TABLE IF NOT EXISTS public.workforce_agents (
+      CREATE TABLE IF NOT EXISTS public.workforce_members (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
@@ -140,7 +140,8 @@ describe("Tier 3: Omnichannel Operations Database Certification (PGlite)", () =>
         assigned_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_inbox_threads_workspace_id UNIQUE (workspace_id, id)
       );
 
       CREATE TABLE IF NOT EXISTS public.inbox_messages (
@@ -155,7 +156,8 @@ describe("Tier 3: Omnichannel Operations Database Certification (PGlite)", () =>
         message_type TEXT NOT NULL DEFAULT 'text',
         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_inbox_messages_workspace_id UNIQUE (workspace_id, id)
       );
     `);
 
@@ -413,5 +415,57 @@ describe("Tier 3: Omnichannel Operations Database Certification (PGlite)", () =>
       const res = await tx.query(`SELECT id FROM public.omnichannel_routing_rules WHERE workspace_id = $1;`, [ws]);
       expect(res.rows.length).toBe(0);
     });
+  });
+
+  it("enforces Tier 3 tenant FKs, leases, uniqueness, FORCE RLS, and grants", async () => {
+    const db = await setupDatabase();
+    const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260921_tier3_omnichannel_operations.sql"), "utf8");
+    expect(migration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(migration.trimEnd().endsWith("COMMIT;")).toBe(true);
+    expect(migration).toContain("is_platform_admin(auth.uid())");
+    await db.exec(migration);
+
+    const wsA = (await db.query<{ id: string }>(`INSERT INTO public.workspaces (name, slug) VALUES ('A', 'tier3-a') RETURNING id;`)).rows[0].id;
+    const wsB = (await db.query<{ id: string }>(`INSERT INTO public.workspaces (name, slug) VALUES ('B', 'tier3-b') RETURNING id;`)).rows[0].id;
+    const userA = (await db.query<{ id: string }>(`INSERT INTO auth.users (email) VALUES ('a@tier3.test') RETURNING id;`)).rows[0].id;
+    const userB = (await db.query<{ id: string }>(`INSERT INTO auth.users (email) VALUES ('b@tier3.test') RETURNING id;`)).rows[0].id;
+    await db.query(`INSERT INTO public.workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'owner'), ($3, $4, 'owner');`, [wsA, userA, wsB, userB]);
+    const memberA = (await db.query<{ id: string }>(`INSERT INTO public.workforce_members (workspace_id, name, role) VALUES ($1, 'Member A', 'agent') RETURNING id;`, [wsA])).rows[0].id;
+    const memberB = (await db.query<{ id: string }>(`INSERT INTO public.workforce_members (workspace_id, name, role) VALUES ($1, 'Member B', 'agent') RETURNING id;`, [wsB])).rows[0].id;
+
+    const threadA = (await db.query<{ id: string }>(`INSERT INTO public.inbox_threads (workspace_id, channel, assigned_agent_id) VALUES ($1, 'email', $2) RETURNING id;`, [wsA, memberA])).rows[0].id;
+    const threadB = (await db.query<{ id: string }>(`INSERT INTO public.inbox_threads (workspace_id, channel) VALUES ($1, 'sms') RETURNING id;`, [wsB])).rows[0].id;
+    await expect(db.query(`UPDATE public.inbox_threads SET assigned_agent_id = $1 WHERE id = $2`, [memberB, threadA])).rejects.toThrow();
+
+    const messageA = (await db.query<{ id: string }>(`INSERT INTO public.inbox_messages (workspace_id, thread_id, direction, content) VALUES ($1, $2, 'outbound', 'A') RETURNING id;`, [wsA, threadA])).rows[0].id;
+    const messageB = (await db.query<{ id: string }>(`INSERT INTO public.inbox_messages (workspace_id, thread_id, direction, content) VALUES ($1, $2, 'outbound', 'B') RETURNING id;`, [wsB, threadB])).rows[0].id;
+    const ruleA = (await db.query<{ id: string }>(`INSERT INTO public.omnichannel_routing_rules (workspace_id, name, channel, routing_strategy, target_user_id, target_agent_id, priority_order) VALUES ($1, 'A rule', 'email', 'direct_assignment', $2, $3, 1) RETURNING id;`, [wsA, userA, memberA])).rows[0].id;
+    const ruleB = (await db.query<{ id: string }>(`INSERT INTO public.omnichannel_routing_rules (workspace_id, name, channel, routing_strategy, target_user_id, target_agent_id, priority_order) VALUES ($1, 'B rule', 'email', 'direct_assignment', $2, $3, 1) RETURNING id;`, [wsB, userB, memberB])).rows[0].id;
+    const slaA = (await db.query<{ id: string }>(`INSERT INTO public.omnichannel_sla_policies (workspace_id, name, priority, channel, first_response_target_minutes, resolution_target_minutes, is_default) VALUES ($1, 'A SLA', 'urgent', 'email', 5, 30, true) RETURNING id;`, [wsA])).rows[0].id;
+    const slaB = (await db.query<{ id: string }>(`INSERT INTO public.omnichannel_sla_policies (workspace_id, name, priority, channel, first_response_target_minutes, resolution_target_minutes, is_default) VALUES ($1, 'B SLA', 'urgent', 'email', 5, 30, true) RETURNING id;`, [wsB])).rows[0].id;
+
+    await expect(db.query(`UPDATE public.inbox_threads SET routing_rule_id = $1, sla_policy_id = $2 WHERE id = $3`, [ruleA, slaA, threadA])).resolves.not.toThrow();
+    await expect(db.query(`UPDATE public.inbox_threads SET routing_rule_id = $1 WHERE id = $2`, [ruleB, threadA])).rejects.toThrow();
+    await expect(db.query(`UPDATE public.inbox_threads SET sla_policy_id = $1 WHERE id = $2`, [slaB, threadA])).rejects.toThrow();
+    await expect(db.query(`INSERT INTO public.omnichannel_dispatch_logs (workspace_id, thread_id, message_id, routing_rule_id, sla_policy_id, channel, provider, recipient) VALUES ($1, $2, $3, $4, $5, 'email', 'test', 'a@tier3.test')`, [wsA, threadA, messageA, ruleA, slaA])).resolves.not.toThrow();
+    await expect(db.query(`INSERT INTO public.omnichannel_dispatch_logs (workspace_id, thread_id, channel, provider, recipient) VALUES ($1, $2, 'email', 'test', 'x')`, [wsA, threadB])).rejects.toThrow();
+    await expect(db.query(`INSERT INTO public.omnichannel_dispatch_logs (workspace_id, message_id, channel, provider, recipient) VALUES ($1, $2, 'email', 'test', 'x')`, [wsA, messageB])).rejects.toThrow();
+    await expect(db.query(`INSERT INTO public.omnichannel_dispatch_logs (workspace_id, routing_rule_id, channel, provider, recipient) VALUES ($1, $2, 'email', 'test', 'x')`, [wsA, ruleB])).rejects.toThrow();
+    await expect(db.query(`INSERT INTO public.omnichannel_dispatch_logs (workspace_id, sla_policy_id, channel, provider, recipient) VALUES ($1, $2, 'email', 'test', 'x')`, [wsA, slaB])).rejects.toThrow();
+
+    await expect(db.query(`UPDATE public.inbox_threads SET locked_by_user_id = $1 WHERE id = $2`, [userA, threadA])).rejects.toThrow();
+    await expect(db.query(`UPDATE public.inbox_threads SET locked_by_user_id = $1, locked_at = now(), lock_expires_at = now() - interval '1 second' WHERE id = $2`, [userA, threadA])).rejects.toThrow();
+    await expect(db.query(`INSERT INTO public.omnichannel_routing_rules (workspace_id, name, channel, routing_strategy, priority_order) VALUES ($1, 'duplicate', 'email', 'round_robin', 1)`, [wsA])).rejects.toThrow();
+    await expect(db.query(`INSERT INTO public.omnichannel_sla_policies (workspace_id, name, priority, channel, first_response_target_minutes, resolution_target_minutes, is_default) VALUES ($1, 'duplicate', 'urgent', 'email', 5, 30, true)`, [wsA])).rejects.toThrow();
+
+    const tableSecurity = await db.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(`SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname IN ('omnichannel_routing_rules', 'omnichannel_sla_policies', 'omnichannel_dispatch_logs') ORDER BY relname;`);
+    expect(tableSecurity.rows).toHaveLength(3);
+    expect(tableSecurity.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
+    const grants = await db.query<{ table_name: string; grantee: string; privilege_type: string }>(`SELECT table_name, grantee, privilege_type FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name IN ('omnichannel_routing_rules', 'omnichannel_sla_policies', 'omnichannel_dispatch_logs') AND grantee IN ('PUBLIC', 'anon', 'authenticated', 'service_role') ORDER BY table_name, grantee, privilege_type;`);
+    expect(grants.rows.filter((row) => row.grantee === 'PUBLIC' || row.grantee === 'anon')).toEqual([]);
+    expect([...new Set(grants.rows.filter((row) => row.grantee === 'authenticated').map((row) => row.privilege_type))].sort()).toEqual(['DELETE', 'INSERT', 'SELECT', 'UPDATE']);
+    expect([...new Set(grants.rows.filter((row) => row.grantee === 'service_role').map((row) => row.privilege_type))].sort()).toEqual(['DELETE', 'INSERT', 'REFERENCES', 'SELECT', 'TRIGGER', 'TRUNCATE', 'UPDATE']);
+    const policies = await db.query<{ qual: string }>(`SELECT qual FROM pg_policies WHERE schemaname = 'public' AND policyname = 'omnichannel_rules_member_select';`);
+    expect(policies.rows[0].qual).toContain('is_platform_admin(auth.uid())');
   });
 });

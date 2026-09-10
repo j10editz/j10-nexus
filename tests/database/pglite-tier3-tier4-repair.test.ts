@@ -109,7 +109,24 @@ describe("Tier 3 & Tier 4 Canonical Authorization & Referential Integrity Repair
       END;
       $$;
 
-      CREATE TABLE IF NOT EXISTS public.workforce_agents (
+      -- Tier 3 uses the production-canonical one-argument helper; the legacy
+      -- zero-argument fixture above remains for the later Tier 4 fixture.
+      CREATE OR REPLACE FUNCTION public.is_platform_admin(p_user_id UUID)
+      RETURNS BOOLEAN
+      LANGUAGE plpgsql
+      STABLE
+      SECURITY DEFINER
+      AS $$
+      BEGIN
+        RETURN p_user_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM public.platform_roles
+          WHERE user_id = p_user_id
+            AND role IN ('platform_founder', 'platform_admin')
+        );
+      END;
+      $$;
+
+      CREATE TABLE IF NOT EXISTS public.workforce_members (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
@@ -132,9 +149,11 @@ describe("Tier 3 & Tier 4 Canonical Authorization & Referential Integrity Repair
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         contact_id UUID REFERENCES public.contacts(id) ON DELETE SET NULL,
         channel TEXT NOT NULL CHECK (channel IN ('whatsapp', 'website', 'crm')),
+        assigned_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
         status TEXT NOT NULL DEFAULT 'active',
         created_at TIMESTAMPTZ DEFAULT now(),
-        updated_at TIMESTAMPTZ DEFAULT now()
+        updated_at TIMESTAMPTZ DEFAULT now(),
+        CONSTRAINT uq_inbox_threads_workspace_id UNIQUE (workspace_id, id)
       );
 
       CREATE TABLE IF NOT EXISTS public.inbox_messages (
@@ -142,7 +161,8 @@ describe("Tier 3 & Tier 4 Canonical Authorization & Referential Integrity Repair
         workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
         thread_id UUID NOT NULL REFERENCES public.inbox_threads(id) ON DELETE CASCADE,
         direction TEXT NOT NULL,
-        created_at TIMESTAMPTZ DEFAULT now()
+        created_at TIMESTAMPTZ DEFAULT now(),
+        CONSTRAINT uq_inbox_messages_workspace_id UNIQUE (workspace_id, id)
       );
     `);
 
