@@ -1,3 +1,5 @@
+BEGIN;
+
 -- ============================================================================
 -- J10 NEXUS TIER 0G/3/4 — FORWARD MIGRATION: CHANNEL METRICS & ATOMIC RESERVATIONS
 -- 1. Updates workspace_usage_records metric check constraint for all 9 channels
@@ -116,9 +118,6 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_quota_reservations_ws_status
   ON public.workspace_quota_reservations(workspace_id, status);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_reservations_res_id
-  ON public.workspace_quota_reservations(reservation_id);
-
 ALTER TABLE public.workspace_quota_reservations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.workspace_quota_reservations FORCE ROW LEVEL SECURITY;
 
@@ -128,10 +127,27 @@ CREATE POLICY "workspace_quota_reservations_select_member"
   FOR SELECT
   USING (
     public.has_workspace_role(workspace_id, ARRAY['owner', 'admin', 'manager', 'agent', 'viewer'])
-    OR public.is_platform_admin()
+    OR public.is_platform_admin(auth.uid())
   );
 
-REVOKE INSERT, UPDATE, DELETE ON public.workspace_quota_reservations FROM PUBLIC;
+-- The ledger is mutated only through the atomic SECURITY DEFINER RPCs.  Members
+-- may read their workspace's rows through the policy; service_role retains its
+-- operational access.
+REVOKE ALL ON TABLE public.workspace_quota_reservations FROM PUBLIC;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON TABLE public.workspace_quota_reservations FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON TABLE public.workspace_quota_reservations FROM authenticated';
+    EXECUTE 'GRANT SELECT ON TABLE public.workspace_quota_reservations TO authenticated';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT ALL ON TABLE public.workspace_quota_reservations TO service_role';
+  END IF;
+END;
+$$;
 
 -- 3. RECORD VERIFIED WORKSPACE USAGE (RESTORED ENTITLEMENT CHECKS)
 -- ----------------------------------------------------------------------------
@@ -152,7 +168,7 @@ AS $$
 DECLARE
   v_sub public.workspace_subscriptions%ROWTYPE;
   v_is_authorized BOOLEAN := false;
-  v_existing_record_id UUID;
+  v_existing_record public.workspace_usage_records%ROWTYPE;
   v_new_record_id UUID;
   v_new_usage INT;
 BEGIN
@@ -205,7 +221,7 @@ BEGIN
     v_is_authorized := true;
   ELSIF auth.uid() IS NOT NULL AND (
     public.has_workspace_role(p_workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
-    OR public.is_platform_admin()
+    OR public.is_platform_admin(auth.uid())
   ) THEN
     v_is_authorized := true;
   END IF;
@@ -221,11 +237,25 @@ BEGIN
 
   -- 3. Idempotency Check: if idempotency key was already recorded, return success without re-billing
   IF p_idempotency_key IS NOT NULL AND trim(p_idempotency_key) != '' THEN
-    SELECT id INTO v_existing_record_id
+    SELECT * INTO v_existing_record
     FROM public.workspace_usage_records
-    WHERE workspace_id = p_workspace_id AND idempotency_key = p_idempotency_key;
+    WHERE workspace_id = p_workspace_id
+      AND idempotency_key = nullif(trim(p_idempotency_key), '');
 
     IF FOUND THEN
+      IF v_existing_record.metric_name IS DISTINCT FROM p_metric_name
+         OR v_existing_record.quantity IS DISTINCT FROM p_quantity
+         OR v_existing_record.resource_id IS DISTINCT FROM p_resource_id
+         OR v_existing_record.actor_user_id IS DISTINCT FROM p_actor_user_id
+         OR v_existing_record.metadata IS DISTINCT FROM p_metadata THEN
+        RETURN jsonb_build_object(
+          'success', false,
+          'error', 'Idempotency conflict: key already used with different payload',
+          'limit_reached', false,
+          'is_exceeded', false
+        );
+      END IF;
+
       SELECT messages_used_this_period INTO v_new_usage
       FROM public.workspace_subscriptions
       WHERE workspace_id = p_workspace_id;
@@ -233,7 +263,7 @@ BEGIN
       RETURN jsonb_build_object(
         'success', true,
         'idempotent', true,
-        'record_id', v_existing_record_id,
+        'record_id', v_existing_record.id,
         'workspace_id', p_workspace_id,
         'messages_used_this_period', COALESCE(v_new_usage, 0),
         'action', 'already_recorded'
@@ -447,7 +477,7 @@ BEGIN
     v_is_authorized := true;
   ELSIF auth.uid() IS NOT NULL AND (
     public.has_workspace_role(p_workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
-    OR public.is_platform_admin()
+    OR public.is_platform_admin(auth.uid())
   ) THEN
     v_is_authorized := true;
   END IF;
@@ -464,11 +494,15 @@ BEGIN
   -- 3. Scope idempotency to workspace and reject reuse with a different payload
   SELECT * INTO v_res
   FROM public.workspace_quota_reservations
-  WHERE reservation_id = p_reservation_id;
+  WHERE workspace_id = p_workspace_id
+    AND reservation_id = p_reservation_id;
 
   IF FOUND THEN
-    IF v_res.workspace_id = p_workspace_id THEN
-      IF v_res.metric_name = p_metric_name AND v_res.quantity = p_quantity THEN
+      IF v_res.metric_name = p_metric_name
+         AND v_res.quantity = p_quantity
+         AND v_res.resource_id IS NOT DISTINCT FROM p_resource_id
+         AND v_res.actor_user_id IS NOT DISTINCT FROM p_actor_user_id
+         AND v_res.metadata IS NOT DISTINCT FROM p_metadata THEN
         SELECT messages_used_this_period INTO v_new_usage
         FROM public.workspace_subscriptions
         WHERE workspace_id = p_workspace_id;
@@ -483,21 +517,13 @@ BEGIN
           'action', 'already_reserved'
         );
       ELSE
-        RETURN jsonb_build_object(
-          'success', false,
-          'error', 'Idempotency conflict: reservation ID already used with different payload',
-          'limit_reached', false,
-          'is_exceeded', false
-        );
-      END IF;
-    ELSE
       RETURN jsonb_build_object(
         'success', false,
-        'error', 'Reservation does not belong to the specified workspace',
+        'error', 'Idempotency conflict: reservation ID already used with different payload',
         'limit_reached', false,
         'is_exceeded', false
       );
-    END IF;
+      END IF;
   END IF;
 
   -- 4. Lock subscription row exclusively for atomic evaluation
@@ -689,7 +715,7 @@ BEGIN
     v_is_authorized := true;
   ELSIF auth.uid() IS NOT NULL AND (
     public.has_workspace_role(p_workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
-    OR public.is_platform_admin()
+    OR public.is_platform_admin(auth.uid())
   ) THEN
     v_is_authorized := true;
   END IF;
@@ -700,18 +726,18 @@ BEGIN
 
   SELECT * INTO v_res
   FROM public.workspace_quota_reservations
-  WHERE reservation_id = p_reservation_id
+  WHERE workspace_id = p_workspace_id
+    AND reservation_id = p_reservation_id
   FOR UPDATE;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('success', false, 'error', 'Reservation not found');
   END IF;
 
-  IF v_res.workspace_id != p_workspace_id THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Reservation does not belong to the specified workspace');
-  END IF;
-
   IF v_res.status = 'settled' THEN
+    IF p_actual_quantity IS NOT NULL AND p_actual_quantity != v_res.settled_quantity THEN
+      RETURN jsonb_build_object('success', false, 'error', 'Idempotency conflict: reservation already settled with different quantity');
+    END IF;
     SELECT messages_used_this_period INTO v_new_usage
     FROM public.workspace_subscriptions
     WHERE workspace_id = p_workspace_id;
@@ -805,7 +831,7 @@ BEGIN
     v_is_authorized := true;
   ELSIF auth.uid() IS NOT NULL AND (
     public.has_workspace_role(p_workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
-    OR public.is_platform_admin()
+    OR public.is_platform_admin(auth.uid())
   ) THEN
     v_is_authorized := true;
   END IF;
@@ -820,7 +846,8 @@ BEGIN
   -- 1. Lock reservation row exclusively
   SELECT * INTO v_res
   FROM public.workspace_quota_reservations
-  WHERE reservation_id = p_reservation_id
+  WHERE workspace_id = p_workspace_id
+    AND reservation_id = p_reservation_id
   FOR UPDATE;
 
   IF NOT FOUND THEN
@@ -830,15 +857,7 @@ BEGIN
     );
   END IF;
 
-  -- 2. Verify workspace ownership
-  IF v_res.workspace_id != p_workspace_id THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', 'Reservation does not belong to the specified workspace'
-    );
-  END IF;
-
-  -- 3. Idempotency: If already released, return existing state without duplicate decrement
+  -- 2. Idempotency: If already released, return existing state without duplicate decrement
   IF v_res.status = 'released' THEN
     SELECT messages_used_this_period INTO v_new_usage
     FROM public.workspace_subscriptions
@@ -860,7 +879,7 @@ BEGIN
     );
   END IF;
 
-  -- 4. Lock subscription row
+  -- 3. Lock subscription row
   SELECT * INTO v_sub
   FROM public.workspace_subscriptions
   WHERE workspace_id = p_workspace_id
@@ -873,7 +892,7 @@ BEGIN
     );
   END IF;
 
-  -- 5. Atomically refund the reserved messages
+  -- 4. Atomically refund the reserved messages
   v_new_usage := GREATEST(0, v_sub.messages_used_this_period - v_res.quantity);
 
   UPDATE public.workspace_subscriptions
@@ -882,7 +901,7 @@ BEGIN
     updated_at = now()
   WHERE id = v_sub.id;
 
-  -- 6. Mark reservation as released
+  -- 5. Mark reservation as released
   UPDATE public.workspace_quota_reservations
   SET
     status = 'released',
@@ -891,7 +910,7 @@ BEGIN
     metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('release_reason', p_reason, 'released_at', now())
   WHERE id = v_res.id;
 
-  -- 7. Write compensation record in usage ledger with negative quantity
+  -- 6. Write compensation record in usage ledger with negative quantity
   INSERT INTO public.workspace_usage_records (
     workspace_id,
     metric_name,
@@ -936,6 +955,7 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_budget public.ai_agent_budgets%ROWTYPE;
+  v_res public.workspace_quota_reservations%ROWTYPE;
   v_is_authorized BOOLEAN := false;
   v_today DATE := CURRENT_DATE;
   v_current_daily NUMERIC;
@@ -959,7 +979,7 @@ BEGIN
     v_is_authorized := true;
   ELSIF auth.uid() IS NOT NULL AND (
     public.has_workspace_role(p_workspace_id, ARRAY['owner', 'admin', 'manager', 'agent'])
-    OR public.is_platform_admin()
+    OR public.is_platform_admin(auth.uid())
   ) THEN
     v_is_authorized := true;
   END IF;
@@ -975,6 +995,20 @@ BEGIN
   -- Negative spend adjustment security: prevent arbitrary negative adjustments
   IF p_cost_usd < 0 THEN
     IF p_reservation_id IS NULL OR trim(p_reservation_id) = '' THEN
+      RETURN jsonb_build_object(
+        'success', false,
+        'error', 'Negative spend adjustments must be tied to a valid reservation ID',
+        'can_execute', false
+      );
+    END IF;
+
+    SELECT * INTO v_res
+    FROM public.workspace_quota_reservations
+    WHERE workspace_id = p_workspace_id
+      AND reservation_id = p_reservation_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
       RETURN jsonb_build_object(
         'success', false,
         'error', 'Negative spend adjustments must be tied to a valid reservation ID',
@@ -1067,17 +1101,36 @@ $$;
 
 -- 8. RESTRICT EXECUTE PRIVILEGES TO AUTHENTICATED CALLERS
 -- ----------------------------------------------------------------------------
-REVOKE EXECUTE ON FUNCTION public.record_verified_workspace_usage FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.record_verified_workspace_usage TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.record_verified_workspace_usage(uuid, text, integer, text, text, uuid, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.reserve_workspace_quota_atomic(uuid, text, integer, text, text, uuid, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.settle_workspace_quota_atomic(uuid, text, integer, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.release_workspace_quota_atomic(uuid, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.record_agent_execution_spend_atomic(uuid, text, numeric, text) FROM PUBLIC;
 
-REVOKE EXECUTE ON FUNCTION public.reserve_workspace_quota_atomic FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.reserve_workspace_quota_atomic TO authenticated, service_role;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.record_verified_workspace_usage(uuid, text, integer, text, text, uuid, jsonb) FROM anon';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.reserve_workspace_quota_atomic(uuid, text, integer, text, text, uuid, jsonb) FROM anon';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.settle_workspace_quota_atomic(uuid, text, integer, jsonb) FROM anon';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.release_workspace_quota_atomic(uuid, text, text) FROM anon';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.record_agent_execution_spend_atomic(uuid, text, numeric, text) FROM anon';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.record_verified_workspace_usage(uuid, text, integer, text, text, uuid, jsonb) TO authenticated';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.reserve_workspace_quota_atomic(uuid, text, integer, text, text, uuid, jsonb) TO authenticated';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.settle_workspace_quota_atomic(uuid, text, integer, jsonb) TO authenticated';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.release_workspace_quota_atomic(uuid, text, text) TO authenticated';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.record_agent_execution_spend_atomic(uuid, text, numeric, text) TO authenticated';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.record_verified_workspace_usage(uuid, text, integer, text, text, uuid, jsonb) TO service_role';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.reserve_workspace_quota_atomic(uuid, text, integer, text, text, uuid, jsonb) TO service_role';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.settle_workspace_quota_atomic(uuid, text, integer, jsonb) TO service_role';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.release_workspace_quota_atomic(uuid, text, text) TO service_role';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.record_agent_execution_spend_atomic(uuid, text, numeric, text) TO service_role';
+  END IF;
+END;
+$$;
 
-REVOKE EXECUTE ON FUNCTION public.settle_workspace_quota_atomic FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.settle_workspace_quota_atomic TO authenticated, service_role;
-
-REVOKE EXECUTE ON FUNCTION public.release_workspace_quota_atomic FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.release_workspace_quota_atomic TO authenticated, service_role;
-
-REVOKE EXECUTE ON FUNCTION public.record_agent_execution_spend_atomic FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.record_agent_execution_spend_atomic TO authenticated, service_role;
+COMMIT;

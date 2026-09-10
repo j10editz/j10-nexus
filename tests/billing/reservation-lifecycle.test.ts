@@ -14,6 +14,9 @@ describe("Accounting & Reservation Lifecycle Certification (PGlite)", () => {
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
           CREATE ROLE authenticated;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+          CREATE ROLE anon;
+        END IF;
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
           CREATE ROLE service_role;
         END IF;
@@ -334,9 +337,14 @@ describe("Accounting & Reservation Lifecycle Certification (PGlite)", () => {
       [tenantB.wsId]
     );
     expect(crossRes.rows[0].release_workspace_quota_atomic.success).toBe(false);
-    expect(crossRes.rows[0].release_workspace_quota_atomic.error).toBe(
-      "Reservation does not belong to the specified workspace"
+    expect(crossRes.rows[0].release_workspace_quota_atomic.error).toBe("Reservation not found");
+
+    const crossSettle = await db.query<{ settle_workspace_quota_atomic: any }>(
+      "SELECT public.settle_workspace_quota_atomic($1, 'res-tenant-a', 5)",
+      [tenantB.wsId]
     );
+    expect(crossSettle.rows[0].settle_workspace_quota_atomic.success).toBe(false);
+    expect(crossSettle.rows[0].settle_workspace_quota_atomic.error).toBe("Reservation not found");
   });
 
   it("verifies unauthorized callers without workspace authority are rejected", async () => {
@@ -493,7 +501,12 @@ describe("Accounting & Reservation Lifecycle Certification (PGlite)", () => {
       "Negative spend adjustments must be tied to a valid reservation ID"
     );
 
-    // Negative adjustment with reservation ID -> accepted and spend reduced
+    await db.query(
+      "SELECT public.reserve_workspace_quota_atomic($1, 'ai_agent_run', 1, 'exec-valid-res')",
+      [wsId]
+    );
+
+    // Negative adjustment with a reservation in this workspace -> accepted and spend reduced
     const negAllowed = await db.query<{ record_agent_execution_spend_atomic: any }>(
       "SELECT public.record_agent_execution_spend_atomic($1, 'agent-neg', -3.0, 'exec-valid-res')",
       [wsId]
@@ -526,5 +539,113 @@ describe("Accounting & Reservation Lifecycle Certification (PGlite)", () => {
     expect(conflictRes.rows[0].reserve_workspace_quota_atomic.error).toBe(
       "Idempotency conflict: reservation ID already used with different payload"
     );
+  });
+
+  it("scopes identical reservation IDs to their workspace without leaking results", async () => {
+    const db = await setupDatabase();
+    const tenantA = await createTestWorkspace(db, "Reservation A", "reservation-a");
+    const tenantB = await createTestWorkspace(db, "Reservation B", "reservation-b");
+
+    await db.exec(`
+      SET request.jwt.claim.sub = '${tenantA.userId}';
+      SET request.jwt.claims = '{"role": "authenticated", "sub": "${tenantA.userId}"}';
+    `);
+    const first = await db.query<{ reserve_workspace_quota_atomic: any }>(
+      "SELECT public.reserve_workspace_quota_atomic($1, 'sms_outbound', 3, 'shared-reservation')",
+      [tenantA.wsId]
+    );
+    expect(first.rows[0].reserve_workspace_quota_atomic.success).toBe(true);
+
+    const duplicate = await db.query<{ reserve_workspace_quota_atomic: any }>(
+      "SELECT public.reserve_workspace_quota_atomic($1, 'sms_outbound', 3, 'shared-reservation')",
+      [tenantA.wsId]
+    );
+    expect(duplicate.rows[0].reserve_workspace_quota_atomic.idempotent).toBe(true);
+
+    await db.exec(`
+      SET request.jwt.claim.sub = '${tenantB.userId}';
+      SET request.jwt.claims = '{"role": "authenticated", "sub": "${tenantB.userId}"}';
+    `);
+    const independent = await db.query<{ reserve_workspace_quota_atomic: any }>(
+      "SELECT public.reserve_workspace_quota_atomic($1, 'sms_outbound', 3, 'shared-reservation')",
+      [tenantB.wsId]
+    );
+    expect(independent.rows[0].reserve_workspace_quota_atomic.success).toBe(true);
+    expect(independent.rows[0].reserve_workspace_quota_atomic.idempotent).not.toBe(true);
+
+    const rows = await db.query<{ workspace_id: string }>(
+      "SELECT workspace_id FROM public.workspace_quota_reservations WHERE reservation_id = 'shared-reservation' ORDER BY workspace_id"
+    );
+    expect(rows.rows.map((row) => row.workspace_id).sort()).toEqual([tenantA.wsId, tenantB.wsId].sort());
+  });
+
+  it("enforces least-privilege ledger and exact atomic RPC grants", async () => {
+    const db = await setupDatabase();
+    const publicPrivileges = await db.query<{ table_public: boolean; function_public: boolean }>(`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM pg_class c, LATERAL aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) AS acl
+          WHERE c.oid = 'public.workspace_quota_reservations'::regclass
+            AND acl.grantee = 0
+            AND acl.privilege_type IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')
+        ) AS table_public,
+        EXISTS (
+          SELECT 1
+          FROM pg_proc p, LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
+          WHERE p.oid IN (
+            'public.record_verified_workspace_usage(uuid, text, integer, text, text, uuid, jsonb)'::regprocedure,
+            'public.reserve_workspace_quota_atomic(uuid, text, integer, text, text, uuid, jsonb)'::regprocedure,
+            'public.settle_workspace_quota_atomic(uuid, text, integer, jsonb)'::regprocedure,
+            'public.release_workspace_quota_atomic(uuid, text, text)'::regprocedure,
+            'public.record_agent_execution_spend_atomic(uuid, text, numeric, text)'::regprocedure
+          )
+            AND acl.grantee = 0
+            AND acl.privilege_type = 'EXECUTE'
+        ) AS function_public
+    `);
+    const privileges = await db.query<{ role_name: string; function_name: string; can_execute: boolean }>(`
+      SELECT role_name, function_name,
+        has_function_privilege(role_name, function_signature, 'EXECUTE') AS can_execute
+      FROM (VALUES
+        ('record_verified_workspace_usage', 'public.record_verified_workspace_usage(uuid, text, integer, text, text, uuid, jsonb)'),
+        ('reserve_workspace_quota_atomic', 'public.reserve_workspace_quota_atomic(uuid, text, integer, text, text, uuid, jsonb)'),
+        ('settle_workspace_quota_atomic', 'public.settle_workspace_quota_atomic(uuid, text, integer, jsonb)'),
+        ('release_workspace_quota_atomic', 'public.release_workspace_quota_atomic(uuid, text, text)'),
+        ('record_agent_execution_spend_atomic', 'public.record_agent_execution_spend_atomic(uuid, text, numeric, text)')
+      ) AS functions(function_name, function_signature)
+      CROSS JOIN (VALUES ('anon'), ('authenticated'), ('service_role')) AS roles(role_name)
+      ORDER BY function_name, role_name
+    `);
+    const tablePrivileges = await db.query<{ role_name: string; can_select: boolean; can_modify: boolean }>(`
+      SELECT role_name,
+        has_table_privilege(role_name, 'public.workspace_quota_reservations', 'SELECT') AS can_select,
+        has_table_privilege(role_name, 'public.workspace_quota_reservations', 'INSERT, UPDATE, DELETE') AS can_modify
+      FROM (VALUES ('anon'), ('authenticated'), ('service_role')) AS roles(role_name)
+      ORDER BY role_name
+    `);
+    const tableByRole = Object.fromEntries(tablePrivileges.rows.map((row) => [row.role_name, row]));
+    expect(publicPrivileges.rows[0].table_public).toBe(false);
+    expect(publicPrivileges.rows[0].function_public).toBe(false);
+    expect(tableByRole.anon.can_select).toBe(false);
+    expect(tableByRole.authenticated.can_select).toBe(true);
+    expect(tableByRole.authenticated.can_modify).toBe(false);
+    expect(tableByRole.service_role.can_select).toBe(true);
+    expect(tableByRole.service_role.can_modify).toBe(true);
+    for (const row of privileges.rows) {
+      expect(row.can_execute).toBe(row.role_name !== "anon");
+    }
+  });
+
+  it("keeps the final migration transaction-wrapped and bound to the production admin signature", () => {
+    const migration = readFileSync(
+      resolve(__dirname, "../../supabase/migrations/20260924_align_channel_metrics_and_atomic_reservations.sql"),
+      "utf-8"
+    );
+    expect(migration.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(migration.trimEnd().endsWith("COMMIT;")).toBe(true);
+    expect(migration).not.toContain("is_platform_admin()");
+    expect(migration).toContain("is_platform_admin(auth.uid())");
+    expect(migration).not.toContain("idx_quota_reservations_res_id");
   });
 });
