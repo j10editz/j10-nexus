@@ -1,3 +1,5 @@
+BEGIN;
+
 -- ============================================================================
 -- J10 NEXUS: Tier 2 — Agency & Client Commercialization Migration
 -- Migration: 20260920_tier2_agency_commercialization.sql
@@ -60,8 +62,22 @@ CREATE INDEX IF NOT EXISTS idx_workspaces_agency_master
   WHERE agency_master_id IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_custom_domain_unique
-  ON public.workspaces(custom_domain)
+  ON public.workspaces(lower(trim(custom_domain)))
   WHERE custom_domain IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION public.validate_workspace_agency_master()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  IF NEW.agency_master_id IS NULL THEN RETURN NEW; END IF;
+  IF NEW.agency_master_id = NEW.id THEN RAISE EXCEPTION 'A workspace cannot be its own agency master'; END IF;
+  IF NEW.workspace_type <> 'client' THEN RAISE EXCEPTION 'Only client workspaces may reference an agency master'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.workspaces w WHERE w.id = NEW.agency_master_id AND w.workspace_type = 'agency_master') THEN
+    RAISE EXCEPTION 'agency_master_id must reference an agency_master workspace';
+  END IF;
+  RETURN NEW;
+END; $$;
+DROP TRIGGER IF EXISTS trg_validate_workspace_agency_master ON public.workspaces;
+CREATE TRIGGER trg_validate_workspace_agency_master BEFORE INSERT OR UPDATE OF agency_master_id, workspace_type ON public.workspaces FOR EACH ROW EXECUTE FUNCTION public.validate_workspace_agency_master();
 
 -- ----------------------------------------------------------------------------
 -- 2. WORKSPACE DOMAINS TABLE
@@ -102,6 +118,25 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_workspace_domains_ws_status
   ON public.workspace_domains(workspace_id, status);
+
+CREATE OR REPLACE FUNCTION public.validate_workspace_domain_ownership()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_domain text;
+BEGIN
+  IF TG_TABLE_NAME = 'workspaces' THEN v_domain := lower(trim(NEW.custom_domain)); ELSE v_domain := lower(trim(NEW.domain)); END IF;
+  IF v_domain IS NULL OR v_domain = '' THEN RETURN NEW; END IF;
+  IF TG_TABLE_NAME = 'workspaces' THEN
+    IF EXISTS (SELECT 1 FROM public.workspace_domains d WHERE lower(trim(d.domain)) = v_domain AND d.workspace_id <> NEW.id) THEN RAISE EXCEPTION 'Domain is owned by another workspace'; END IF;
+  ELSE
+    IF EXISTS (SELECT 1 FROM public.workspaces w WHERE lower(trim(w.custom_domain)) = v_domain AND w.id <> NEW.workspace_id) THEN RAISE EXCEPTION 'Domain is owned by another workspace'; END IF;
+    IF EXISTS (SELECT 1 FROM public.workspace_domains d WHERE lower(trim(d.domain)) = v_domain AND d.workspace_id <> NEW.workspace_id AND d.id <> NEW.id) THEN RAISE EXCEPTION 'Domain is owned by another workspace'; END IF;
+  END IF;
+  RETURN NEW;
+END; $$;
+DROP TRIGGER IF EXISTS trg_validate_workspace_custom_domain ON public.workspaces;
+CREATE TRIGGER trg_validate_workspace_custom_domain BEFORE INSERT OR UPDATE OF custom_domain ON public.workspaces FOR EACH ROW EXECUTE FUNCTION public.validate_workspace_domain_ownership();
+DROP TRIGGER IF EXISTS trg_validate_workspace_domain ON public.workspace_domains;
+CREATE TRIGGER trg_validate_workspace_domain BEFORE INSERT OR UPDATE OF domain, workspace_id ON public.workspace_domains FOR EACH ROW EXECUTE FUNCTION public.validate_workspace_domain_ownership();
 
 -- ----------------------------------------------------------------------------
 -- 3. WORKSPACE TEMPLATES TABLE & BLUEPRINTS SEED
@@ -207,14 +242,7 @@ INSERT INTO public.workspace_templates (
   '["Shipping & Delivery Matrix", "Return & Refund Policy", "Seasonal VIP Promotion Guides"]'::jsonb,
   true
 )
-ON CONFLICT (slug) DO UPDATE SET
-  name = EXCLUDED.name,
-  description = EXCLUDED.description,
-  system_prompt_blueprint = EXCLUDED.system_prompt_blueprint,
-  default_ai_employees = EXCLUDED.default_ai_employees,
-  default_pipeline_stages = EXCLUDED.default_pipeline_stages,
-  default_knowledge_topics = EXCLUDED.default_knowledge_topics,
-  updated_at = now();
+ON CONFLICT (slug) DO NOTHING;
 
 -- ----------------------------------------------------------------------------
 -- 4. ROW LEVEL SECURITY
@@ -276,9 +304,14 @@ CREATE POLICY workspace_templates_modify ON public.workspace_templates
 -- ----------------------------------------------------------------------------
 -- 5. ROLE GRANTS
 -- ----------------------------------------------------------------------------
+REVOKE ALL ON public.workspace_domains, public.workspace_templates FROM PUBLIC;
 DO $$
 BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    EXECUTE 'REVOKE ALL ON public.workspace_domains, public.workspace_templates FROM anon';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON public.workspace_domains, public.workspace_templates FROM authenticated';
     EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.workspace_domains TO authenticated';
     EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.workspace_templates TO authenticated';
   END IF;
@@ -288,3 +321,5 @@ BEGIN
     EXECUTE 'GRANT ALL ON public.workspace_templates TO service_role';
   END IF;
 END $$;
+
+COMMIT;

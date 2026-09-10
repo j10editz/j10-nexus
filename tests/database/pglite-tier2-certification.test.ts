@@ -14,6 +14,8 @@ describe("Tier 2: PostgreSQL Database Certification (PGlite)", () => {
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
           CREATE ROLE authenticated;
         END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
       END $$;
 
       CREATE SCHEMA IF NOT EXISTS auth;
@@ -219,5 +221,26 @@ describe("Tier 2: PostgreSQL Database Certification (PGlite)", () => {
     );
     expect(postRes.rows.length).toBe(1);
     expect(postRes.rows[0].agency_master_id).toBeNull();
+  });
+
+  it("enforces agency, normalized-domain, grant, seed, and transaction invariants", async () => {
+    const db = await setupDatabase();
+    const sql = readFileSync(resolve(process.cwd(), "supabase/migrations/20260920_tier2_agency_commercialization.sql"), "utf8");
+    expect(sql.trimStart()).toMatch(/^BEGIN;\s/); expect(sql.trimEnd()).toMatch(/COMMIT;$/);
+    const master = await db.query<{id:string}>("INSERT INTO public.workspaces (name,slug,workspace_type) VALUES ('Master','m','agency_master') RETURNING id");
+    const client = await db.query<{id:string}>("INSERT INTO public.workspaces (name,slug,workspace_type,agency_master_id) VALUES ('Client','c','client',$1) RETURNING id", [master.rows[0].id]);
+    await expect(db.query("UPDATE public.workspaces SET agency_master_id=id WHERE id=$1", [client.rows[0].id])).rejects.toThrow();
+    await expect(db.query("INSERT INTO public.workspaces (name,slug,workspace_type,agency_master_id) VALUES ('Bad','bad','agency_master',$1)", [master.rows[0].id])).rejects.toThrow();
+    await expect(db.query("INSERT INTO public.workspaces (name,slug,workspace_type,agency_master_id) VALUES ('Bad Parent','bp','client',$1)", [client.rows[0].id])).rejects.toThrow();
+    await db.query("UPDATE public.workspaces SET custom_domain=' Example.COM ' WHERE id=$1", [client.rows[0].id]);
+    await db.query("INSERT INTO public.workspace_domains (workspace_id,domain,verification_token) VALUES ($1,'example.com','x')", [client.rows[0].id]);
+    const other=await db.query<{id:string}>("INSERT INTO public.workspaces (name,slug) VALUES ('Other','o') RETURNING id");
+    await expect(db.query("INSERT INTO public.workspace_domains (workspace_id,domain,verification_token) VALUES ($1,' EXAMPLE.com ','y')",[other.rows[0].id])).rejects.toThrow();
+    const grants=await db.query<{grantee:string;privilege_type:string}>("SELECT grantee,privilege_type FROM information_schema.role_table_grants WHERE table_name='workspace_domains' AND grantee IN ('PUBLIC','anon','authenticated','service_role')");
+    expect(grants.rows.filter(x=>x.grantee==='authenticated').map(x=>x.privilege_type).sort()).toEqual(['DELETE','INSERT','SELECT','UPDATE']);
+    expect(grants.rows.some(x=>x.grantee==='PUBLIC'||x.grantee==='anon')).toBe(false);
+    await db.query("UPDATE public.workspace_templates SET name='Custom' WHERE slug='real-estate-brokerage'");
+    await db.exec(sql);
+    expect((await db.query<{name:string}>("SELECT name FROM public.workspace_templates WHERE slug='real-estate-brokerage'")).rows[0].name).toBe('Custom');
   });
 });
