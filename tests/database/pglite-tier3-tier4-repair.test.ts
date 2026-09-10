@@ -176,16 +176,25 @@ describe("Tier 3 & Tier 4 Canonical Authorization & Referential Integrity Repair
     return db;
   }
 
-  it("applies 20260923 repair migration cleanly and idempotently", async () => {
+  it("reconciles corrected Tier 3 and Tier 4 state without mutating it", async () => {
     const db = await setupDatabase();
     const repairPath = resolve(process.cwd(), "supabase/migrations/20260923_canonical_authorization_and_cross_tenant_integrity_repair.sql");
     const sql = readFileSync(repairPath, "utf8");
+    expect(sql.trimStart().startsWith("BEGIN;")).toBe(true);
+    expect(sql.trimEnd().endsWith("COMMIT;")).toBe(true);
 
-    // First execution
-    await expect(db.exec(sql)).resolves.not.toThrow();
+    const snapshot = async () => ({
+      policies: (await db.query(`SELECT tablename, policyname, cmd FROM pg_policies WHERE schemaname = 'public' AND (tablename LIKE 'omnichannel_%' OR tablename LIKE 'ai_agent_%') ORDER BY tablename, policyname`)).rows,
+      constraints: (await db.query(`SELECT conrelid::regclass::text AS table_name, conname FROM pg_constraint WHERE conname IN ('fk_ai_agent_traces_version_ws', 'fk_ai_agent_approval_gates_trace_ws', 'fk_ai_agent_evaluations_version_ws', 'fk_dispatch_thread_workspace') ORDER BY table_name, conname`)).rows,
+      grants: (await db.query(`SELECT table_name, grantee, privilege_type FROM information_schema.role_table_grants WHERE table_schema = 'public' AND (table_name LIKE 'omnichannel_%' OR table_name LIKE 'ai_agent_%') ORDER BY table_name, grantee, privilege_type`)).rows,
+      rows: (await db.query(`SELECT (SELECT count(*)::int FROM public.ai_agent_versions) AS versions, (SELECT count(*)::int FROM public.omnichannel_routing_rules) AS rules`)).rows,
+    });
+    const before = await snapshot();
 
-    // Second execution proving idempotency
     await expect(db.exec(sql)).resolves.not.toThrow();
+    expect(await snapshot()).toEqual(before);
+    await expect(db.exec(sql)).resolves.not.toThrow();
+    expect(await snapshot()).toEqual(before);
   });
 
   it("enforces cross-tenant composite integrity constraints on traces and approval gates", async () => {
