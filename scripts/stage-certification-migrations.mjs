@@ -1,9 +1,9 @@
 import { copyFile, mkdir, readdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 
-const [, , source, destination] = process.argv;
-if (!source || !destination) {
-  throw new Error("Usage: node scripts/stage-certification-migrations.mjs <source> <destination>");
+const [, , source, destination, baseline] = process.argv;
+if (!source || !destination || !baseline) {
+  throw new Error("Usage: node scripts/stage-certification-migrations.mjs <source> <destination> <baseline>");
 }
 
 const files = (await readdir(source, { withFileTypes: true }))
@@ -14,6 +14,9 @@ const files = (await readdir(source, { withFileTypes: true }))
 if (files.length === 0) throw new Error("No SQL migrations found for certification staging.");
 await rm(destination, { recursive: true, force: true });
 await mkdir(destination, { recursive: true });
+if (baseline.startsWith(source)) throw new Error("The CI baseline must not enter supabase/migrations.");
+await copyFile(baseline, join(destination, "20260000000_legacy_pre_migration_baseline.sql"));
+console.log(`${basename(baseline)} -> 20260000000_legacy_pre_migration_baseline.sql`);
 
 const mapped = new Set();
 for (let index = 0; index < files.length; index += 1) {
@@ -29,8 +32,8 @@ for (let index = 0; index < files.length; index += 1) {
 }
 
 const stagedFiles = (await readdir(destination)).filter((file) => file.endsWith(".sql"));
-if (stagedFiles.length !== files.length) {
-  throw new Error(`Certification migration staging omitted files (${stagedFiles.length}/${files.length}).`);
+if (stagedFiles.length !== files.length + 1) {
+  throw new Error(`Certification migration staging omitted files (${stagedFiles.length - 1}/${files.length}).`);
 }
 if (!stagedFiles.some((file) => file.endsWith("_stage1_lead_intake_foundation.sql"))) {
   throw new Error("20260925 Stage 1 migration is missing from certification staging.");
