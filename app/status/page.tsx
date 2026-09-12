@@ -1,12 +1,15 @@
 import Link from "next/link";
-import { Activity, ArrowLeft, CheckCircle2, AlertCircle, HelpCircle } from "lucide-react";
+import { Activity, AlertCircle, CheckCircle2, HelpCircle } from "lucide-react";
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
 import { probeDatabaseReachability } from "@/lib/health/probe";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "System Status & Telemetry | J10 NEXUS",
+  title: "System Status & Telemetry",
   description: "Live operational runtime status of J10 NEXUS services, database, and integration connectors.",
+  alternates: { canonical: "/status" },
 };
 
 export default async function StatusPage() {
@@ -54,7 +57,7 @@ export default async function StatusPage() {
       operational: false,
     },
     {
-      name: "OpenAI Model Gateway",
+      name: "AI Model Gateway",
       category: "External AI Provider",
       probe: "J10 AI Runtime Routing",
       status: "Not independently monitored",
@@ -64,50 +67,29 @@ export default async function StatusPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#09090B] text-zinc-300">
-      <header className="border-b border-zinc-800/80 bg-zinc-950/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/dashboard"
-              className="flex items-center gap-2 text-xs text-zinc-400 hover:text-white transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Dashboard
-            </Link>
-            <div className="h-4 w-px bg-zinc-800" />
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-violet-500" />
-              <span className="text-sm font-semibold text-white tracking-wide">J10 NEXUS SYSTEM TELEMETRY</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                health.reachable ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
-              }`}
-            />
-            <span className="text-xs font-medium text-zinc-200">
-              {health.reachable ? "Monitored Services Operational" : "Degraded Service Reachability"}
-            </span>
-          </div>
-        </div>
-      </header>
+    <main className="j10-canvas min-h-screen text-white">
+      <Navbar />
 
-      <main className="max-w-5xl mx-auto px-6 py-12 space-y-8">
-        <div className="p-6 rounded-xl border border-zinc-800/80 bg-zinc-900/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <section className="mx-auto max-w-5xl px-5 py-16 sm:py-24 lg:px-8">
+        <div className="j10-surface rounded-2xl p-6 sm:p-8 border border-white/[0.08] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-white mb-1">System Operational Health</h1>
-            <p className="text-sm text-zinc-400">
-              Live server connection health and component monitoring boundaries.
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="w-4 h-4 text-cyan-300" />
+              <span className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+                Live System Telemetry
+              </span>
+            </div>
+            <h1 className="text-2xl font-extrabold text-white">Operational Health Overview</h1>
+            <p className="mt-1 text-xs text-[#8d96a8]">
+              Live server connection reachability and telemetry boundaries.
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="px-3.5 py-1.5 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-xs font-mono text-zinc-300">
+            <div className="px-3.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs font-mono text-[#cbd3e3]">
               Latency: {health.latencyMs}ms
             </div>
             <div
-              className={`px-3.5 py-1.5 rounded-lg border text-xs font-medium ${
+              className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold ${
                 health.reachable
                   ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
                   : "bg-amber-500/10 border-amber-500/30 text-amber-400"
@@ -118,40 +100,42 @@ export default async function StatusPage() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/20 overflow-hidden">
-          <div className="px-6 py-4 border-b border-zinc-800/60 bg-zinc-900/40 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Service Components</h2>
-            <span className="text-xs text-zinc-500">Live Server Diagnostic Boundary</span>
+        <div className="mt-8 rounded-2xl border border-white/[0.08] bg-[#0b1020] overflow-hidden">
+          <div className="px-6 py-4 border-b border-white/[0.08] bg-white/[0.02] flex items-center justify-between">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-white/80">
+              Service Components
+            </h2>
+            <span className="text-xs text-[#5f697d]">Server Diagnostic Boundary</span>
           </div>
-          <div className="divide-y divide-zinc-800/40">
+          <div className="divide-y divide-white/[0.06]">
             {services.map((svc) => (
               <div key={svc.name} className="px-6 py-4 flex items-center justify-between gap-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-white">{svc.name}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-800/60 text-zinc-400 border border-zinc-700/40">
+                    <span className="text-sm font-semibold text-white">{svc.name}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-white/[0.05] text-[#8d96a8] border border-white/[0.08]">
                       {svc.category}
                     </span>
                   </div>
-                  <p className="text-xs text-zinc-500">{svc.probe}</p>
+                  <p className="text-xs text-[#8d96a8]">{svc.probe}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {svc.isMonitored ? (
                     svc.operational ? (
                       <>
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                        <span className="text-xs text-emerald-400 font-medium">Operational</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span className="text-xs text-emerald-400 font-semibold">Operational</span>
                       </>
                     ) : (
                       <>
-                        <AlertCircle className="w-4 h-4 text-amber-500" />
-                        <span className="text-xs text-amber-400 font-medium">{svc.status}</span>
+                        <AlertCircle className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs text-amber-400 font-semibold">{svc.status}</span>
                       </>
                     )
                   ) : (
                     <>
-                      <HelpCircle className="w-4 h-4 text-zinc-500" />
-                      <span className="text-xs text-zinc-500 font-medium">Not independently monitored</span>
+                      <HelpCircle className="w-4 h-4 text-[#5f697d]" />
+                      <span className="text-xs text-[#5f697d] font-medium">Not independently monitored</span>
                     </>
                   )}
                 </div>
@@ -160,13 +144,15 @@ export default async function StatusPage() {
           </div>
         </div>
 
-        <div className="p-4 rounded-lg bg-zinc-900/40 border border-zinc-800 text-xs text-zinc-500 space-y-1">
-          <p className="font-medium text-zinc-400">Monitoring &amp; Telemetry Notice</p>
+        <div className="mt-6 rounded-xl bg-white/[0.02] border border-white/[0.06] p-4 text-xs text-[#8d96a8] space-y-1">
+          <p className="font-semibold text-white/90">Monitoring &amp; Telemetry Notice</p>
           <p>
             Database probe executes reachability verification through server connection pool. Non-monitored third-party external services depend on upstream provider availability.
           </p>
         </div>
-      </main>
-    </div>
+      </section>
+
+      <Footer />
+    </main>
   );
 }

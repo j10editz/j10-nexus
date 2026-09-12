@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
@@ -15,6 +17,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("intent") === "signup") {
+      setMode("signup");
+      const plan = params.get("plan");
+      const trial = params.get("trial");
+      if (plan) window.sessionStorage.setItem("j10_launch_plan", plan);
+      if (trial === "1") window.sessionStorage.setItem("j10_launch_trial", "1");
+    }
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,7 +52,7 @@ export default function LoginPage() {
         }
 
         setMessage(
-          "Account created. Check your email and confirm your account before signing in."
+          "Account created. Check your email to confirm your account before signing in."
         );
 
         setMode("signin");
@@ -66,28 +79,41 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#050506] px-4">
+    <main className="j10-canvas flex min-h-screen items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
-        <div className="mb-8 text-center">
-          <p className="text-xs font-semibold tracking-[0.3em] text-violet-400">
+        {/* Brand Header */}
+        <div className="mb-8 text-center flex flex-col items-center">
+          <Link href="/" className="mb-4 inline-flex items-center gap-2.5">
+            <span className="j10-gradient flex h-11 w-11 items-center justify-center rounded-2xl p-2 shadow-[0_8px_24px_rgba(47,107,255,0.3)]">
+              <Image
+                src="/brand/j10-logo.png"
+                alt="J10 monogram"
+                width={30}
+                height={30}
+                className="h-full w-full object-contain"
+                priority
+              />
+            </span>
+          </Link>
+
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
             J10 NEXUS
           </p>
 
-          <h1 className="mt-3 text-3xl font-bold text-white">
-            {mode === "signin"
-              ? "Welcome back"
-              : "Create your account"}
+          <h1 className="mt-2 text-3xl font-extrabold text-white tracking-tight">
+            {mode === "signin" ? "Welcome back" : "Create your account"}
           </h1>
 
-          <p className="mt-2 text-sm text-zinc-500">
+          <p className="mt-2 text-xs text-[#8d96a8]">
             {mode === "signin"
-              ? "Sign in to access your workspace."
-              : "Create your J10 NEXUS workspace account."}
+              ? "Sign in to access your workspace operating center."
+              : "Set up your workspace and start your 14-day free trial."}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-[#0d0d10] p-6 shadow-2xl">
-          <div className="mb-6 grid grid-cols-2 rounded-xl bg-white/[0.03] p-1">
+        {/* Card */}
+        <div className="j10-surface rounded-[26px] p-6 sm:p-8 border border-white/[0.1] shadow-2xl">
+          <div className="mb-6 grid grid-cols-2 rounded-xl bg-white/[0.03] p-1 border border-white/[0.06]">
             <button
               type="button"
               onClick={() => {
@@ -95,10 +121,10 @@ export default function LoginPage() {
                 setMessage("");
                 setErrorMessage("");
               }}
-              className={`rounded-lg px-4 py-2.5 text-sm font-medium transition ${
+              className={`rounded-lg py-2.5 text-xs font-semibold transition ${
                 mode === "signin"
-                  ? "bg-violet-600 text-white"
-                  : "text-zinc-500 hover:text-white"
+                  ? "j10-gradient text-white shadow-sm"
+                  : "text-[#8d96a8] hover:text-white"
               }`}
             >
               Sign In
@@ -111,10 +137,10 @@ export default function LoginPage() {
                 setMessage("");
                 setErrorMessage("");
               }}
-              className={`rounded-lg px-4 py-2.5 text-sm font-medium transition ${
+              className={`rounded-lg py-2.5 text-xs font-semibold transition ${
                 mode === "signup"
-                  ? "bg-violet-600 text-white"
-                  : "text-zinc-500 hover:text-white"
+                  ? "j10-gradient text-white shadow-sm"
+                  : "text-[#8d96a8] hover:text-white"
               }`}
             >
               Create Account
@@ -123,23 +149,23 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Email
+              <label className="mb-1.5 block text-xs font-semibold text-[#8d96a8]">
+                Work Email
               </label>
 
               <input
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
+                placeholder="you@company.com"
                 required
                 autoComplete="email"
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-700 focus:border-violet-500"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none transition placeholder:text-[#5f697d] focus:border-cyan-400 focus:bg-white/[0.05]"
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <label className="mb-1.5 block text-xs font-semibold text-[#8d96a8]">
                 Password
               </label>
 
@@ -147,26 +173,24 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="Enter your password"
+                placeholder="Enter password (min. 6 characters)"
                 required
                 minLength={6}
                 autoComplete={
-                  mode === "signin"
-                    ? "current-password"
-                    : "new-password"
+                  mode === "signin" ? "current-password" : "new-password"
                 }
-                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-700 focus:border-violet-500"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none transition placeholder:text-[#5f697d] focus:border-cyan-400 focus:bg-white/[0.05]"
               />
             </div>
 
             {errorMessage && (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-xs text-red-300">
                 {errorMessage}
               </div>
             )}
 
             {message && (
-              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400">
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
                 {message}
               </div>
             )}
@@ -174,15 +198,19 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="j10-gradient w-full rounded-xl py-3.5 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(47,107,255,0.3)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading
-                ? "Please wait..."
+                ? "Processing..."
                 : mode === "signin"
-                  ? "Sign In"
-                  : "Create Account"}
+                ? "Sign In to Workspace"
+                : "Create Account & Start Trial"}
             </button>
           </form>
+
+          <div className="mt-6 text-center text-[11px] text-[#5f697d]">
+            Protected by enterprise multi-tenant isolation &amp; RLS.
+          </div>
         </div>
       </div>
     </main>

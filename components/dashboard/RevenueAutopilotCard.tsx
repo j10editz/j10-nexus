@@ -13,7 +13,6 @@ import {
   Play,
   Send,
   ShieldAlert,
-  Sparkles,
   TrendingUp,
   X,
   Zap,
@@ -220,7 +219,7 @@ export default function RevenueAutopilotCard({
       <div className="mt-5 border-t border-white/[0.06] pt-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles size={14} className="text-blue-400" />
+            <Zap size={14} className="text-cyan-400" />
             <span className="text-xs font-semibold uppercase tracking-wider text-white">
               Recommended Autopilot Actions
             </span>

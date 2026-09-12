@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   useEffect,
@@ -14,9 +15,9 @@ import {
   ChevronRight,
   Command,
   Menu,
+  Plug,
   Search,
   Settings,
-  Sparkles,
   UserCircle2,
   X,
 } from "lucide-react";
@@ -262,7 +263,7 @@ export default function Topbar({
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-[72px] shrink-0 items-center gap-3 border-b border-white/[0.07] bg-[#09090B]/95 px-3 text-white backdrop-blur-xl sm:px-5 lg:px-7">
+    <header className="sticky top-0 z-30 flex h-[72px] shrink-0 items-center gap-3 border-b border-white/[0.09] bg-[#0a0e17]/82 px-3 text-white backdrop-blur-2xl sm:px-5 lg:px-7">
       <button
         type="button"
         onClick={onOpenNavigation}
@@ -276,7 +277,7 @@ export default function Topbar({
         onSubmit={handleSubmit}
         className="relative min-w-0 flex-1 sm:max-w-[520px]"
       >
-        <div className="flex h-11 items-center rounded-xl border border-white/[0.08] bg-[#111216] px-3.5 transition focus-within:border-blue-500/35 focus-within:ring-2 focus-within:ring-blue-500/10">
+        <div className="flex h-11 items-center rounded-xl border border-white/[0.1] bg-[#0d111b]/85 px-3.5 transition focus-within:border-cyan-300/45 focus-within:ring-2 focus-within:ring-blue-500/10">
           <Search
             className="mr-3 shrink-0 text-white/35"
             size={17}
@@ -369,9 +370,15 @@ export default function Topbar({
         <button
           type="button"
           onClick={() => navigate("/dashboard#j10-ai")}
-          className="hidden h-11 items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-4 text-sm font-semibold text-white shadow-lg shadow-blue-500/10 transition hover:-translate-y-0.5 hover:shadow-blue-500/20 md:flex"
+          className="j10-gradient hidden h-11 items-center gap-2 rounded-xl px-4 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 transition hover:brightness-110 md:flex"
         >
-          <Sparkles size={17} />
+          <Image
+            src="/brand/j10-logo.png"
+            alt="J10 monogram"
+            width={17}
+            height={17}
+            className="object-contain"
+          />
           Ask J10 AI
         </button>
 
@@ -495,7 +502,7 @@ export default function Topbar({
                 onClick={() => setProfileOpen(false)}
                 className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/60 transition hover:bg-white/[0.05] hover:text-white"
               >
-                <Sparkles size={16} />
+                <Plug size={16} />
                 Integration connections
               </Link>
             </div>

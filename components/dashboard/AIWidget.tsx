@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 
 import {
@@ -13,7 +14,6 @@ import {
   Megaphone,
   MessageSquare,
   Send,
-  Sparkles,
   Workflow,
 } from "lucide-react";
 
@@ -22,6 +22,18 @@ type PlanStep = {
   title: string;
   description: string;
 };
+
+function J10Monogram({ size = 20 }: { size?: number }) {
+  return (
+    <Image
+      src="/brand/j10-logo.png"
+      alt="J10 monogram"
+      width={size}
+      height={size}
+      className="object-contain"
+    />
+  );
+}
 
 type WorkflowAction = {
   order: number;
@@ -63,49 +75,37 @@ type BuildResponse = {
 
 const suggestions = [
   {
-    label: "Create an AI sales agent",
+    label: "Deploy J10 Receptionist",
     icon: Bot,
     prompt:
-      "Create an AI sales agent for my business that can qualify leads and follow up with prospects.",
+      "Deploy J10 Receptionist to greet inbound leads, answer inquiries, and book calendar appointments.",
   },
   {
-    label: "Automate WhatsApp",
-    icon: MessageSquare,
-    prompt:
-      "Automate my WhatsApp customer support, FAQs, lead capture and follow-ups.",
-  },
-  {
-    label: "Build a workflow",
+    label: "Automate Lead Qualification",
     icon: Workflow,
     prompt:
-      "Build an automation workflow for one of my repetitive business processes.",
+      "Build an autonomous revenue workflow to qualify customer inquiries and sync deal details to CRM.",
   },
   {
-    label: "Create marketing",
-    icon: Megaphone,
+    label: "Missed-Call Recovery",
+    icon: MessageSquare,
     prompt:
-      "Create a marketing campaign for my business.",
+      "Configure instant text-back recovery for missed phone calls and abandoned customer chats.",
   },
   {
-    label: "Build a website",
-    icon: Globe2,
+    label: "Collect Deposits & Payments",
+    icon: CheckCircle2,
     prompt:
-      "Build a professional website for my business.",
+      "Set up automated proposal delivery, deposit payment links, and invoice checkout closure.",
   },
 ];
 
 export default function AIWidget() {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
-
-  const [result, setResult] =
-    useState<J10AIResponse | null>(null);
-
-  const [errorMessage, setErrorMessage] =
-    useState("");
-
-  const [reviewOpen, setReviewOpen] =
-    useState(false);
+  const [result, setResult] = useState<J10AIResponse | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   async function handleSubmit() {
     const cleanPrompt = prompt.trim();
@@ -179,7 +179,7 @@ export default function AIWidget() {
         <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
           <div className="flex items-center gap-3">
             <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20">
-              <Sparkles size={20} />
+              <J10Monogram />
 
               <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[#0d111c] bg-emerald-400" />
             </div>
@@ -331,9 +331,7 @@ export default function AIWidget() {
             <div className="mt-6 rounded-2xl border border-violet-500/20 bg-gradient-to-br from-blue-500/[0.06] via-violet-500/[0.05] to-transparent p-5">
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600">
-                  <Sparkles
-                    size={15}
-                  />
+                  <J10Monogram size={15} />
                 </div>
 
                 <div>
@@ -645,9 +643,7 @@ function SystemReview({
           <div>
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600">
-                <Sparkles
-                  size={19}
-                />
+                <J10Monogram size={19} />
               </div>
 
               <div>
@@ -868,10 +864,7 @@ function SystemReview({
               </>
             ) : building ? (
               <>
-                <Sparkles
-                  size={15}
-                  className="animate-pulse"
-                />
+                <span className="animate-pulse"><J10Monogram size={15} /></span>
                 Building...
               </>
             ) : (
@@ -1011,7 +1004,7 @@ function IntentBadge({
       ) : isEmployee ? (
         <Bot size={12} />
       ) : (
-        <Sparkles size={12} />
+        <J10Monogram size={12} />
       )}
 
       Intent: {formatted}
@@ -1031,7 +1024,7 @@ function SystemComponent({
     Workflow,
     MessageSquare,
     Database,
-    Sparkles,
+    Bot,
     Globe2,
   ];
 

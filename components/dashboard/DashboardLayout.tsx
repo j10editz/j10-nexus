@@ -34,7 +34,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-dvh bg-[#09090B] text-white">
+    <div className="j10-canvas min-h-dvh text-white">
       <Sidebar
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}
@@ -47,7 +47,7 @@ export default function DashboardLayout({
           }
         />
 
-        <main className="min-h-[calc(100dvh-72px)] min-w-0 overflow-x-hidden bg-[#09090B]">
+        <main className="min-h-[calc(100dvh-72px)] min-w-0 overflow-x-hidden bg-transparent">
           {children}
         </main>
       </div>

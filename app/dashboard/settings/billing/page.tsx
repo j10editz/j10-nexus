@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
@@ -77,6 +78,7 @@ interface UsageAccountingData {
 }
 
 export default function BillingPage() {
+  const searchParams = useSearchParams();
   const [subscription, setSubscription] = useState<SubscriptionData | null>(null);
   const [plans, setPlans] = useState<PlanDefinition[]>([]);
   const [usageAccounting, setUsageAccounting] = useState<UsageAccountingData | null>(null);
@@ -165,7 +167,7 @@ export default function BillingPage() {
     }
   }
 
-  async function handleStartTrial() {
+  async function handleStartTrial(planId = "growth") {
     try {
       setActivatingTrial(true);
       setStatusMessage(null);
@@ -173,7 +175,7 @@ export default function BillingPage() {
       const res = await fetch("/api/billing/trial", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId: "growth", durationDays: 14 }),
+        body: JSON.stringify({ planId, durationDays: 14 }),
       });
       const data = await res.json();
 
@@ -195,6 +197,9 @@ export default function BillingPage() {
   const isTrialActive = Boolean(subscription?.trialActive);
   const isPastDue = subscription?.status === "past_due";
   const canStartTrial = !subscription?.id || (subscription?.status === "none" && !subscription?.hasUsedTrial);
+  const requestedPlan = searchParams.get("plan");
+  const requestedTrial = searchParams.get("trial") === "1";
+  const selectedLaunchPlan = requestedPlan === "starter" || requestedPlan === "growth" || requestedPlan === "enterprise" ? requestedPlan : "growth";
 
   return (
     <div className="min-h-[calc(100dvh-72px)] bg-[#09090B] px-4 py-8 text-white sm:px-6 lg:px-8">
@@ -245,6 +250,17 @@ export default function BillingPage() {
         </div>
 
         {/* Dunning Grace Period Alert Banner */}
+        {requestedTrial && canStartTrial && (
+          <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-blue-500/30 bg-blue-500/[0.08] p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Your {selectedLaunchPlan === "enterprise" ? "Scale" : selectedLaunchPlan} trial is ready to activate</h2>
+              <p className="mt-1 text-xs text-blue-100/70">Activate the supported 14-day trial for this workspace. Eligibility is verified before activation.</p>
+            </div>
+            <button onClick={() => handleStartTrial(selectedLaunchPlan)} disabled={activatingTrial} className="rounded-xl bg-[#356dff] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#2458df] disabled:opacity-50">
+              {activatingTrial ? "Activating..." : "Activate 14-day trial"}
+            </button>
+          </div>
+        )}
         {isPastDue && (
           <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-rose-500/40 bg-rose-950/20 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3.5">
@@ -287,7 +303,7 @@ export default function BillingPage() {
               </div>
             </div>
             <button
-              onClick={handleStartTrial}
+              onClick={() => handleStartTrial()}
               disabled={activatingTrial}
               className="flex shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-violet-600 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-blue-500/20 transition hover:brightness-110"
             >

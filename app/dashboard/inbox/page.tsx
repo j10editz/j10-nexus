@@ -1134,12 +1134,12 @@ export default function UnifiedInboxPage() {
                 </Link>
 
                 <Link
-                  href="/dashboard/commerce"
+                  href="/dashboard/revenue"
                   className="flex items-center justify-between rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2 text-white/70 transition hover:bg-white/[0.06] hover:text-white"
                 >
                   <span className="flex items-center gap-2">
                     <DollarSign size={13} />
-                    Open Commerce Catalog
+                    Open Revenue Hub
                   </span>
                   <ArrowRight size={13} className="text-white/30" />
                 </Link>

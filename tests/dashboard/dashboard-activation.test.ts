@@ -36,7 +36,7 @@ function routeFile(href: string) {
 
 describe("Dashboard activation", () => {
   it("classifies every navigation item as ready or building", () => {
-    expect(dashboardNavigationItems).toHaveLength(21);
+    expect(dashboardNavigationItems).toHaveLength(8);
     expect(
       dashboardNavigationItems.every(
         (item) =>
@@ -62,7 +62,7 @@ describe("Dashboard activation", () => {
 
     expect(invalidReadyItems).toEqual([]);
     expect(dishonestBuildingLinks).toEqual([]);
-    expect(readyDashboardNavigationItems).toHaveLength(19);
+    expect(readyDashboardNavigationItems).toHaveLength(8);
   });
 
   it("backs every ready route with a Next.js page", () => {
@@ -76,37 +76,26 @@ describe("Dashboard activation", () => {
     }
   });
 
-  it("activates the CEO-requested operational routes", () => {
+  it("presents only the approved launch navigation", () => {
     const readyHrefs = new Set(
       readyDashboardNavigationItems.map(
         (item) => item.href
       )
     );
 
-    expect(readyHrefs.size).toBe(19);
+    expect(readyHrefs.size).toBe(8);
+    expect(readyHrefs.has("/dashboard")).toBe(true);
     expect(readyHrefs.has("/dashboard/inbox")).toBe(true);
-    expect(readyHrefs.has("/dashboard/activity")).toBe(true);
-    expect(
-      readyHrefs.has("/dashboard/notifications")
-    ).toBe(true);
     expect(readyHrefs.has("/dashboard/crm")).toBe(true);
-    expect(
-      readyHrefs.has("/dashboard/whatsapp")
-    ).toBe(true);
-    expect(
-      readyHrefs.has("/dashboard/analytics")
-    ).toBe(true);
+    expect(readyHrefs.has("/dashboard/ai-employees")).toBe(true);
+    expect(readyHrefs.has("/dashboard/automation/flow")).toBe(true);
+    expect(readyHrefs.has("/dashboard/revenue")).toBe(true);
     expect(
       readyHrefs.has(
         "/dashboard/settings/integrations"
       )
     ).toBe(true);
-    expect(readyHrefs.has("/dashboard/website")).toBe(true);
-    expect(readyHrefs.has("/dashboard/marketing")).toBe(true);
-    expect(readyHrefs.has("/dashboard/knowledge")).toBe(true);
-    expect(readyHrefs.has("/dashboard/finance")).toBe(true);
-    expect(readyHrefs.has("/dashboard/hr")).toBe(true);
-    expect(readyHrefs.has("/dashboard/commerce")).toBe(true);
+    expect(readyHrefs.has("/dashboard/settings")).toBe(true);
   });
 
 

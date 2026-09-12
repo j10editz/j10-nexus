@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 
 import {
@@ -40,10 +41,7 @@ type SidebarProps = {
   onClose?: () => void;
 };
 
-const iconMap: Record<
-  DashboardIconName,
-  LucideIcon
-> = {
+const iconMap: Record<DashboardIconName, LucideIcon | null> = {
   activity: Activity,
   analytics: BarChart3,
   automation: Zap,
@@ -56,6 +54,7 @@ const iconMap: Record<
   globe: Globe,
   marketing: Megaphone,
   message: MessageSquare,
+  monogram: null, // Renders official J10 logo
   palette: Palette,
   plug: Plug,
   settings: Settings,
@@ -102,36 +101,49 @@ export default function Sidebar({
   function renderItem(item: DashboardNavigationItem) {
     const Icon = iconMap[item.icon];
     const active = isActive(item);
-    const available =
-      item.status === "ready" && Boolean(item.href);
+    const available = item.status === "ready" && Boolean(item.href);
+
+    const isJ10 = item.id === "j10-ai" || item.icon === "monogram";
 
     const className = `
-      group flex w-full items-center gap-3 rounded-lg px-3 py-2.5
-      text-left text-[13px] transition-all duration-200
+      group flex w-full items-center gap-3 rounded-xl px-3 py-2.5
+      text-left text-[13px] font-medium transition-all duration-200
       ${
         active
-          ? "bg-gradient-to-r from-blue-500/15 via-violet-500/10 to-transparent text-white"
-          : item.featured
-            ? "bg-white/[0.055] text-white hover:bg-white/[0.075]"
+          ? "j10-gradient text-white shadow-[0_8px_20px_rgba(47,107,255,0.25)] font-semibold"
+          : isJ10
+            ? "bg-white/[0.04] text-white hover:bg-white/[0.08]"
             : available
-              ? "text-white/55 hover:bg-white/[0.045] hover:text-white"
+              ? "text-[#8d96a8] hover:bg-white/[0.04] hover:text-white"
               : "cursor-not-allowed text-white/25"
       }
     `;
 
     const content = (
       <>
-        <Icon
-          size={16}
-          strokeWidth={1.8}
-          className={
-            active || item.featured
-              ? "text-blue-400"
-              : available
-                ? "text-white/35 transition-colors group-hover:text-white/80"
-                : "text-white/20"
-          }
-        />
+        {isJ10 ? (
+          <div className="flex h-4 w-4 shrink-0 items-center justify-center">
+            <Image
+              src="/brand/j10-logo.png"
+              alt="J10 monogram"
+              width={16}
+              height={16}
+              className="h-full w-full object-contain"
+            />
+          </div>
+        ) : Icon ? (
+          <Icon
+            size={16}
+            strokeWidth={1.8}
+            className={
+              active
+                ? "text-white"
+                : available
+                  ? "text-[#8d96a8] transition-colors group-hover:text-white"
+                  : "text-white/20"
+            }
+          />
+        ) : null}
 
         <span className="min-w-0 flex-1 truncate">
           {item.label}
@@ -141,12 +153,12 @@ export default function Sidebar({
           <span className="rounded-full border border-amber-400/15 bg-amber-400/[0.06] px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wider text-amber-300/60">
             Building
           </span>
-        ) : item.featured ? (
-          <span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-blue-400">
-            AI
+        ) : isJ10 && !active ? (
+          <span className="rounded-full bg-cyan-400/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-cyan-300">
+            OS
           </span>
         ) : active ? (
-          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_8px_#00d9ff]" />
         ) : null}
       </>
     );
@@ -185,7 +197,7 @@ export default function Sidebar({
         <button
           type="button"
           aria-label="Close navigation"
-          className="fixed inset-0 z-40 bg-black/65 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
           onClick={onClose}
         />
       )}
@@ -193,29 +205,34 @@ export default function Sidebar({
       <aside
         className={`
           fixed left-0 top-0 z-50 flex h-dvh w-[260px] flex-col
-          border-r border-white/[0.06] bg-[#09090B]/98 backdrop-blur-xl
+          border-r border-white/[0.08] bg-[#07090f]/95 backdrop-blur-2xl
           transition-transform duration-300 lg:translate-x-0
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-white/[0.06] px-5">
+        {/* Brand Header */}
+        <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-white/[0.07] px-5">
           <Link
             href="/dashboard"
             onClick={handleNavigation}
-            className="flex items-center gap-2"
+            className="flex items-center gap-3"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20">
-              <span className="text-sm font-black text-white">
-                J
-              </span>
+            <div className="j10-gradient flex h-8 w-8 items-center justify-center rounded-xl p-1.5 shadow-[0_6px_16px_rgba(47,107,255,0.3)]">
+              <Image
+                src="/brand/j10-logo.png"
+                alt="J10 monogram"
+                width={22}
+                height={22}
+                className="h-full w-full object-contain"
+              />
             </div>
 
             <div>
               <div className="text-[15px] font-bold tracking-tight text-white">
-                J10
+                J10 <span className="font-medium text-[#8d96a8]">NEXUS</span>
               </div>
-              <div className="text-[9px] font-medium uppercase tracking-[0.18em] text-white/40">
-                Operating System
+              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-cyan-400">
+                Revenue OS
               </div>
             </div>
           </Link>
@@ -230,60 +247,34 @@ export default function Sidebar({
           </button>
         </div>
 
-        <div className="px-3 pt-4">
-          <Link
-            href="/dashboard#j10-ai"
-            onClick={handleNavigation}
-            className="group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border border-blue-500/20 bg-gradient-to-r from-blue-500/10 via-violet-500/10 to-cyan-500/10 px-3 py-3 text-left transition-all duration-300 hover:border-blue-400/40 hover:shadow-lg hover:shadow-blue-500/10"
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/10 to-violet-500/0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-
-            <div className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20">
-              <Sparkles size={17} className="text-white" />
-            </div>
-
-            <div className="relative min-w-0 flex-1">
-              <div className="text-sm font-semibold text-white">
-                J10 AI
-              </div>
-              <div className="truncate text-[11px] text-white/40">
-                Your business intelligence
-              </div>
-            </div>
-
-            <ChevronRight
-              size={15}
-              className="relative text-white/30 transition-transform group-hover:translate-x-1"
-            />
-          </Link>
-        </div>
-
+        {/* Navigation Items */}
         <nav className="mt-4 flex-1 overflow-y-auto px-3 pb-4 scrollbar-thin">
           {dashboardNavigationSections.map((section) => (
             <div key={section.title} className="mb-5">
-              <div className="mb-2 px-2 text-[9px] font-semibold tracking-[0.18em] text-white/25">
+              <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#5f697d]">
                 {section.title}
               </div>
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {section.items.map(renderItem)}
               </div>
             </div>
           ))}
         </nav>
 
-        <div className="shrink-0 border-t border-white/[0.06] bg-[#09090B] p-3">
+        {/* Footer Workspace Info */}
+        <div className="shrink-0 border-t border-white/[0.07] bg-[#07090f] p-3">
           {renderItem(dashboardSettingsItem)}
 
-          <div className="mt-2 flex items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.025] p-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-500 text-xs font-bold text-white">
-              J
+          <div className="mt-2 flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-3">
+            <div className="j10-gradient flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold text-white shadow-sm">
+              W
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-medium text-white">
-                J10 Workspace
+              <div className="truncate text-xs font-semibold text-white">
+                Active Workspace
               </div>
-              <div className="truncate text-[10px] text-white/35">
-                Development workspace
+              <div className="truncate text-[10px] text-[#8d96a8]">
+                Production Tenant
               </div>
             </div>
           </div>

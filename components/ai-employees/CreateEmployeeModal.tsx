@@ -87,18 +87,48 @@ export default function CreateEmployeeModal({
           </button>
         </div>
 
+        {/* PRESET CHIPS */}
+        <div className="border-b border-white/10 px-6 pt-4 pb-3">
+          <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wider text-cyan-400">
+            Launch Agent Presets
+          </label>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              { name: "J10 Receptionist", role: "Inbound Welcome & Triage", dept: "Customer Support", model: "GPT-4o" },
+              { name: "J10 Revenue Agent", role: "Lead Qualification & Deals", dept: "Sales", model: "GPT-4o" },
+              { name: "J10 Support Agent", role: "24/7 Omnichannel Resolution", dept: "Customer Support", model: "GPT-4o" },
+              { name: "J10 Recovery Agent", role: "Missed-Call & Lead Recovery", dept: "Operations", model: "GPT-4o" },
+            ].map((preset) => (
+              <button
+                key={preset.name}
+                type="button"
+                onClick={() => {
+                  setName(preset.name);
+                  setRole(preset.role);
+                  setDepartment(preset.dept);
+                  setModel(preset.model);
+                }}
+                className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-2 text-left transition hover:border-cyan-400/40 hover:bg-cyan-500/[0.05]"
+              >
+                <p className="text-xs font-semibold text-white truncate">{preset.name}</p>
+                <p className="text-[10px] text-zinc-400 truncate">{preset.role}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* FORM */}
         <div className="space-y-5 p-6">
           <div>
             <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-zinc-500">
-              Employee Name
+              Agent Name
             </label>
 
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Example: J10 Sales Agent"
-              className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-violet-500"
+              placeholder="Example: J10 Revenue Agent"
+              className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-500"
             />
           </div>
 

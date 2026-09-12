@@ -1,14 +1,12 @@
 import Navbar from "@/components/Navbar";
-import Hero from "@/components/Hero";
-import Features from "@/components/Features";
 import Footer from "@/components/Footer";
+import LaunchHome from "@/components/marketing/LaunchHome";
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-[#09090B] text-white">
       <Navbar />
-      <Hero />
-      <Features />
+      <LaunchHome />
       <Footer />
     </main>
   );
