@@ -43,6 +43,11 @@ jobs:
         shell: bash
         run: |
           unset J10_PRODUCTION_DATABASE_URL
+          certification_dir="$(mktemp -d)"
+          node scripts/stage-certification-migrations.mjs supabase/migrations "$certification_dir"
+          mv supabase/migrations supabase/migrations.historical
+          mkdir supabase/migrations
+          cp "$certification_dir"/*.sql supabase/migrations/
           supabase start --ignore-health-check
           supabase db reset --local --no-seed
       - name: Verify migration and real PostgreSQL certification
