@@ -50,8 +50,9 @@ describe("Tier 0F Runtime Tenant Certification & Integrity", () => {
     const leadRoute = readSource("app/api/website/lead/route.ts");
     const sitePage = readSource("app/site/[slug]/page.tsx");
 
-    it("verifies website lead route invokes create_website_lead RPC atomically", () => {
-      expect(leadRoute).toContain('.rpc("create_website_lead"');
+    it("verifies website lead route invokes the canonical transactional intake service", () => {
+      expect(leadRoute).toContain("recordCanonicalLeadIntake");
+      expect(leadRoute).toContain("workspaceId: funnel.workspace_id");
     });
 
     it("verifies website lead route has no default workspace fallback", () => {

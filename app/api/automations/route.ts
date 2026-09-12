@@ -17,6 +17,7 @@ type AutomationTriggerType =
   | "crm_status_changed"
   | "new_ai_task"
   | "ai_task_completed"
+  | "lead.received"
   | "schedule"
   | "integration_event";
 
@@ -48,6 +49,7 @@ const allowedTriggerTypes: AutomationTriggerType[] = [
   "crm_status_changed",
   "new_ai_task",
   "ai_task_completed",
+  "lead.received",
   "schedule",
   "integration_event",
 ];

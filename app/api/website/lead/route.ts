@@ -2,11 +2,32 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { createAdminSupabaseClient } from "@/lib/auth";
 import { buildWhatsAppClickToChatLink, stripEmojis } from "@/lib/website/service";
+import { recordCanonicalLeadIntake, type LeadConsent } from "@/lib/leads/intake";
 
 const MAX_PAYLOAD_BYTES = 65536; // 64KB
+const PUBLIC_RATE_WINDOW_MS = 60_000;
+const PUBLIC_RATE_MAX = 12;
+const publicLeadAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function withinPublicLeadRateLimit(request: Request) {
+  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const key = forwardedFor || request.headers.get("x-real-ip") || "unknown";
+  const now = Date.now();
+  const current = publicLeadAttempts.get(key);
+  if (!current || current.resetAt <= now) {
+    publicLeadAttempts.set(key, { count: 1, resetAt: now + PUBLIC_RATE_WINDOW_MS });
+    return true;
+  }
+  if (current.count >= PUBLIC_RATE_MAX) return false;
+  current.count += 1;
+  return true;
+}
 
 export async function POST(request: Request) {
   try {
+    if (!withinPublicLeadRateLimit(request)) {
+      return NextResponse.json({ success: false, error: "Please try again shortly." }, { status: 429 });
+    }
     // 1. Content-Type Header Check
     const contentType = request.headers.get("content-type") || "";
     if (!contentType.toLowerCase().includes("application/json")) {
@@ -107,46 +128,31 @@ export async function POST(request: Request) {
       idempotencyKey = `lead_${funnel.id}_${hash}`;
     }
 
-    // 7. Atomic Database Persistence via secure create_website_lead RPC
-    const { data: rpcResult, error: rpcError } = await admin.rpc("create_website_lead", {
-      p_funnel_id: funnel.id,
-      p_name: name,
-      p_email: rawEmail || null,
-      p_phone: cleanPhone ? `+${cleanPhone}` : null,
-      p_message: userMessage,
-      p_notes: `Lead intake via /site/${funnel.slug}`,
-      p_idempotency_key: idempotencyKey,
-      p_metadata: {
+    // 7. Server-resolved tenant + one transactional intake/outbox write.
+    const intake = await recordCanonicalLeadIntake(admin, {
+      workspaceId: funnel.workspace_id,
+      source: "website_form",
+      channel: "website",
+      idempotencyKey,
+      name,
+      email: rawEmail || null,
+      phone: cleanPhone ? `+${cleanPhone}` : null,
+      message: userMessage,
+      campaign: typeof body.campaign === "string" ? body.campaign : null,
+      attribution: {
         source_url: String(body.sourceUrl || "").slice(0, 500) || null,
-        submitted_at: new Date().toISOString(),
+        utm_source: typeof body.utm_source === "string" ? body.utm_source.slice(0, 200) : null,
+        utm_medium: typeof body.utm_medium === "string" ? body.utm_medium.slice(0, 200) : null,
+        utm_campaign: typeof body.utm_campaign === "string" ? body.utm_campaign.slice(0, 200) : null,
       },
-    });
+      consents: Array.isArray(body.consents) && body.consents.length > 0
+        ? body.consents as LeadConsent[]
+        : [{ status: "not_provided", communicationChannel: "website", purpose: "marketing", disclosureVersion: "website-form-v1", captureSource: "website_form" }],
+      metadata: { funnel_id: funnel.id, funnel_slug: funnel.slug, submitted_at: new Date().toISOString() },
+    }, new URL(request.url).origin);
 
-    if (rpcError) {
-      console.error("create_website_lead RPC error:", rpcError);
-      return NextResponse.json(
-        { success: false, error: "Failed to durably record lead in CRM." },
-        { status: 500 }
-      );
-    }
-
-    if (rpcResult?.conflict === true) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Duplicate submission conflict detected for this idempotency key.",
-          conflict: true,
-        },
-        { status: 409 }
-      );
-    }
-
-    if (!rpcResult?.success) {
-      console.error("create_website_lead unsuccessful:", rpcResult?.error);
-      return NextResponse.json(
-        { success: false, error: "Failed to durably record lead in CRM." },
-        { status: 500 }
-      );
+    if (intake.resolution_status === "ambiguous") {
+      return NextResponse.json({ success: true, message: "Lead received successfully." }, { status: 202 });
     }
 
     // 8. Build WhatsApp Conversational Greeting without Hardcoded Numbers
@@ -175,7 +181,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to process lead inquiry.",
+        error: "J10 could not accept this lead inquiry. Please try again.",
       },
       { status: 500 }
     );

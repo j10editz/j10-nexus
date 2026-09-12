@@ -1,0 +1,66 @@
+name: Stage 1 lead intake certification
+
+on:
+  push:
+    branches: [stage1-lead-intake-certification]
+  pull_request:
+    paths:
+      - "supabase/migrations/20260925_stage1_lead_intake_foundation.sql"
+      - "lib/leads/**"
+      - "app/api/website/lead/**"
+      - "lib/automation/**"
+      - "app/api/automation/**"
+      - "app/api/automations/**"
+      - "tests/leads/**"
+      - "tests/database/pglite-stage1-lead-intake-certification.test.ts"
+      - "tests/database/postgres-stage1-lead-intake-certification.test.ts"
+      - ".github/workflows/stage1-lead-intake-certification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      # Explicitly override any repository/environment secret of this name.
+      J10_PRODUCTION_DATABASE_URL: ""
+      J10_STAGE1_CERT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22.14.0
+          cache: npm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.63.1
+      - name: Install dependencies
+        run: npm ci
+      - name: Start disposable local Supabase
+        shell: bash
+        run: |
+          unset J10_PRODUCTION_DATABASE_URL
+          supabase start --ignore-health-check
+          supabase db reset --local --no-seed
+      - name: Verify migration and real PostgreSQL certification
+        shell: bash
+        run: |
+          unset J10_PRODUCTION_DATABASE_URL
+          npx vitest run tests/leads tests/database/pglite-stage1-lead-intake-certification.test.ts tests/database/postgres-stage1-lead-intake-certification.test.ts --pool=threads --maxWorkers=1 --no-file-parallelism --maxConcurrency=1
+      - name: Repository regression, types, and build
+        shell: bash
+        run: |
+          unset J10_PRODUCTION_DATABASE_URL
+          npx vitest run --pool=threads --maxWorkers=1 --no-file-parallelism --maxConcurrency=1
+          npx tsc --noEmit
+          npm run build
+          git diff --check
+      - name: Stop disposable local Supabase
+        if: always()
+        shell: bash
+        run: |
+          unset J10_PRODUCTION_DATABASE_URL
+          supabase stop --no-backup || true

@@ -43,6 +43,7 @@ export const J10_FLOW_TRIGGER_TYPES = [
   "crm_status_changed",
   "new_ai_task",
   "ai_task_completed",
+  "lead.received",
   "schedule",
   "integration_event",
 ] as const satisfies readonly AutomationTriggerType[];

@@ -61,6 +61,7 @@ type TriggerSource =
   | "crm_status_changed"
   | "new_ai_task"
   | "ai_task_completed"
+  | "lead.received"
   | "schedule"
   | "integration_event";
 
@@ -70,6 +71,7 @@ const SUPPORTED_TRIGGER_SOURCES: TriggerSource[] = [
   "crm_status_changed",
   "new_ai_task",
   "ai_task_completed",
+  "lead.received",
   "schedule",
   "integration_event",
 ];

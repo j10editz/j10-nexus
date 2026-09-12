@@ -106,6 +106,7 @@ export async function POST(
       "crm_status_changed",
       "new_ai_task",
       "ai_task_completed",
+      "lead.received",
       "schedule",
       "integration_event",
     ];
