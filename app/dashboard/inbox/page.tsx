@@ -456,6 +456,7 @@ export default function UnifiedInboxPage() {
                 [
                   { id: "all", label: "All" },
                   { id: "whatsapp", label: "WhatsApp" },
+                  { id: "telegram", label: "Telegram" },
                   { id: "email", label: "Email" },
                   { id: "sms", label: "SMS" },
                   { id: "webchat", label: "WebChat" },
@@ -684,19 +685,32 @@ export default function UnifiedInboxPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <a
-                    href={buildWhatsAppReplyLink(
-                      activeThread.contactIdentifier,
-                      `Hello ${activeThread.contactName}, following up from J10 NEXUS regarding your inquiry.`,
-                    )}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex h-7 items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 text-[11px] font-medium text-emerald-400 transition hover:bg-emerald-500/20"
-                  >
-                    <Phone size={12} />
-                    WhatsApp Open
-                    <ExternalLink size={10} />
-                  </a>
+                  {activeThread.channel === "telegram" ? (
+                    <a
+                      href={activeThread.contactIdentifier.startsWith("@") ? `https://t.me/${activeThread.contactIdentifier.slice(1)}` : "https://t.me/"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex h-7 items-center gap-1 rounded-md border border-sky-500/30 bg-sky-500/10 px-2.5 text-[11px] font-medium text-sky-400 transition hover:bg-sky-500/20"
+                    >
+                      <Send size={12} />
+                      Telegram Open
+                      <ExternalLink size={10} />
+                    </a>
+                  ) : (
+                    <a
+                      href={buildWhatsAppReplyLink(
+                        activeThread.contactIdentifier,
+                        `Hello ${activeThread.contactName}, following up from J10 NEXUS regarding your inquiry.`,
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex h-7 items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 text-[11px] font-medium text-emerald-400 transition hover:bg-emerald-500/20"
+                    >
+                      <Phone size={12} />
+                      WhatsApp Open
+                      <ExternalLink size={10} />
+                    </a>
+                  )}
                 </div>
               </div>
 
@@ -855,6 +869,7 @@ export default function UnifiedInboxPage() {
                         className="rounded border border-white/[0.08] bg-black/60 px-2 py-0.5 text-[11px] text-white/80 focus:outline-none"
                       >
                         <option value="whatsapp">WhatsApp Business</option>
+                        <option value="telegram">Telegram Bot</option>
                         <option value="email">Email Inbound</option>
                         <option value="sms">SMS Priority</option>
                         <option value="webchat">Live Web Chat</option>

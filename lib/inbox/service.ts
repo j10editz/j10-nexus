@@ -47,6 +47,10 @@ export const CHANNEL_METADATA: Record<
     label: "WhatsApp Group",
     badgeClass: "bg-emerald-600/10 text-emerald-300 border-emerald-600/20",
   },
+  telegram: {
+    label: "Telegram Bot",
+    badgeClass: "bg-sky-500/10 text-sky-400 border-sky-500/20",
+  },
 };
 
 export const STAGE_METADATA: Record<

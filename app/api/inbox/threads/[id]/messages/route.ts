@@ -38,7 +38,7 @@ export async function POST(
     // 1. Verify thread belongs to active workspace
     const { data: thread, error: threadError } = await supabase
       .from("inbox_threads")
-      .select("id, workspace_id, metadata, unread_count")
+      .select("id, workspace_id, channel, external_thread_id, contact_id, metadata, unread_count")
       .eq("id", threadId)
       .eq("workspace_id", wsId)
       .maybeSingle();
@@ -92,7 +92,7 @@ export async function POST(
         workspace_id: wsId,
         thread_id: threadId,
         direction,
-        provider: "internal",
+        provider: thread.channel === "telegram" ? "telegram" : "internal",
         external_message_id: externalMessageId || null,
         content: messageText.trim(),
         delivery_status: "sent",
@@ -110,7 +110,40 @@ export async function POST(
       );
     }
 
-    // 4. Update thread timestamp, snippet, and unread count
+    // 4. If outbound reply on a Telegram thread, dispatch via Telegram Bot API
+    if (direction === "outbound" && thread.channel === "telegram") {
+      const recipientChatId = thread.metadata?.telegram_chat_id || thread.external_thread_id;
+      if (recipientChatId) {
+        try {
+          const { resolveWorkspaceChannelCredentials, sendChannelProviderMessage } = await import("@/lib/omnichannel/dispatch");
+          const { credentials } = await resolveWorkspaceChannelCredentials(supabase, wsId, "telegram");
+          const dispatchResult = await sendChannelProviderMessage({
+            channel: "telegram",
+            recipient: recipientChatId,
+            body: messageText.trim(),
+            credentials,
+          });
+
+          await supabase
+            .from("inbox_messages")
+            .update({
+              provider: dispatchResult.provider || "telegram",
+              delivery_status: dispatchResult.status === "sent" ? "sent" : (dispatchResult.status === "failed" ? "failed" : "queued"),
+              external_message_id: dispatchResult.externalId || null,
+              metadata: {
+                ...metadata,
+                dispatchError: dispatchResult.error || null,
+              },
+            })
+            .eq("id", newMsg.id)
+            .eq("workspace_id", wsId);
+        } catch (dispatchErr) {
+          console.error("Telegram outbound dispatch error:", dispatchErr);
+        }
+      }
+    }
+
+    // 5. Update thread timestamp, snippet, and unread count
     const updatedSnippet = messageText.trim().slice(0, 200);
     const updatedMetadata = {
       ...(thread.metadata || {}),

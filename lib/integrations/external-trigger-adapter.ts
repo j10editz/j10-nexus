@@ -307,6 +307,19 @@ function adaptWhatsAppWebhook(
   };
 }
 
+function adaptTelegramWebhook(event: IntegrationWebhookEvent): AdapterResult {
+  const message = isRecord(event.payload.message) ? event.payload.message : {};
+  const chat = isRecord(message.chat) ? message.chat : {};
+  const sender = isRecord(message.from) ? message.from : {};
+  return {
+    capabilityId: "telegram.message.received",
+    providerEventType: event.eventType,
+    subject: subject("telegram_message", message.message_id ?? event.externalEventId, chat.title),
+    actor: actor("telegram_contact", sender.id, [sender.first_name, sender.last_name].filter((value) => typeof value === "string").join(" ")),
+    data: { message, chat, sender },
+  };
+}
+
 function adaptProviderEvent(
   event: IntegrationWebhookEvent,
 ): AdapterResult {
@@ -322,6 +335,9 @@ function adaptProviderEvent(
 
     case "whatsapp-business":
       return adaptWhatsAppWebhook(event);
+
+    case "telegram":
+      return adaptTelegramWebhook(event);
 
     default:
       throw new IntegrationWebhookError(

@@ -38,6 +38,7 @@ export const WEBHOOK_INGRESS_PROVIDER_IDS = [
   "shopify",
   "stripe",
   "whatsapp-business",
+  "telegram",
 ] as const satisfies readonly IntegrationProviderId[];
 
 const WEBHOOK_INGRESS_PROVIDER_SET = new Set<IntegrationProviderId>(
@@ -395,6 +396,23 @@ function verifyWhatsAppWebhook(
   };
 }
 
+function verifyTelegramWebhook(
+  input: VerifyWebhookDeliveryInput,
+): IntegrationWebhookVerificationResult {
+  const secret = requiredCredential(input.credentials, "webhook_secret", "Telegram");
+  const received = input.headers.get("x-telegram-bot-api-secret-token")?.trim() || "";
+  if (!received || !safeStringEqual(received, secret)) {
+    rejectSignature("Telegram webhook secret is invalid.");
+  }
+  const message = isRecord(input.payload.message) ? input.payload.message : {};
+  return {
+    eventType: "telegram.message.received",
+    externalEventId: normalizedExternalEventId(message.message_id === undefined ? null : String(message.message_id)),
+    occurredAt: normalizeOccurredAt(message.date),
+    signatureStatus: "valid",
+  };
+}
+
 export function supportsWebhookIngress(
   providerId: IntegrationProviderId,
 ) {
@@ -430,6 +448,9 @@ export function verifyWebhookDelivery(
 
     case "whatsapp-business":
       return verifyWhatsAppWebhook(input);
+
+    case "telegram":
+      return verifyTelegramWebhook(input);
 
     default:
       throw new IntegrationWebhookError(

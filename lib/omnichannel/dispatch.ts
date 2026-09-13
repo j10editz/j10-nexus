@@ -44,6 +44,7 @@ export interface ChannelProviderCredentials {
   whatsappAccessToken?: string;
   whatsappPhoneNumberId?: string;
   metaGraphAccessToken?: string;
+  telegramBotToken?: string;
 }
 
 export interface SendChannelMessageParams {
@@ -71,6 +72,7 @@ export const SUPPORTED_CHANNEL_METRICS: Record<string, BillableMetricName> = {
   webchat: "webchat_outbound",
   website: "website_outbound",
   crm: "crm_outbound",
+  telegram: "omnichannel_outbound",
 };
 
 export function resolveChannelBillableMetric(channel: string): BillableMetricName {
@@ -293,6 +295,48 @@ export async function sendChannelProviderMessage(
       };
     }
 
+    case "telegram": {
+      const token = creds.telegramBotToken || process.env.TELEGRAM_BOT_TOKEN;
+      if (!token) {
+        return {
+          provider: "telegram",
+          status: "unavailable",
+          error: "Telegram channel unconfigured: missing Telegram bot token.",
+        };
+      }
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            chat_id: params.recipient,
+            text: params.body,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data?.ok || !data?.result?.message_id) {
+          return {
+            provider: "telegram",
+            status: "failed",
+            error: data?.description || res.statusText || "Telegram message dispatch failed",
+          };
+        }
+        return {
+          provider: "telegram",
+          externalId: String(data.result.message_id),
+          status: "sent",
+        };
+      } catch (err) {
+        return {
+          provider: "telegram",
+          status: "failed",
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
     case "website":
     case "crm": {
       const timestamp = Date.now();
@@ -365,6 +409,11 @@ export async function resolveWorkspaceChannelCredentials(
           creds.metaGraphAccessToken = cfg.metaGraphAccessToken || cfg.pageAccessToken;
           isSharedPlatform = false;
         }
+      } else if (p === "telegram" && channel === "telegram") {
+        if (cfg.telegramBotToken || cfg.botToken || cfg.token) {
+          creds.telegramBotToken = cfg.telegramBotToken || cfg.botToken || cfg.token;
+          isSharedPlatform = false;
+        }
       }
     }
   }
@@ -378,6 +427,7 @@ export async function resolveWorkspaceChannelCredentials(
     creds.whatsappAccessToken = process.env.WHATSAPP_ACCESS_TOKEN;
     creds.whatsappPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
     creds.metaGraphAccessToken = process.env.META_PAGE_ACCESS_TOKEN;
+    creds.telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
   }
 
   return { credentials: creds, isSharedPlatform };

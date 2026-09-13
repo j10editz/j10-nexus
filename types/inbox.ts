@@ -7,7 +7,8 @@ export type InboxChannel =
   | "webchat"
   | "instagram"
   | "messenger"
-  | "whatsapp_group";
+  | "whatsapp_group"
+  | "telegram";
 
 export type InboxPriority = "low" | "medium" | "high" | "urgent";
 
