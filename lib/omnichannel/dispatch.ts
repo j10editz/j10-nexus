@@ -368,7 +368,7 @@ export async function resolveWorkspaceChannelCredentials(
 ): Promise<{ credentials: ChannelProviderCredentials; isSharedPlatform: boolean }> {
   const { data: integrations } = await supabase
     .from("integrations")
-    .select("provider, public_configuration, credential_reference, status")
+    .select("id, provider, public_configuration, credential_reference, status")
     .eq("workspace_id", workspaceId)
     .eq("status", "connected");
 
@@ -410,9 +410,30 @@ export async function resolveWorkspaceChannelCredentials(
           isSharedPlatform = false;
         }
       } else if (p === "telegram" && channel === "telegram") {
-        if (cfg.telegramBotToken || cfg.botToken || cfg.token) {
-          creds.telegramBotToken = cfg.telegramBotToken || cfg.botToken || cfg.token;
+        const directToken =
+          cfg.telegramBotToken || cfg.botToken || cfg.token || cfg.bot_token;
+        if (directToken) {
+          creds.telegramBotToken = directToken;
           isSharedPlatform = false;
+        } else if (integ.id) {
+          try {
+            const { getIntegrationCredentials } = await import(
+              "@/lib/integrations/credentials"
+            );
+            const decrypted = await getIntegrationCredentials(
+              supabase,
+              workspaceId,
+              integ.id,
+            );
+            const vaultToken =
+              decrypted?.values?.bot_token || decrypted?.values?.telegramBotToken;
+            if (vaultToken) {
+              creds.telegramBotToken = vaultToken;
+              isSharedPlatform = false;
+            }
+          } catch {
+            // Vault empty or unencrypted; proceed with platform env fallback
+          }
         }
       }
     }

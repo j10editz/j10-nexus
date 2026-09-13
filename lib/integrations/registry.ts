@@ -556,17 +556,71 @@ export const INTEGRATION_REGISTRY: Readonly<
     triggers: ["Message Received", "Member Joined"],
     actions: ["Send Message", "Assign Role", "Moderate Member"],
   }),
-  telegram: plannedProvider({
+  telegram: {
     id: "telegram",
     name: "Telegram",
-    description: "Build Telegram bots for support, sales, and notifications.",
+    shortDescription:
+      "Connect Telegram bot for verified inbound inquiries, leads, and direct chat dispatch.",
     category: "communication",
+    availability: "available",
+    iconKey: "send",
     accentColor: "#229ED9",
-    authType: "access_token",
+    auth: {
+      type: "access_token",
+      requiredScopes: [],
+      supportsRefreshTokens: false,
+      setupFields: [
+        {
+          key: "bot_token",
+          label: "Bot API Token",
+          kind: "secret",
+          required: true,
+          storage: "credential_vault",
+          placeholder: "123456789:ABCdefGHIjklMNOpqrSTUvwxYZ",
+          helpText:
+            "Telegram Bot API token provided by @BotFather.",
+        },
+        {
+          key: "webhook_secret",
+          label: "Webhook Secret Token",
+          kind: "secret",
+          required: true,
+          storage: "credential_vault",
+          placeholder: "A-Z, a-z, 0-9, _ and - characters",
+          helpText:
+            "Secret token used to authenticate webhook deliveries via X-Telegram-Bot-Api-Secret-Token.",
+        },
+        {
+          key: "bot_username",
+          label: "Bot Username",
+          kind: "text",
+          required: false,
+          storage: "connection",
+          placeholder: "@j10_nexus_leads_bot",
+          helpText:
+            "Public username of the bot for direct links and identity.",
+        },
+      ],
+    },
+    environments: ["development", "sandbox", "production"],
     webhookSupport: "bidirectional",
-    triggers: ["Message Received", "Member Joined"],
-    actions: ["Send Message", "Send Media", "Manage Chat"],
-  }),
+    supportsHealthChecks: true,
+    capabilities: [
+      capability(
+        "telegram.message.received",
+        "Message Received",
+        "trigger",
+        "Starts a workflow when an inbound Telegram message is received.",
+      ),
+      capability(
+        "telegram.message.send",
+        "Send Message",
+        "action",
+        "Sends a Telegram message to a customer or chat.",
+        true,
+      ),
+    ],
+  },
   twilio: plannedProvider({
     id: "twilio",
     name: "Twilio",
