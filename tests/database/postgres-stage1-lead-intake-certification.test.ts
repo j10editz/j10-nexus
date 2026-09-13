@@ -20,6 +20,7 @@ describe.runIf(databaseUrl)("Stage 1 lead intake certification (local Supabase P
     ownerId = randomUUID(); workspaceA = randomUUID(); workspaceB = randomUUID();
     await sql`insert into auth.users (id, email, raw_user_meta_data) values (${ownerId}::uuid, ${`stage1-${ownerId}@example.test`}, '{}'::jsonb)`;
     await sql`insert into public.workspaces (id, name, slug, brand_name, owner_user_id) values (${workspaceA}::uuid, 'Stage 1 A', ${`stage1-a-${ownerId}`}, 'Stage 1 A', ${ownerId}::uuid), (${workspaceB}::uuid, 'Stage 1 B', ${`stage1-b-${ownerId}`}, 'Stage 1 B', ${ownerId}::uuid)`;
+    await sql`insert into public.workspace_memberships(workspace_id, user_id, role, status) values (${workspaceA}::uuid, ${ownerId}::uuid, 'owner', 'active')`;
   });
 
   afterAll(async () => {
