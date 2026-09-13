@@ -45,13 +45,12 @@ jobs:
           stage1_supabase_dir="$(mktemp -d)"
           mkdir "$stage1_supabase_dir/migrations"
           cp supabase/config.toml "$stage1_supabase_dir/config.toml"
-          cp tests/database/stage1-current-schema-foundation.sql "$stage1_supabase_dir/migrations/20260000000_stage1_current_schema_foundation.sql"
-          cp supabase/migrations/20260925_stage1_lead_intake_foundation.sql "$stage1_supabase_dir/migrations/20260925001_stage1_lead_intake_foundation.sql"
           supabase --workdir "$stage1_supabase_dir" start --ignore-health-check
-          supabase --workdir "$stage1_supabase_dir" db reset --local --no-seed
           set -a
           source <(supabase --workdir "$stage1_supabase_dir" status -o env)
           set +a
+          psql "$DB_URL" --set ON_ERROR_STOP=1 --file tests/database/stage1-current-schema-foundation.sql
+          psql "$DB_URL" --set ON_ERROR_STOP=1 --file supabase/migrations/20260925_stage1_lead_intake_foundation.sql
           {
             echo "STAGE1_SUPABASE_DIR=$stage1_supabase_dir"
             echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
