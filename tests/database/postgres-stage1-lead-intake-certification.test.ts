@@ -61,4 +61,48 @@ describe.runIf(databaseUrl)("Stage 1 lead intake certification (local Supabase P
     const result = await callIntake(sql, workspaceA, "ambiguous-key", "ambiguous@example.test", "+14155550777");
     expect(result.resolution_status).toBe("ambiguous");
   });
+
+  it("enforces real PostgreSQL RLS and a tenant-scoped outbox lifecycle", async () => {
+    const intake = await callIntake(sql, workspaceA, "lifecycle-key", "lifecycle@example.test", "+14155550666");
+    const [intakeRow] = await sql`select id from public.lead_intakes where workspace_id=${workspaceA}::uuid and idempotency_key='lifecycle-key'`;
+    const wrongWorkspaceClaim = await sql`select public.claim_lead_event_outbox(${workspaceB}::uuid, ${intakeRow.id}::uuid, ${randomUUID()}::uuid) as result`;
+    expect(wrongWorkspaceClaim[0].result.claimed).toBe(false);
+
+    const firstClaim = randomUUID();
+    const claimed = await sql`select public.claim_lead_event_outbox(${workspaceA}::uuid, ${intakeRow.id}::uuid, ${firstClaim}::uuid) as result`;
+    expect(claimed[0].result.claimed).toBe(true);
+    expect(await sql`select public.complete_lead_event_outbox(${workspaceA}::uuid, ${intakeRow.id}::uuid, ${firstClaim}::uuid, false, 'temporary failure') as completed`).toMatchObject([{ completed: true }]);
+    const retryClaim = randomUUID();
+    expect(await sql`select public.claim_lead_event_outbox(${workspaceA}::uuid, ${intakeRow.id}::uuid, ${retryClaim}::uuid) as result`).toMatchObject([{ result: { claimed: true } }]);
+    expect(await sql`select public.complete_lead_event_outbox(${workspaceA}::uuid, ${intakeRow.id}::uuid, ${retryClaim}::uuid, true, null) as completed`).toMatchObject([{ completed: true }]);
+
+    await sql.begin(async (transaction) => {
+      await transaction`set local role authenticated`;
+      await transaction`select set_config('request.jwt.claim.sub', ${ownerId}, true)`;
+      const visible = await transaction`select count(*)::int as count from public.lead_intakes where workspace_id=${workspaceA}::uuid`;
+      const hidden = await transaction`select count(*)::int as count from public.lead_intakes where workspace_id=${workspaceB}::uuid`;
+      expect(visible[0].count).toBeGreaterThan(0);
+      expect(hidden[0].count).toBe(0);
+    });
+    void intake;
+  });
+
+  it("accepts a public website route submission through the local Supabase API", async () => {
+    await sql`insert into public.website_funnels(workspace_id, user_id, slug, is_published) values (${workspaceA}::uuid, ${ownerId}::uuid, ${`certification-${ownerId}`}, true)`;
+    const { POST } = await import("../../app/api/website/lead/route");
+    const response = await POST(new Request("http://stage1.local/api/website/lead", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.42" },
+      body: JSON.stringify({
+        sourceFunnel: `certification-${ownerId}`,
+        name: "Route Lead",
+        email: "route@example.test",
+        message: "Please contact me",
+        idempotencyKey: "route-certification-key",
+      }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ success: true });
+    expect(await sql`select count(*)::int as count from public.lead_intakes where workspace_id=${workspaceA}::uuid and idempotency_key='route-certification-key'`).toMatchObject([{ count: 1 }]);
+  });
 });

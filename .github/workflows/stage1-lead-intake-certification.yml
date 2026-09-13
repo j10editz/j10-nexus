@@ -12,8 +12,7 @@ on:
       - "app/api/automation/**"
       - "app/api/automations/**"
       - "tests/leads/**"
-      - "tests/database/pglite-stage1-lead-intake-certification.test.ts"
-      - "tests/database/postgres-stage1-lead-intake-certification.test.ts"
+      - "tests/database/**stage1*"
       - ".github/workflows/stage1-lead-intake-certification.yml"
   workflow_dispatch:
 
@@ -43,13 +42,22 @@ jobs:
         shell: bash
         run: |
           unset J10_PRODUCTION_DATABASE_URL
-          certification_dir="$(mktemp -d)"
-          node scripts/stage-certification-migrations.mjs supabase/migrations "$certification_dir" tests/database/legacy-pre-migration-baseline.sql
-          mv supabase/migrations supabase/migrations.historical
-          mkdir supabase/migrations
-          cp "$certification_dir"/*.sql supabase/migrations/
-          supabase start --ignore-health-check
-          supabase db reset --local --no-seed
+          stage1_supabase_dir="$(mktemp -d)"
+          mkdir "$stage1_supabase_dir/migrations"
+          cp supabase/config.toml "$stage1_supabase_dir/config.toml"
+          cp tests/database/stage1-current-schema-foundation.sql "$stage1_supabase_dir/migrations/20260000000_stage1_current_schema_foundation.sql"
+          cp supabase/migrations/20260925_stage1_lead_intake_foundation.sql "$stage1_supabase_dir/migrations/20260925001_stage1_lead_intake_foundation.sql"
+          supabase --workdir "$stage1_supabase_dir" start --ignore-health-check
+          supabase --workdir "$stage1_supabase_dir" db reset --local --no-seed
+          set -a
+          source <(supabase --workdir "$stage1_supabase_dir" status -o env)
+          set +a
+          {
+            echo "STAGE1_SUPABASE_DIR=$stage1_supabase_dir"
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
       - name: Verify migration and real PostgreSQL certification
         shell: bash
         run: |
@@ -68,4 +76,6 @@ jobs:
         shell: bash
         run: |
           unset J10_PRODUCTION_DATABASE_URL
-          supabase stop --no-backup || true
+          if [ -n "${STAGE1_SUPABASE_DIR:-}" ]; then
+            supabase --workdir "$STAGE1_SUPABASE_DIR" stop --no-backup || true
+          fi
