@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -52,6 +52,16 @@ export function PublicFunnelView({ funnel, slug }: PublicFunnelViewProps) {
   const [leadSubmitting, setLeadSubmitting] = useState(false);
   const [leadSuccess, setLeadSuccess] = useState(false);
   const [leadError, setLeadError] = useState<string | null>(null);
+  const [marketingConsent, setMarketingConsent] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState("");
+
+  useEffect(() => {
+    const storageKey = `j10-lead-intake:${slug}`;
+    const existing = window.sessionStorage.getItem(storageKey);
+    const next = existing || `lead_${crypto.randomUUID()}`;
+    window.sessionStorage.setItem(storageKey, next);
+    setIdempotencyKey(next);
+  }, [slug]);
 
   async function handleLeadSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -68,7 +78,16 @@ export function PublicFunnelView({ funnel, slug }: PublicFunnelViewProps) {
           email: leadEmail,
           message: leadMessage || `Inquiry from ${funnel.title || "landing page"}`,
           sourceFunnel: slug,
+          source: window.self !== window.top ? "widget_form" : "website_form",
           honeypot: "",
+          idempotencyKey,
+          campaign: new URLSearchParams(window.location.search).get("utm_campaign") || undefined,
+          sourceUrl: window.location.href,
+          referrer: document.referrer || undefined,
+          utm_source: new URLSearchParams(window.location.search).get("utm_source") || undefined,
+          utm_medium: new URLSearchParams(window.location.search).get("utm_medium") || undefined,
+          utm_campaign: new URLSearchParams(window.location.search).get("utm_campaign") || undefined,
+          consents: marketingConsent ? [{ status: "granted", communicationChannel: "email", purpose: "marketing", disclosureVersion: "public-funnel-v1", captureSource: window.self !== window.top ? "widget_form" : "website_form" }] : undefined,
         }),
       });
 
@@ -318,7 +337,6 @@ export function PublicFunnelView({ funnel, slug }: PublicFunnelViewProps) {
                     </label>
                     <input
                       type="tel"
-                      required
                       value={leadPhone}
                       onChange={(e) => setLeadPhone(e.target.value)}
                       placeholder="+1 (555) 000-0000"
@@ -339,6 +357,12 @@ export function PublicFunnelView({ funnel, slug }: PublicFunnelViewProps) {
                     className="mt-1 w-full rounded-xl border border-white/10 bg-[#12141A] px-3.5 py-2.5 text-xs text-white placeholder:text-zinc-600 focus:border-violet-500/50 focus:outline-none"
                   />
                 </div>
+
+                <label className="flex cursor-pointer items-start gap-2 text-xs leading-relaxed text-zinc-400">
+                  <input type="checkbox" checked={marketingConsent} onChange={(event) => setMarketingConsent(event.target.checked)} className="mt-0.5 h-3.5 w-3.5 rounded border-white/20 bg-[#12141A]" />
+                  <span>I agree to receive marketing follow-up about this inquiry. This is optional.</span>
+                </label>
+                <input aria-hidden="true" tabIndex={-1} name="website_hp" autoComplete="off" className="absolute -left-[10000px] h-px w-px opacity-0" />
 
                 <div>
                   <label className="block text-xs font-medium text-zinc-400">

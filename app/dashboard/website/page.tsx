@@ -44,6 +44,7 @@ export default function WebsitePage() {
   const [saving, setSaving] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedEmbed, setCopiedEmbed] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [viewport, setViewport] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const [activeTab, setActiveTab] = useState<"hero" | "features" | "testimonials" | "faqs" | "domain">("hero");
@@ -152,10 +153,18 @@ export default function WebsitePage() {
 
   function handleCopyPublicLink() {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const publicUrl = `${origin}/site/main`;
+    const publicUrl = `${origin}/site/${funnel?.slug || "main"}`;
     navigator.clipboard.writeText(publicUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
+  }
+
+  function handleCopyEmbedCode() {
+    const origin = window.location.origin;
+    const slug = funnel?.slug || "main";
+    navigator.clipboard.writeText(`<iframe src="${origin}/site/${slug}#lead-form" title="Contact form" loading="lazy" style="width:100%;min-height:760px;border:0;border-radius:16px;overflow:hidden" allow="clipboard-write"></iframe>`);
+    setCopiedEmbed(true);
+    setTimeout(() => setCopiedEmbed(false), 2500);
   }
 
   return (
@@ -223,6 +232,15 @@ export default function WebsitePage() {
             >
               {copiedLink ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
               <span>{copiedLink ? "Copied" : "Copy Link"}</span>
+            </button>
+
+            <button
+              onClick={handleCopyEmbedCode}
+              className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white/70 hover:bg-white/10 hover:text-white transition"
+              title="Copy installable lead-form embed code"
+            >
+              {copiedEmbed ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+              <span>{copiedEmbed ? "Embed copied" : "Copy embed"}</span>
             </button>
 
             {/* Visit Live Page */}

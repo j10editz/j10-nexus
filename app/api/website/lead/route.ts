@@ -129,9 +129,10 @@ export async function POST(request: Request) {
     }
 
     // 7. Server-resolved tenant + one transactional intake/outbox write.
+    const source = body.source === "widget_form" ? "widget_form" : "website_form";
     const intake = await recordCanonicalLeadIntake(admin, {
       workspaceId: funnel.workspace_id,
-      source: "website_form",
+      source,
       channel: "website",
       idempotencyKey,
       name,
@@ -141,6 +142,7 @@ export async function POST(request: Request) {
       campaign: typeof body.campaign === "string" ? body.campaign : null,
       attribution: {
         source_url: String(body.sourceUrl || "").slice(0, 500) || null,
+        referrer: String(body.referrer || request.headers.get("referer") || "").slice(0, 500) || null,
         utm_source: typeof body.utm_source === "string" ? body.utm_source.slice(0, 200) : null,
         utm_medium: typeof body.utm_medium === "string" ? body.utm_medium.slice(0, 200) : null,
         utm_campaign: typeof body.utm_campaign === "string" ? body.utm_campaign.slice(0, 200) : null,
