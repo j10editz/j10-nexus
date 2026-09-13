@@ -63,6 +63,12 @@ export default function UnifiedInboxPage() {
   const [isSending, setIsSending] = useState(false);
   const [statusNotice, setStatusNotice] = useState("");
 
+  // Setter CRM reference sidebar states
+  const [aiBotEnabled, setAiBotEnabled] = useState(true);
+  const [contactNotes, setContactNotes] = useState("");
+  const [contactTags, setContactTags] = useState<string[]>(["Inbound Lead"]);
+  const [newTagInput, setNewTagInput] = useState("");
+
   // Stripe checkout generator state inside drawer
   const [stripeAmount, setStripeAmount] = useState<number>(4800);
   const [stripeProduct, setStripeProduct] = useState("Enterprise AI Rollout");
@@ -156,6 +162,14 @@ export default function UnifiedInboxPage() {
 
   const totalPipelineValue = useMemo(() => {
     return threads.reduce((sum, t) => sum + t.estimatedValue, 0);
+  }, [threads]);
+
+  const channelCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: threads.length };
+    for (const t of threads) {
+      counts[t.channel] = (counts[t.channel] || 0) + 1;
+    }
+    return counts;
   }, [threads]);
 
   function handleSelectThread(id: string) {
@@ -451,34 +465,42 @@ export default function UnifiedInboxPage() {
         <div className="flex flex-col border-r border-white/[0.08] bg-[#0C0D10] lg:col-span-4 xl:col-span-3">
           {/* Channel Selector Tabs */}
           <div className="border-b border-white/[0.08] p-3">
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 text-xs">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
               {(
                 [
-                  { id: "all", label: "All" },
+                  { id: "all", label: "Todos" },
                   { id: "whatsapp", label: "WhatsApp" },
                   { id: "telegram", label: "Telegram" },
-                  { id: "email", label: "Email" },
-                  { id: "sms", label: "SMS" },
-                  { id: "webchat", label: "WebChat" },
                   { id: "instagram", label: "Instagram" },
                   { id: "messenger", label: "Messenger" },
+                  { id: "webchat", label: "WebChat" },
+                  { id: "email", label: "Email" },
+                  { id: "sms", label: "SMS" },
                   { id: "whatsapp_group", label: "Groups" },
                   { id: "crm", label: "CRM" },
                 ] as const
               ).map((tab) => {
+                const count = channelCounts[tab.id] ?? 0;
                 const isSelected = channelFilter === tab.id;
                 return (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => setChannelFilter(tab.id as any)}
-                    className={`shrink-0 rounded-md px-2.5 py-1 text-center text-xs font-medium transition ${
+                    className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-center text-xs font-medium transition ${
                       isSelected
-                        ? "bg-white/15 text-white shadow-sm"
-                        : "text-white/40 hover:text-white/80"
+                        ? "bg-white/20 text-white shadow-sm ring-1 ring-white/30"
+                        : "bg-white/[0.03] text-white/50 hover:bg-white/[0.08] hover:text-white"
                     }`}
                   >
-                    {tab.label}
+                    <span>{tab.label}</span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                        count > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-white/30"
+                      }`}
+                    >
+                      {count}
+                    </span>
                   </button>
                 );
               })}
@@ -951,35 +973,118 @@ export default function UnifiedInboxPage() {
         <div className="flex flex-col overflow-y-auto bg-[#0C0D10] p-4 lg:col-span-3 xl:col-span-3">
           {activeThread ? (
             <div className="space-y-5">
-              {/* Profile & Value Header */}
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] uppercase tracking-wider text-white/40">
-                    Deal Intelligence
+              {/* Detalles del contacto Header (Matches Setter CRM reference) */}
+              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+                <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
+                  <span className="text-xs font-semibold text-white">
+                    Detalles del contacto
                   </span>
-                  <span className="text-sm font-bold text-emerald-400">
-                    ${activeThread.estimatedValue.toLocaleString()} USD
+                  <span
+                    className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+                      CHANNEL_METADATA[activeThread.channel].badgeClass
+                    }`}
+                  >
+                    {CHANNEL_METADATA[activeThread.channel].label}
                   </span>
                 </div>
 
-                <h3 className="mt-2 text-sm font-semibold text-white">
-                  {activeThread.contactName}
-                </h3>
-                <p className="text-xs text-white/50">{activeThread.company || "Private Entity"}</p>
+                <div className="mt-4 flex flex-col items-center text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-500/20 text-base font-bold text-indigo-300 ring-2 ring-indigo-500/30">
+                    {activeThread.contactName
+                      .split(" ")
+                      .map((n) => n[0])
+                      .slice(0, 2)
+                      .join("")}
+                  </div>
+                  <h3 className="mt-2 text-sm font-semibold text-white">
+                    {activeThread.contactName}
+                  </h3>
+                  <p className="text-xs text-white/50">{activeThread.contactIdentifier}</p>
+                </div>
 
-                <div className="mt-3 space-y-1.5 border-t border-white/[0.06] pt-2.5 text-xs text-white/60">
-                  <div className="flex items-center gap-2">
-                    <Phone size={12} className="text-white/40" />
-                    <span>{activeThread.contactIdentifier}</span>
+                {/* AGENTE IA Toggle Button */}
+                <div className="mt-4 rounded-lg border border-white/[0.06] bg-black/40 p-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-white/80">
+                      <Bot size={14} className="text-blue-400" />
+                      AGENTE IA
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        aiBotEnabled
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-white/10 text-white/40"
+                      }`}
+                    >
+                      {aiBotEnabled ? "ON" : "OFF"}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Globe size={12} className="text-white/40" />
-                    <span>Channel: {CHANNEL_METADATA[activeThread.channel].label}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAiBotEnabled(!aiBotEnabled)}
+                    className="mt-2 w-full rounded-md border border-white/[0.08] bg-white/[0.04] py-1 text-xs font-medium text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+                  >
+                    {aiBotEnabled ? "Apagar bot" : "Activar bot"}
+                  </button>
+                </div>
+
+                {/* ETIQUETAS */}
+                <div className="mt-4 border-t border-white/[0.06] pt-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                    ETIQUETAS
+                  </span>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {contactTags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="flex items-center gap-1 rounded-md bg-white/[0.06] px-2 py-0.5 text-[11px] text-white/80"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => setContactTags(contactTags.filter((t) => t !== tag))}
+                          className="text-white/40 hover:text-white"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <User size={12} className="text-white/40" />
-                    <span>Priority: {activeThread.priority.toUpperCase()}</span>
+                  <div className="mt-2 flex gap-1">
+                    <input
+                      type="text"
+                      value={newTagInput}
+                      onChange={(e) => setNewTagInput(e.target.value)}
+                      placeholder="Nueva etiqueta..."
+                      className="w-full rounded border border-white/[0.08] bg-black/40 px-2 py-1 text-[11px] text-white focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newTagInput.trim()) {
+                          setContactTags([...contactTags, newTagInput.trim()]);
+                          setNewTagInput("");
+                        }
+                      }}
+                      className="rounded border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 hover:bg-white/[0.08]"
+                    >
+                      Agregar
+                    </button>
                   </div>
+                </div>
+
+                {/* NOTAS */}
+                <div className="mt-4 border-t border-white/[0.06] pt-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                    NOTAS
+                  </span>
+                  <textarea
+                    rows={2}
+                    value={contactNotes}
+                    onChange={(e) => setContactNotes(e.target.value)}
+                    placeholder="Agregar notas sobre este contacto..."
+                    className="mt-1.5 w-full rounded border border-white/[0.08] bg-black/40 p-2 text-xs text-white placeholder:text-white/30 focus:outline-none"
+                  />
                 </div>
               </div>
 
