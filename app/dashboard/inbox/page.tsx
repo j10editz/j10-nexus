@@ -78,6 +78,11 @@ export default function UnifiedInboxPage() {
 
   // Auto-scroll anchor ref for active chat stream
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const selectedThreadIdRef = useRef<string>(selectedThreadId);
+
+  useEffect(() => {
+    selectedThreadIdRef.current = selectedThreadId;
+  }, [selectedThreadId]);
 
   // Fetch full messages for active thread
   const fetchThreadMessages = useCallback(async (threadId: string) => {
@@ -142,51 +147,94 @@ export default function UnifiedInboxPage() {
     void loadThreads();
   }, [loadThreads]);
 
-  // Supabase Realtime subscription for instant message arrivals without constant full polling
+  // Immediately load messages when selected thread changes
   useEffect(() => {
-    if (!selectedThreadId || !isLivePersisted) return;
+    if (selectedThreadId) {
+      void fetchThreadMessages(selectedThreadId);
+    }
+  }, [selectedThreadId, fetchThreadMessages]);
 
-    void fetchThreadMessages(selectedThreadId);
+  // Supabase Realtime subscription + responsive 3s live sync for instant message arrivals
+  useEffect(() => {
+    if (!isLivePersisted) return;
 
-    // 1. Supabase Realtime channel
+    // 1. Supabase Realtime channel for live table updates
     const supabase = createClient();
     const channel = supabase
-      .channel(`inbox_thread_${selectedThreadId}`)
+      .channel("inbox_live_global")
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "inbox_messages",
-          filter: `thread_id=eq.${selectedThreadId}`,
+        },
+        (payload: any) => {
+          const currentThreadId = selectedThreadIdRef.current;
+          if (currentThreadId && (payload?.new?.thread_id === currentThreadId || !payload?.new?.thread_id)) {
+            void fetchThreadMessages(currentThreadId);
+          }
+          void loadThreads(true);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "inbox_threads",
         },
         () => {
-          void fetchThreadMessages(selectedThreadId);
+          void loadThreads(true);
+          const currentThreadId = selectedThreadIdRef.current;
+          if (currentThreadId) {
+            void fetchThreadMessages(currentThreadId);
+          }
         }
       )
       .subscribe();
 
-    // 2. Fallback polling with exponential backoff on inactive tabs
-    let pollIntervalMs = 12000;
+    // 2. Responsive polling fallback: 3s when tab is active, 15s when hidden
+    let pollIntervalMs = 3000;
     let fallbackTimer: NodeJS.Timeout;
+
+    const triggerSync = () => {
+      void loadThreads(true);
+      const currentThreadId = selectedThreadIdRef.current;
+      if (currentThreadId) {
+        void fetchThreadMessages(currentThreadId);
+      }
+    };
 
     const cursorPoll = () => {
       if (document.hidden) {
-        pollIntervalMs = Math.min(pollIntervalMs * 1.5, 60000);
+        pollIntervalMs = 15000;
       } else {
-        pollIntervalMs = 12000;
-        void fetchThreadMessages(selectedThreadId);
+        pollIntervalMs = 3000;
+        triggerSync();
       }
       fallbackTimer = setTimeout(cursorPoll, pollIntervalMs);
     };
 
     fallbackTimer = setTimeout(cursorPoll, pollIntervalMs);
 
+    // Sync immediately upon tab regaining focus or visibility
+    const handleVisibilityOrFocus = () => {
+      if (!document.hidden) {
+        triggerSync();
+      }
+    };
+
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
     return () => {
       void supabase.removeChannel(channel);
       clearTimeout(fallbackTimer);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
     };
-  }, [selectedThreadId, isLivePersisted, fetchThreadMessages]);
+  }, [isLivePersisted, fetchThreadMessages, loadThreads]);
 
   const activeThread = useMemo(() => {
     return threads.find((t) => t.id === selectedThreadId) || threads[0] || null;
