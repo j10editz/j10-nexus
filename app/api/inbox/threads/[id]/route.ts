@@ -105,6 +105,7 @@ export async function GET(
       assignedSpecialist: thread.metadata?.assignedSpecialist || "AI Sales Specialist",
       lastMessageSnippet: thread.metadata?.lastMessageSnippet || "",
       lastMessageTimestamp: thread.last_message_at,
+      metadata: thread.metadata || {},
       messages,
       checkouts: checkouts || [],
     };
@@ -119,5 +120,82 @@ export async function GET(
       { success: false, error: "Internal server error." },
       { status: 500 }
     );
+  }
+}
+
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const context = await getActiveWorkspaceContext();
+    if (!context) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized." },
+        { status: 401 }
+      );
+    }
+
+    const { id: threadId } = await params;
+    const wsId = context.workspace.id;
+    const supabase = createServerSupabaseClient();
+    const body = await req.json();
+
+    const { data: existing } = await supabase
+      .from("inbox_threads")
+      .select("id, metadata, priority, status")
+      .eq("id", threadId)
+      .eq("workspace_id", wsId)
+      .maybeSingle();
+
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, error: "Thread not found." },
+        { status: 404 }
+      );
+    }
+
+    const updatedMetadata = {
+      ...(existing.metadata || {}),
+      ...(body.metadata || {}),
+    };
+
+    // Dedicated operator AI toggle control (Requirement 8)
+    if (body.aiBotEnabled !== undefined) {
+      const isEnabled = Boolean(body.aiBotEnabled);
+      updatedMetadata.aiBotEnabled = isEnabled;
+      if (isEnabled) {
+        updatedMetadata.humanHandoff = false;
+        updatedMetadata.operatorResumedAt = new Date().toISOString();
+      } else {
+        updatedMetadata.humanHandoff = true;
+        updatedMetadata.operatorPausedAt = new Date().toISOString();
+      }
+    }
+
+    const updatePayload: Record<string, any> = {
+      metadata: updatedMetadata,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (body.priority) updatePayload.priority = body.priority;
+    if (body.status) updatePayload.status = body.status;
+
+    const { data: updated, error } = await supabase
+      .from("inbox_threads")
+      .update(updatePayload)
+      .eq("id", threadId)
+      .eq("workspace_id", wsId)
+      .select("id, metadata, priority, status")
+      .single();
+
+    if (error) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, thread: updated });
+  } catch (error: any) {
+    console.error("PATCH /api/inbox/threads/[id] error:", error);
+    return NextResponse.json({ success: false, error: error?.message || "Internal server error." }, { status: 500 });
   }
 }

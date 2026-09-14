@@ -19,12 +19,8 @@ const GEMINI_API_KEY =
   "";
 
 const CANDIDATE_MODELS = [
-  "gemini-2.5-flash",
   "gemini-3.8-flash",
-  "gemini-flash-latest",
-  "gemini-3.5-flash",
-  "gemini-3.1-flash-lite",
-  "gemini-flash-lite-latest",
+  "gemini-3.5-flash-lite",
 ];
 
 // Helper to call Gemini API directly matching lib/ai/telegram-assistant.ts
@@ -150,11 +146,11 @@ function handleDeterministic(command, config, brandName) {
 
   if (lower === "/privacy") {
     return (
-      `🔒 <b>Privacy Policy & Data Use - ${businessName}</b>\n\n` +
+      `🔒 <b>Privacy Policy & Subprocessor Disclosure - ${businessName}</b>\n\n` +
       `Your privacy and confidentiality are paramount.\n\n` +
-      `• <b>Data Collected:</b> Only messages and contact info you voluntarily share.\n` +
-      `• <b>Usage:</b> Exclusively to answer questions and fulfill client requests.\n` +
-      `• <b>No Third-Party Sharing:</b> We never sell or share your data.\n\n` +
+      `• <b>AI Processing Subprocessor:</b> Customer messages are processed by our configured AI provider (Google Gemini) for automated customer assistance.\n` +
+      `• <b>PII Protection:</b> Sensitive customer contact info is redacted before prompt transmission.\n` +
+      `• <b>AI Tier Policy:</b> Free tiers are restricted to internal testing; paid client workspaces utilize paid API tiers.\n\n` +
       `Full privacy policy:\n🔗 <a href="${config.privacy_policy_url}">${config.privacy_policy_url}</a>`
     );
   }
@@ -338,8 +334,8 @@ async function runCertification() {
   assertTest(
     "Scenario 5: Privacy Policy (/privacy)",
     privacyReply.includes("https://apexhealth.example.com/privacy") &&
-      privacyReply.includes("No Third-Party Sharing"),
-    `Concise data-use explanation with verified privacy policy URL.`
+      privacyReply.includes("Google Gemini"),
+    `Truthful subprocessor disclosure with verified privacy policy URL.`
   );
 
   // 6. HUMAN SPECIALIST HANDOFF (/human & /agent)

@@ -59,22 +59,37 @@ export function formatTelegramHtml(text: string): { html: string; plain: string 
 }
 
 /**
- * Active Google Gemini models (deprecated 2.5/2.0/1.5 flash models removed).
+ * Exact Google Gemini models:
+ * Primary: gemini-3.8-flash
+ * Fallback: gemini-3.5-flash-lite
  */
-const CANDIDATE_MODELS = [
-  "gemini-2.5-flash",
-  "gemini-3.8-flash",
-  "gemini-flash-latest",
-  "gemini-3.5-flash",
-  "gemini-3.1-flash-lite",
-  "gemini-flash-lite-latest",
-];
+const PRIMARY_MODEL = "gemini-3.8-flash";
+const FALLBACK_MODEL = "gemini-3.5-flash-lite";
 
 // Fallback key if neither environment nor vault configured
 const DEFAULT_GEMINI_KEY = process.env.GEMINI_API_KEY?.trim() || "";
 
 /**
- * Calls Google Gemini LLM with strict 8-second timeout, multi-model fallback, and prompt guardrails.
+ * Redacts PII (emails, phone numbers, payment card numbers, SSNs) from text
+ * before transmitting to external AI model providers.
+ */
+export function redactPii(text: string): string {
+  if (!text) return text;
+  return text
+    // Email addresses
+    .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi, "[email redacted]")
+    // Phone numbers (international, formatted, standard 10-digit)
+    .replace(/(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g, "[phone redacted]")
+    // Credit card / payment card numbers (13-19 digits with spaces or hyphens)
+    .replace(/\b(?:\d[ -]*?){13,19}\b/g, "[payment info redacted]")
+    // Social Security Numbers (US format)
+    .replace(/\b\d{3}-\d{2}-\d{4}\b/g, "[ssn redacted]");
+}
+
+/**
+ * Calls Google Gemini LLM with strict 8-second timeout, primary/fallback failover,
+ * and prompt guardrails. Logs model name, latency, success/failure and token usage
+ * without storing prompts, responses, API keys or PII in application logs.
  */
 export async function callGeminiAPI(
   apiKey: string,
@@ -84,15 +99,18 @@ export async function callGeminiAPI(
 ): Promise<string | null> {
   const contents = history.map((h) => ({
     role: h.role,
-    parts: [{ text: h.text }],
+    parts: [{ text: redactPii(h.text) }],
   }));
 
   contents.push({
     role: "user",
-    parts: [{ text: prompt }],
+    parts: [{ text: redactPii(prompt) }],
   });
 
-  for (const model of CANDIDATE_MODELS) {
+  const modelsToTry = [PRIMARY_MODEL, FALLBACK_MODEL];
+
+  for (const model of modelsToTry) {
+    const startTime = Date.now();
     try {
       const reply = await new Promise<string>((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -127,6 +145,24 @@ export async function callGeminiAPI(
               try {
                 const json = JSON.parse(data);
                 if (json.candidates?.[0]?.content?.parts?.[0]?.text) {
+                  // Capture token usage from response without storing prompts or PII
+                  const promptTokens = json.usageMetadata?.promptTokenCount || 0;
+                  const candidateTokens = json.usageMetadata?.candidatesTokenCount || 0;
+                  const totalTokens = json.usageMetadata?.totalTokenCount || 0;
+                  const latencyMs = Date.now() - startTime;
+
+                  console.log(
+                    JSON.stringify({
+                      event: "ai_telemetry",
+                      model,
+                      latency_ms: latencyMs,
+                      status: "success",
+                      prompt_tokens: promptTokens,
+                      candidate_tokens: candidateTokens,
+                      total_tokens: totalTokens,
+                    })
+                  );
+
                   resolve(json.candidates[0].content.parts[0].text.trim());
                 } else {
                   reject(new Error(json.error?.message || `HTTP ${res.statusCode}`));
@@ -148,8 +184,18 @@ export async function callGeminiAPI(
       });
 
       if (reply) return reply;
-    } catch (err) {
-      // Try next model immediately
+    } catch (err: any) {
+      const latencyMs = Date.now() - startTime;
+      console.log(
+        JSON.stringify({
+          event: "ai_telemetry",
+          model,
+          latency_ms: latencyMs,
+          status: "failure",
+          error_type: err?.name || "ApiError",
+        })
+      );
+      // Failover to next model
       continue;
     }
   }
@@ -289,10 +335,12 @@ export async function handleDeterministicCommands(
   if (cleanCmd === "/book" || cleanCmd.startsWith("/book")) {
     let text = `📅 <b>Schedule with ${botConfig.business_name || brandName}</b>\n\n`;
     if (botConfig.booking_link) {
-      text += `You can book directly on our calendar here:\n👉 <a href="${botConfig.booking_link}">${botConfig.booking_link}</a>\n\n`;
+      text += `👉 <b>Open booking calendar:</b> <a href="${botConfig.booking_link}">${botConfig.booking_link}</a>\n\n`;
+    } else {
+      text += `👉 <b>Request appointment:</b>\n`;
     }
     text += `🕒 <b>Business Hours:</b> ${botConfig.business_hours || "Mon-Fri 9AM-6PM"}\n\n`;
-    text += `Or reply directly here with your <b>preferred day and time</b> and what service you are interested in!`;
+    text += `To request an appointment, please reply directly here with your <b>preferred date and time</b> and what service you are interested in!`;
 
     // Flag thread for appointment intake
     await supabase
@@ -322,10 +370,12 @@ export async function handleDeterministicCommands(
   // /privacy command
   if (cleanCmd === "/privacy") {
     const url = botConfig.privacy_policy_url || "https://j10-nexus.vercel.app/privacy";
-    return `🔒 <b>Privacy & Data Policy</b>\n\n` +
-      `<b>${botConfig.business_name || brandName}</b> respects your data and confidentiality. Messages exchanged here are used strictly to provide customer service, schedule appointments, and coordinate client services.\n\n` +
-      `• We never sell or share your contact info with third parties.\n` +
-      `• You can request complete deletion of your chat history at any time.\n\n` +
+    return `🔒 <b>Privacy Policy & Subprocessor Disclosure</b>\n\n` +
+      `<b>${botConfig.business_name || brandName}</b> values your privacy and data security.\n\n` +
+      `• <b>AI Processing Subprocessor:</b> Customer messages are processed by our configured AI provider (Google Gemini) strictly for automated customer assistance and conversational support.\n` +
+      `• <b>PII Protection:</b> Personal details (phone numbers, emails, payment cards) are automatically redacted before sending prompts to AI models.\n` +
+      `• <b>AI Tier Policy:</b> Free Gemini tiers are restricted to internal testing/demos. Production client conversations utilize paid API tiers to ensure customer content is not used for model training.\n` +
+      `• <b>Human Escalation:</b> Type <b>/human</b> or <b>/agent</b> at any time to pause AI and speak with a team member.\n\n` +
       `Full privacy policy:\n<a href="${url}">${url}</a>`;
   }
 
@@ -385,13 +435,18 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
     return "";
   }
 
-  // Check human handoff command (/human, /agent)
+  // Check human handoff commands (/human, /agent) - BOTH always activate human handoff and stop AI
+  // Only an authorized dashboard operator can resume AI through a dedicated control
   if (
     lower === "/human" ||
+    lower === "/agent" ||
     lower === "human" ||
+    lower === "agent" ||
+    lower === "/operator" ||
     lower.includes("talk to human") ||
     lower.includes("real person") ||
-    lower.includes("speak to someone")
+    lower.includes("speak to someone") ||
+    lower.includes("speak with a person")
   ) {
     await supabase
       .from("inbox_threads")
@@ -407,29 +462,9 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
       .eq("id", threadId)
       .eq("workspace_id", workspaceId);
 
-    const handoffNotice = `🤝 <b>Human Specialist Alerted</b>\n\nI have paused automated responses and notified our team at <b>${businessName}</b>. An executive specialist will respond to you directly here shortly.\n\n${botConfig.escalation_instructions || "Would you prefer a callback or email in the meantime?"}`;
+    const handoffNotice = `🤝 <b>Human Specialist Alerted</b>\n\nAutomated AI assistance has been paused for this conversation, and our team at <b>${businessName}</b> has been alerted. An executive specialist will respond to you directly here.\n\n<i>(To ensure service quality, automated AI can only be resumed by an authorized team operator from the dashboard.)</i>\n\n${botConfig.escalation_instructions || "Would you prefer a callback or email in the meantime?"}`;
     await sendTelegramOutbound(supabase, workspaceId, threadId, chatId, handoffNotice, token, businessName);
     return handoffNotice;
-  }
-
-  // Support /agent to re-enable AI
-  if (lower === "/agent" || lower === "agent" || lower === "/bot" || lower.includes("enable ai") || lower.includes("talk to bot")) {
-    await supabase
-      .from("inbox_threads")
-      .update({
-        metadata: {
-          ...threadMeta,
-          aiBotEnabled: true,
-          humanHandoff: false,
-          agentReactivatedAt: new Date().toISOString(),
-        },
-      })
-      .eq("id", threadId)
-      .eq("workspace_id", workspaceId);
-
-    const agentNotice = `🤖 <b>24/7 AI Assistant Reactivated</b>\n\nI am back online and ready to assist you on behalf of <b>${businessName}</b>. How can I help you right now?`;
-    await sendTelegramOutbound(supabase, workspaceId, threadId, chatId, agentNotice, token, businessName);
-    return agentNotice;
   }
 
   // 3. Check Deterministic Commands BEFORE the LLM
@@ -477,7 +512,7 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
     console.warn("Could not fetch past message history:", err);
   }
 
-  // 6. Fetch Existing Lead Information so the AI never re-asks
+  // 6. Fetch Existing Lead Information with PII protection (do not send raw phone/email/cards to AI)
   let knownLeadInfo = "";
   if (thread?.contact_id) {
     const { data: contact } = await supabase
@@ -489,11 +524,10 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
     if (contact) {
       const parts = [];
       if (contact.name) parts.push(`Name: ${contact.name}`);
-      if (contact.email) parts.push(`Email: ${contact.email}`);
-      if (contact.phone) parts.push(`Phone: ${contact.phone}`);
       if (contact.company) parts.push(`Company: ${contact.company}`);
+      if (contact.email || contact.phone) parts.push(`Contact info: [already securely on file in CRM]`);
       if (parts.length > 0) {
-        knownLeadInfo = `Known Customer Details: ${parts.join(", ")}. DO NOT re-ask for these details!`;
+        knownLeadInfo = `Customer Profile: ${parts.join(", ")}. DO NOT re-ask for details already captured!`;
       }
     }
   }
@@ -544,10 +578,11 @@ RESPONSE GUIDELINES:
 
   let replyText = "";
 
-  // 9. Execute LLM Call with Grounding and 8s Timeout
+  // 9. Execute LLM Call with Grounding, PII Redaction, and 8s Timeout
   if (geminiKey) {
     try {
-      const aiReply = await callGeminiAPI(geminiKey, messageText, systemInstruction, history);
+      const sanitizedPrompt = redactPii(messageText);
+      const aiReply = await callGeminiAPI(geminiKey, sanitizedPrompt, systemInstruction, history);
       if (aiReply) {
         replyText = aiReply;
       }

@@ -268,6 +268,31 @@ export default function UnifiedInboxPage() {
     }
   }, [activeThread?.id, activeThread?.channel]);
 
+  // Sync AI bot status from active thread metadata (Requirement 8: operator resume control)
+  useEffect(() => {
+    if (activeThread) {
+      const meta = (activeThread as any).metadata || {};
+      const isEnabled = meta.aiBotEnabled !== false && meta.humanHandoff !== true;
+      setAiBotEnabled(isEnabled);
+    }
+  }, [activeThread?.id, (activeThread as any)?.metadata?.aiBotEnabled, (activeThread as any)?.metadata?.humanHandoff]);
+
+  const handleToggleAiBot = async () => {
+    if (!activeThread?.id) return;
+    const nextState = !aiBotEnabled;
+    setAiBotEnabled(nextState);
+    try {
+      await fetch(`/api/inbox/threads/${activeThread.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aiBotEnabled: nextState }),
+      });
+      void loadThreads(true);
+    } catch (err) {
+      console.error("Failed to toggle AI bot status:", err);
+    }
+  };
+
   const filteredThreads = useMemo(() => {
     let result = filterInboxThreads(threads, {
       channel: channelFilter,
@@ -1184,7 +1209,7 @@ export default function UnifiedInboxPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setAiBotEnabled(!aiBotEnabled)}
+                    onClick={handleToggleAiBot}
                     className="mt-2 w-full rounded-md border border-white/[0.08] bg-white/[0.04] py-1 text-xs font-medium text-white/70 transition hover:bg-white/[0.08] hover:text-white"
                   >
                     {aiBotEnabled ? "Apagar bot" : "Activar bot"}
