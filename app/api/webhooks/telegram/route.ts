@@ -1,13 +1,32 @@
 import { NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { createWebhookServiceClient } from "@/lib/integrations/webhooks/service-client";
 import { persistCanonicalTelegramInbound } from "@/lib/omnichannel/provider-contract";
 import { consumeTelegramBindingToken } from "@/lib/telegram/binding-token";
+import { consumeTelegramBusinessSession, findVerifiedSessionByTelegramUserId } from "@/lib/telegram/connection-session";
+import {
+  getTelegramBusinessConnectionById,
+  upsertTelegramBusinessConnection,
+  markBusinessConnectionDisconnected,
+  verifyBusinessConnectionCanReply,
+} from "@/lib/telegram/business-connections";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // In-memory deduplication set for update_id replay prevention
 const processedUpdateIds = new Set<number>();
+
+/**
+ * Constant-time comparison for webhook secret tokens to prevent timing attacks.
+ */
+function verifySecretToken(received?: string | null, expected?: string | null): boolean {
+  if (!received || !expected) return false;
+  const bufRecv = Buffer.from(received.trim());
+  const bufExp = Buffer.from(expected.trim());
+  if (bufRecv.length !== bufExp.length) return false;
+  return crypto.timingSafeEqual(bufRecv, bufExp);
+}
 
 export async function POST(request: Request) {
   try {
@@ -19,10 +38,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Strictly verify webhook secret token
+    // 1. Strictly verify webhook secret token using constant-time comparison
     const expectedSecret = (process.env.TELEGRAM_WEBHOOK_SECRET || "j10_nexus_telegram_secret").trim();
-    const receivedSecret = request.headers.get("x-telegram-bot-api-secret-token")?.trim();
-    if (!receivedSecret || receivedSecret !== expectedSecret) {
+    const receivedSecret = request.headers.get("x-telegram-bot-api-secret-token");
+    if (!verifySecretToken(receivedSecret, expectedSecret)) {
       return NextResponse.json(
         { error: "Unauthorized: Missing or invalid X-Telegram-Bot-Api-Secret-Token" },
         { status: 401 }
@@ -30,17 +49,26 @@ export async function POST(request: Request) {
     }
 
     const update = await request.json();
-    if (!update || (!update.update_id && !update.message && !update.chat_join_request && !update.callback_query)) {
-      return NextResponse.json({ ok: true, ignored: true });
+    if (
+      !update ||
+      (!update.update_id &&
+        !update.message &&
+        !update.edited_message &&
+        !update.business_message &&
+        !update.edited_business_message &&
+        !update.business_connection &&
+        !update.deleted_business_messages &&
+        !update.chat_join_request &&
+        !update.callback_query)
+    ) {
+      return NextResponse.json({ ok: true });
     }
 
-    const supabase = createWebhookServiceClient();
-
-    // 2. Duplicate update replay prevention
+    // 2. Duplicate update replay prevention (bot-scoped + update_id)
     const updateId = update.update_id;
     if (typeof updateId === "number") {
       if (processedUpdateIds.has(updateId)) {
-        return NextResponse.json({ ok: true, duplicate: true });
+        return NextResponse.json({ ok: true });
       }
       processedUpdateIds.add(updateId);
       if (processedUpdateIds.size > 20000) {
@@ -48,14 +76,15 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3. Mandatory Correction 8: Handle VIP Group Join Requests
+    const supabase = createWebhookServiceClient();
+
+    // 3. Handle VIP Group Join Requests
     if (update.chat_join_request) {
       const cjr = update.chat_join_request;
       const groupChatId = String(cjr.chat?.id);
       const joiningUserId = String(cjr.from?.id);
       const inviteLinkStr = cjr.invite_link?.invite_link;
 
-      // Find pending or eligible membership
       const { data: membership } = await supabase
         .from("telegram_group_memberships")
         .select("id, workspace_id, contact_id, status")
@@ -66,7 +95,6 @@ export async function POST(request: Request) {
         .maybeSingle();
 
       if (membership && membership.status !== "banned") {
-        // Fetch bot token for this workspace
         const { data: integ } = await supabase
           .from("integrations")
           .select("id")
@@ -82,7 +110,6 @@ export async function POST(request: Request) {
         }
 
         if (botToken) {
-          // Approve verified identity
           await fetch(`https://api.telegram.org/bot${botToken}/approveChatJoinRequest`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -92,7 +119,6 @@ export async function POST(request: Request) {
             }),
           });
 
-          // Immediately revoke the invite link so it cannot be shared
           if (inviteLinkStr) {
             await fetch(`https://api.telegram.org/bot${botToken}/revokeChatInviteLink`, {
               method: "POST",
@@ -104,7 +130,6 @@ export async function POST(request: Request) {
             });
           }
 
-          // Mark membership approved and clear plaintext invite_link (Requirement 8)
           await supabase
             .from("telegram_group_memberships")
             .update({
@@ -116,37 +141,158 @@ export async function POST(request: Request) {
             })
             .eq("id", membership.id);
 
-          return NextResponse.json({ ok: true, approved_join: true, user_id: joiningUserId });
+          return NextResponse.json({ ok: true });
         }
       }
 
-      return NextResponse.json({ ok: true, join_request_declined: true });
+      return NextResponse.json({ ok: true });
     }
 
-    if (!update.message && !update.edited_message) {
-      return NextResponse.json({ ok: true, ignored: true });
+    // 4. Handle Telegram Business Connection Updates (Secretary Mode Activation & Rights Changes)
+    if (update.business_connection) {
+      const bc = update.business_connection;
+      const bcId = String(bc.id);
+      const tgUserId = String(bc.user?.id);
+      const tgUsername = bc.user?.username || null;
+      const userChatId = String(bc.user_chat_id || tgUserId);
+      const canReply = Boolean(bc.can_reply);
+      const isEnabled = Boolean(bc.is_enabled);
+
+      let targetWorkspaceId: string | null = null;
+      const existingConn = await getTelegramBusinessConnectionById(supabase, bcId);
+
+      if (existingConn) {
+        targetWorkspaceId = existingConn.workspace_id;
+      } else {
+        const verifiedSession = await findVerifiedSessionByTelegramUserId(supabase, tgUserId);
+        if (verifiedSession.status === "matched" && verifiedSession.workspaceId) {
+          targetWorkspaceId = verifiedSession.workspaceId;
+        } else if (verifiedSession.status === "ambiguous") {
+          console.warn("[Telegram Webhook] Ambiguous business connection session:", verifiedSession.error);
+          return NextResponse.json({ ok: true });
+        } else {
+          console.warn("[Telegram Webhook] No verified session found for business connection:", tgUserId);
+          return NextResponse.json({ ok: true });
+        }
+      }
+
+      if (targetWorkspaceId) {
+        await upsertTelegramBusinessConnection(supabase, {
+          workspaceId: targetWorkspaceId,
+          businessConnectionId: bcId,
+          telegramUserId: tgUserId,
+          telegramUsername: tgUsername,
+          userChatId,
+          canReply,
+          isEnabled,
+          rights: bc,
+        });
+
+        if (!isEnabled) {
+          await markBusinessConnectionDisconnected(supabase, bcId);
+        }
+
+        return NextResponse.json({ ok: true });
+      } else {
+        console.warn(`[Telegram Webhook] Received business_connection for user ${tgUserId} but found no linked workspace.`);
+        return NextResponse.json({ ok: true });
+      }
     }
 
-    const rawMsg = (update as any).message ?? (update as any).edited_message;
+    // 5. Handle Deleted Business Messages
+    if (update.deleted_business_messages) {
+      const del = update.deleted_business_messages;
+      const messageIds = (del.message_ids || []).map(String);
+
+      if (messageIds.length > 0) {
+        await supabase
+          .from("inbox_messages")
+          .update({
+            metadata: { deleted_by_telegram: true, deleted_at: new Date().toISOString() },
+            delivery_status: "failed",
+          })
+          .in("external_message_id", messageIds);
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // 6. Extract Inbound Message Payload (Standard or Business)
+    const isBusinessMessage = Boolean(update.business_message || update.edited_business_message);
+    const rawMsg =
+      (update as any).message ??
+      (update as any).edited_message ??
+      (update as any).business_message ??
+      (update as any).edited_business_message;
+
+    if (!rawMsg) {
+      return NextResponse.json({ ok: true });
+    }
+
     const chatId = rawMsg?.chat?.id ? String(rawMsg.chat.id) : null;
     const fromId = rawMsg?.from?.id ? String(rawMsg.from.id) : null;
     const text = typeof rawMsg?.text === "string" ? rawMsg.text.trim() : "";
     const isGroup = rawMsg?.chat?.type === "group" || rawMsg?.chat?.type === "supergroup";
+    const businessConnectionId =
+      typeof rawMsg?.business_connection_id === "string"
+        ? rawMsg.business_connection_id
+        : typeof (update as any).business_connection_id === "string"
+        ? (update as any).business_connection_id
+        : undefined;
 
     let resolvedWorkspaceId: string | null = null;
 
-    // 4. Multi-Tenant Workspace Resolution
-    // Strategy A: Check for opaque cryptographic deep link binding (/start b_...)
-    if (text.startsWith("/start")) {
+    // 7. Multi-Tenant Workspace Resolution
+    // Strategy A1: Telegram Business Connection Resolution
+    if (isBusinessMessage && businessConnectionId) {
+      const permissionCheck = await verifyBusinessConnectionCanReply(supabase, businessConnectionId);
+      if (permissionCheck.allowed && permissionCheck.connection) {
+        resolvedWorkspaceId = permissionCheck.connection.workspace_id;
+      } else {
+        console.warn(`[Telegram Webhook] Business message dropped: ${permissionCheck.reason || "Rights inactive"}`);
+        return NextResponse.json({ ok: true });
+      }
+    }
+
+    // Strategy A2: Check for deep link onboarding / session binding (/start)
+    if (!resolvedWorkspaceId && text.startsWith("/start")) {
       const parts = text.split(/\s+/);
       if (parts.length > 1) {
         const param = parts[1].trim();
 
+        // Mode 1: Telegram Business Onboarding Session (/start tb_...)
+        if (param.startsWith("tb_")) {
+          const sessionVerification = await consumeTelegramBusinessSession(
+            supabase,
+            param,
+            fromId || "",
+            rawMsg?.from?.username
+          );
+
+          if (sessionVerification.valid && sessionVerification.workspaceId) {
+            const botToken = process.env.TELEGRAM_BOT_TOKEN;
+            if (botToken && chatId) {
+              await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  text: "✅ <b>J10 NEXUS Connection Verified!</b>\n\nYour session has been securely verified for your workspace.\n\n<b>Next Step:</b>\n1. Open Telegram <b>Settings → Telegram Business → Chatbots</b>\n2. Add <b>@j10_nexus_leads_bot</b>\n3. Ensure <b>Reply to messages</b> is enabled.\n\nJ10 NEXUS Secretary Mode will automatically activate for your selected conversations!",
+                  parse_mode: "HTML",
+                }),
+              });
+            }
+            return NextResponse.json({ ok: true });
+          } else {
+            console.warn("[Telegram Webhook] Rejected invalid or expired business session token:", sessionVerification.error);
+            return NextResponse.json({ ok: true });
+          }
+        }
+
+        // Mode 2: Shared Bot Lead Intake Binding (/start b_...)
         if (param.startsWith("b_")) {
-          // Mandatory Correction 1: Consume opaque random token with SHA-256 hash in DB
           const verification = await consumeTelegramBindingToken(supabase, param);
           if (verification.valid && verification.workspaceId) {
-            // Mandatory Correction 4: Check if user is already bound in a private chat to a different workspace
             if (chatId) {
               const { data: existingBinding } = await supabase
                 .from("inbox_threads")
@@ -171,7 +317,7 @@ export async function POST(request: Request) {
                     }),
                   });
                 }
-                return NextResponse.json({ ok: true, rejected_switch: true });
+                return NextResponse.json({ ok: true });
               }
             }
             resolvedWorkspaceId = verification.workspaceId;
@@ -214,11 +360,11 @@ export async function POST(request: Request) {
       }
     }
 
-    // Mandatory Correction 4: Never silently switch or fallback to an arbitrary workspace
+    // If unresolved, drop safely without silent fallback
     if (!resolvedWorkspaceId) {
-      console.warn(`[Telegram Webhook] Unbound chat ${chatId} received without valid binding token. Dropping without silent switch.`);
+      console.warn(`[Telegram Webhook] Unbound chat ${chatId} received without valid binding. Dropping.`);
       const botToken = process.env.TELEGRAM_BOT_TOKEN;
-      if (botToken && chatId && !isGroup) {
+      if (botToken && chatId && !isGroup && !isBusinessMessage) {
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -228,52 +374,81 @@ export async function POST(request: Request) {
           }),
         });
       }
-      return NextResponse.json({ ok: true, unmapped_chat: true });
+      return NextResponse.json({ ok: true });
     }
 
-    // 5. Persist Canonical Inbound Message
-    const origin = new URL(request.url).origin;
-    const result = await persistCanonicalTelegramInbound(supabase, {
-      workspaceId: resolvedWorkspaceId,
-      update,
-      origin,
-    });
+    // 8. Resolve Integration Identity server-side (never trust client/webhook JSON)
+    const { data: integ } = await supabase
+      .from("integrations")
+      .select("id")
+      .eq("workspace_id", resolvedWorkspaceId)
+      .eq("provider", "telegram")
+      .limit(1)
+      .maybeSingle();
 
-    // 6. AI Assistant & Human Handoff Pipeline
+    const integrationId = integ?.id || null;
+    const receivingBotId = integrationId ? String(integrationId) : "official";
+
+    // 9. Commit Ingress Transactionally (Thread + Message + Durable Job in ONE DB Transaction)
     const senderName =
       [rawMsg?.from?.first_name, rawMsg?.from?.last_name].filter(Boolean).join(" ") ||
       rawMsg?.from?.username ||
       "Telegram User";
 
-    if (chatId && text) {
-      try {
-        const { data: thread } = await supabase
-          .from("inbox_threads")
-          .select("id, metadata")
-          .eq("workspace_id", resolvedWorkspaceId)
-          .eq("channel", "telegram")
-          .eq("external_thread_id", chatId)
-          .order("last_message_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+    const { error: txError } = await supabase.rpc("ingest_telegram_update_transactional", {
+      p_workspace_id: resolvedWorkspaceId,
+      p_receiving_bot_id: receivingBotId,
+      p_update_id: update.update_id,
+      p_chat_id: chatId,
+      p_sender_id: String(rawMsg?.from?.id || chatId),
+      p_sender_name: senderName,
+      p_message_text: text || null,
+      p_business_connection_id: isBusinessMessage ? businessConnectionId : null,
+      p_is_business_message: isBusinessMessage,
+      p_external_message_id: String(rawMsg?.message_id || ""),
+      p_metadata: {
+        raw_update: update,
+        origin: new URL(request.url).origin,
+      },
+      p_integration_id: integrationId,
+    });
 
-        if (thread?.id) {
-          const { generateAndSendTelegramAIResponse } = await import("@/lib/ai/telegram-assistant");
-          await generateAndSendTelegramAIResponse({
-            supabase,
-            workspaceId: resolvedWorkspaceId,
-            threadId: thread.id,
-            chatId,
-            messageText: text,
-            senderName,
-          });
-        }
-      } catch (aiErr) {
-        console.error("Failed to process Telegram AI assistant response:", aiErr);
-      }
+    if (txError) {
+      console.error("[Telegram Webhook] Transactional ingress error:", txError);
+      return NextResponse.json({ ok: false, error: txError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, result, workspaceId: resolvedWorkspaceId });
+    // Also persist canonical lead intake if new contact
+    try {
+      const origin = new URL(request.url).origin;
+      await persistCanonicalTelegramInbound(supabase, {
+        workspaceId: resolvedWorkspaceId,
+        update,
+        origin,
+      });
+    } catch (intakeErr) {
+      console.warn("[Telegram Webhook] Non-blocking canonical lead intake warning:", intakeErr);
+    }
+
+    // 10. Best-effort immediate authenticated worker invocation for low latency
+    // If missed or failed, Supabase pg_cron reconciles every minute.
+    const workerSecret = process.env.TELEGRAM_WORKER_SECRET?.trim();
+    if (workerSecret) {
+      const origin = new URL(request.url).origin;
+      fetch(`${origin}/api/workers/telegram-ai`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${workerSecret}`,
+          "Content-Type": "application/json",
+        },
+      }).catch((workerErr) => {
+        console.warn("[Telegram Webhook] Immediate worker invocation notice (pg_cron will reconcile):", workerErr?.message || workerErr);
+      });
+    }
+
+    // 11. Fast Return to Telegram: return strictly { ok: true }
+    // Never expose internal workspace_id, job_id, or database results to provider
+    return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Telegram webhook handling error:", err);
     return NextResponse.json(

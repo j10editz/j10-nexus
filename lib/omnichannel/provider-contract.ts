@@ -120,7 +120,12 @@ export async function persistCanonicalTelegramInbound(
 ) {
   const { recordCanonicalLeadIntake } = await import("@/lib/leads/intake");
   const update = stringRecord(args.update);
-  const message = stringRecord(update.message ?? update.edited_message);
+  const message = stringRecord(
+    update.message ??
+    update.edited_message ??
+    update.business_message ??
+    update.edited_business_message
+  );
   const chat = stringRecord(message.chat);
   const sender = stringRecord(message.from);
 
@@ -135,6 +140,10 @@ export async function persistCanonicalTelegramInbound(
   const messageId = message.message_id !== undefined ? String(message.message_id) : undefined;
   const chatId = chat.id !== undefined ? String(chat.id) : undefined;
   const senderId = sender.id !== undefined ? String(sender.id) : undefined;
+  const businessConnectionId =
+    (message.business_connection_id as string) ||
+    (update.business_connection_id as string) ||
+    undefined;
 
   const idempotencyKey = `tg_${args.workspaceId}_${chatId || senderId}_${messageId}`;
 
@@ -154,6 +163,7 @@ export async function persistCanonicalTelegramInbound(
         telegram_user_id: senderId,
         telegram_chat_id: chatId,
         telegram_username: sender.username,
+        ...(businessConnectionId ? { business_connection_id: businessConnectionId } : {}),
       },
     },
     args.origin

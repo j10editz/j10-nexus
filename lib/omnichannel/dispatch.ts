@@ -305,15 +305,20 @@ export async function sendChannelProviderMessage(
         };
       }
       try {
+        const bodyPayload: Record<string, any> = {
+          chat_id: params.recipient,
+          text: params.body,
+        };
+        if (params.metadata?.business_connection_id) {
+          bodyPayload.business_connection_id = params.metadata.business_connection_id;
+        }
+
         const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            chat_id: params.recipient,
-            text: params.body,
-          }),
+          body: JSON.stringify(bodyPayload),
         });
         const data = await res.json();
         if (!res.ok || !data?.ok || !data?.result?.message_id) {

@@ -21,21 +21,15 @@ export async function POST(request: Request, context: { params: Promise<{ endpoi
     return response;
   }
 
-  // Atomically record canonical Stage 1 lead intake, contact, thread, message, and outbox event
+  // Atomically record canonical Stage 1 lead intake, contact, thread, message, and durable outbox job
   try {
     const rawText = await clone.text();
     if (rawText) {
       const update = JSON.parse(rawText);
       const supabase = createWebhookServiceClient();
       const endpoint = await getIntegrationWebhookEndpointByKey(supabase, endpointKey);
-      if (endpoint) {
-        await persistCanonicalTelegramInbound(supabase, {
-          workspaceId: endpoint.workspaceId,
-          update,
-          origin: new URL(clone.url).origin,
-        });
 
-        // Trigger 24/7 AI Receptionist response for custom client bot
+      if (endpoint) {
         const rawMsg = (update as any).message ?? (update as any).edited_message;
         const chatId = rawMsg?.chat?.id ? String(rawMsg.chat.id) : null;
         const text = typeof rawMsg?.text === "string" ? rawMsg.text.trim() : "";
@@ -44,33 +38,56 @@ export async function POST(request: Request, context: { params: Promise<{ endpoi
           rawMsg?.from?.username ||
           "Telegram User";
 
-        if (chatId && text) {
-          const { data: thread } = await supabase
-            .from("inbox_threads")
-            .select("id")
-            .eq("workspace_id", endpoint.workspaceId)
-            .eq("channel", "telegram")
-            .eq("external_thread_id", chatId)
-            .order("last_message_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+        if (chatId) {
+          // Transactional ingress: commits thread, message, and durable AI job atomically
+          await supabase.rpc("ingest_telegram_update_transactional", {
+            p_workspace_id: endpoint.workspaceId,
+            p_receiving_bot_id: endpoint.integrationId || endpointKey,
+            p_update_id: update.update_id,
+            p_chat_id: chatId,
+            p_sender_id: String(rawMsg?.from?.id || chatId),
+            p_sender_name: senderName,
+            p_message_text: text || null,
+            p_business_connection_id: null,
+            p_is_business_message: false,
+            p_external_message_id: String(rawMsg?.message_id || ""),
+            p_metadata: {
+              raw_update: update,
+              custom_endpoint_key: endpointKey,
+            },
+            p_integration_id: endpoint.integrationId || null,
+          });
 
-          if (thread?.id) {
-            const { generateAndSendTelegramAIResponse } = await import("@/lib/ai/telegram-assistant");
-            await generateAndSendTelegramAIResponse({
-              supabase,
-              workspaceId: endpoint.workspaceId,
-              threadId: thread.id,
-              chatId,
-              messageText: text,
-              senderName,
+          // Best-effort immediate worker invocation for low latency
+          const workerSecret = process.env.TELEGRAM_WORKER_SECRET?.trim();
+          if (workerSecret) {
+            const origin = new URL(clone.url).origin;
+            fetch(`${origin}/api/workers/telegram-ai`, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${workerSecret}`,
+                "Content-Type": "application/json",
+              },
+            }).catch((wErr) => {
+              console.warn("[Custom Telegram Webhook] Worker invocation notice:", wErr?.message || wErr);
             });
           }
+        }
+
+        // Canonical lead intake record
+        try {
+          await persistCanonicalTelegramInbound(supabase, {
+            workspaceId: endpoint.workspaceId,
+            update,
+            origin: new URL(clone.url).origin,
+          });
+        } catch (intakeErr) {
+          console.warn("[Custom Telegram Webhook] Canonical lead intake warning:", intakeErr);
         }
       }
     }
   } catch (err) {
-    console.error("Canonical Telegram persistence or AI dispatch failed:", err);
+    console.error("Canonical Telegram persistence or durable job enqueue failed:", err);
   }
 
   return response;
@@ -79,4 +96,3 @@ export async function POST(request: Request, context: { params: Promise<{ endpoi
 export function GET() {
   return NextResponse.json({ success: false, error: "Method not allowed." }, { status: 405 });
 }
-
