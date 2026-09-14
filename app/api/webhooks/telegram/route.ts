@@ -19,15 +19,18 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Verify webhook secret token if configured
+    // 1. Strictly verify webhook secret token
     const expectedSecret = (process.env.TELEGRAM_WEBHOOK_SECRET || "j10_nexus_telegram_secret").trim();
     const receivedSecret = request.headers.get("x-telegram-bot-api-secret-token")?.trim();
-    if (receivedSecret && receivedSecret !== expectedSecret) {
-      return NextResponse.json({ error: "Invalid webhook secret token" }, { status: 401 });
+    if (!receivedSecret || receivedSecret !== expectedSecret) {
+      return NextResponse.json(
+        { error: "Unauthorized: Missing or invalid X-Telegram-Bot-Api-Secret-Token" },
+        { status: 401 }
+      );
     }
 
     const update = await request.json();
-    if (!update) {
+    if (!update || (!update.update_id && !update.message && !update.chat_join_request && !update.callback_query)) {
       return NextResponse.json({ ok: true, ignored: true });
     }
 
