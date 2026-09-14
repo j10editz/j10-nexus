@@ -317,6 +317,12 @@ export async function processStripeSubscriptionEvent(
 
     case "customer.subscription.deleted": {
       const stripeSubId = obj.id as string;
+      const { data: subData } = await supabase
+        .from("workspace_subscriptions")
+        .select("id, workspace_id")
+        .eq("stripe_subscription_id", stripeSubId)
+        .maybeSingle();
+
       const { error: delErr } = await supabase
         .from("workspace_subscriptions")
         .update({
@@ -327,6 +333,38 @@ export async function processStripeSubscriptionEvent(
 
       if (delErr) {
         return { processed: false, action: "database_delete_failed", error: delErr.message };
+      }
+
+      // If workspace has VIP telegram group, revoke member if contact identified
+      if (subData?.workspace_id) {
+        try {
+          const { data: integ } = await supabase
+            .from("integrations")
+            .select("id, metadata")
+            .eq("workspace_id", subData.workspace_id)
+            .eq("provider", "telegram")
+            .eq("status", "connected")
+            .maybeSingle();
+
+          const groupChatId = integ?.metadata?.vip_group_chat_id;
+          if (groupChatId && integ?.id) {
+            const { getIntegrationCredentials } = await import("@/lib/integrations/credentials");
+            const { removeTelegramGroupMember } = await import("@/lib/telegram/group-manager");
+            const creds = await getIntegrationCredentials(supabase, subData.workspace_id, integ.id);
+            const botToken = creds?.values?.bot_token || process.env.TELEGRAM_BOT_TOKEN;
+
+            const customerTelegramId = obj.metadata?.telegram_user_id || obj.customer_details?.metadata?.telegram_user_id;
+            if (botToken && customerTelegramId) {
+              await removeTelegramGroupMember({
+                botToken,
+                groupChatId,
+                telegramUserId: customerTelegramId,
+              });
+            }
+          }
+        } catch (revErr) {
+          console.warn("Notice: Subscription cancellation VIP group revocation non-blocking error:", revErr);
+        }
       }
 
       return { processed: true, action: "canceled" };
@@ -703,6 +741,203 @@ export async function processStripeWebhookEvent(
         checkoutId: checkout.id,
         ledgerId: ledgerEntry?.id,
       };
+    }
+
+    case "charge.refunded": {
+      const paymentIntentId = obj.payment_intent || obj.id;
+      const { data: checkout } = await supabase
+        .from("payment_checkouts")
+        .select("id, workspace_id, contact_id, thread_id, amount, currency")
+        .eq("stripe_payment_intent_id", paymentIntentId)
+        .maybeSingle();
+
+      if (checkout) {
+        // 1. Update checkout status
+        await supabase
+          .from("payment_checkouts")
+          .update({
+            status: "refunded",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", checkout.id);
+
+        // 2. Insert into payment_ledger
+        await supabase.from("payment_ledger").insert({
+          workspace_id: checkout.workspace_id,
+          checkout_id: checkout.id,
+          provider: "stripe",
+          provider_event_id: eventId,
+          event_type: "charge.refunded",
+          amount: -(Number(checkout.amount) || 0),
+          currency: checkout.currency || "USD",
+          status: "refunded",
+          occurred_at: new Date().toISOString(),
+          metadata: { paymentIntentId },
+        });
+
+        // 3. Automated Telegram VIP group revocation if linked
+        try {
+          const { data: integ } = await supabase
+            .from("integrations")
+            .select("id, metadata")
+            .eq("workspace_id", checkout.workspace_id)
+            .eq("provider", "telegram")
+            .eq("status", "connected")
+            .maybeSingle();
+
+          const groupChatId = integ?.metadata?.vip_group_chat_id;
+          if (groupChatId && integ?.id && checkout.contact_id) {
+            const { data: contact } = await supabase
+              .from("contacts")
+              .select("id, phone, metadata")
+              .eq("id", checkout.contact_id)
+              .maybeSingle();
+
+            const tgUserId = (contact?.metadata as any)?.telegram_user_id || contact?.phone;
+            if (tgUserId) {
+              const { getIntegrationCredentials } = await import("@/lib/integrations/credentials");
+              const { removeTelegramGroupMember } = await import("@/lib/telegram/group-manager");
+              const creds = await getIntegrationCredentials(supabase, checkout.workspace_id, integ.id);
+              const botToken = creds?.values?.bot_token || process.env.TELEGRAM_BOT_TOKEN;
+              if (botToken) {
+                await removeTelegramGroupMember({
+                  botToken,
+                  groupChatId,
+                  telegramUserId: tgUserId,
+                });
+              }
+            }
+          }
+        } catch (revErr) {
+          console.warn("Notice: Refund VIP group revocation error:", revErr);
+        }
+
+        // 4. Record audit message in thread
+        if (checkout.thread_id) {
+          await supabase.from("inbox_messages").insert({
+            workspace_id: checkout.workspace_id,
+            thread_id: checkout.thread_id,
+            direction: "outbound",
+            provider: "stripe",
+            external_message_id: eventId || null,
+            content: "Stripe Refund Processed: Checkout marked refunded and VIP group access revoked.",
+            delivery_status: "delivered",
+            message_type: "system",
+            metadata: { stripeEvent: "charge.refunded", paymentIntentId },
+          });
+        }
+      }
+
+      if (eventId && checkout?.workspace_id) {
+        await supabase
+          .from("webhook_events")
+          .update({
+            workspace_id: checkout.workspace_id,
+            processing_status: "processed",
+            processed_at: new Date().toISOString(),
+          })
+          .eq("provider", "stripe")
+          .eq("provider_event_id", eventId);
+      }
+
+      return { processed: true, action: "refund_recorded", checkoutId: checkout?.id };
+    }
+
+    case "charge.dispute.created": {
+      const paymentIntentId = obj.payment_intent || obj.charge;
+      const { data: checkout } = await supabase
+        .from("payment_checkouts")
+        .select("id, workspace_id, contact_id, thread_id, amount, currency")
+        .eq("stripe_payment_intent_id", paymentIntentId)
+        .maybeSingle();
+
+      if (checkout) {
+        await supabase
+          .from("payment_checkouts")
+          .update({
+            status: "disputed",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", checkout.id);
+
+        await supabase.from("payment_ledger").insert({
+          workspace_id: checkout.workspace_id,
+          checkout_id: checkout.id,
+          provider: "stripe",
+          provider_event_id: eventId,
+          event_type: "charge.dispute.created",
+          amount: -(Number(checkout.amount) || 0),
+          currency: checkout.currency || "USD",
+          status: "disputed",
+          occurred_at: new Date().toISOString(),
+          metadata: { disputeId: obj.id, reason: obj.reason },
+        });
+
+        // Revoke Telegram VIP group access on dispute
+        try {
+          const { data: integ } = await supabase
+            .from("integrations")
+            .select("id, metadata")
+            .eq("workspace_id", checkout.workspace_id)
+            .eq("provider", "telegram")
+            .eq("status", "connected")
+            .maybeSingle();
+
+          const groupChatId = integ?.metadata?.vip_group_chat_id;
+          if (groupChatId && integ?.id && checkout.contact_id) {
+            const { data: contact } = await supabase
+              .from("contacts")
+              .select("id, phone, metadata")
+              .eq("id", checkout.contact_id)
+              .maybeSingle();
+
+            const tgUserId = (contact?.metadata as any)?.telegram_user_id || contact?.phone;
+            if (tgUserId) {
+              const { getIntegrationCredentials } = await import("@/lib/integrations/credentials");
+              const { removeTelegramGroupMember } = await import("@/lib/telegram/group-manager");
+              const creds = await getIntegrationCredentials(supabase, checkout.workspace_id, integ.id);
+              const botToken = creds?.values?.bot_token || process.env.TELEGRAM_BOT_TOKEN;
+              if (botToken) {
+                await removeTelegramGroupMember({
+                  botToken,
+                  groupChatId,
+                  telegramUserId: tgUserId,
+                });
+              }
+            }
+          }
+        } catch (revErr) {
+          console.warn("Notice: Dispute VIP group revocation error:", revErr);
+        }
+
+        if (checkout.thread_id) {
+          await supabase.from("inbox_messages").insert({
+            workspace_id: checkout.workspace_id,
+            thread_id: checkout.thread_id,
+            direction: "outbound",
+            provider: "stripe",
+            external_message_id: eventId || null,
+            content: "Stripe Dispute Alert: Customer initiated a charge dispute. VIP group access suspended.",
+            delivery_status: "delivered",
+            message_type: "system",
+            metadata: { stripeEvent: "charge.dispute.created", disputeId: obj.id },
+          });
+        }
+      }
+
+      if (eventId && checkout?.workspace_id) {
+        await supabase
+          .from("webhook_events")
+          .update({
+            workspace_id: checkout.workspace_id,
+            processing_status: "processed",
+            processed_at: new Date().toISOString(),
+          })
+          .eq("provider", "stripe")
+          .eq("provider_event_id", eventId);
+      }
+
+      return { processed: true, action: "dispute_recorded", checkoutId: checkout?.id };
     }
 
     default: {

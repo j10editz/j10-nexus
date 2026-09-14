@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
-import { createServerSupabaseClient } from "@/lib/auth";
+import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/auth";
+import { storeIntegrationCredentials } from "@/lib/integrations/credentials";
+import { generateTelegramBindingToken } from "@/lib/telegram/binding-token";
 
 export async function POST(req: Request) {
   try {
@@ -12,28 +14,49 @@ export async function POST(req: Request) {
       );
     }
 
+    const ws = context.workspace;
+    const wsId = ws.id;
+
+    // Requirement: Unpaid workspace is rejected
+    if (ws.status === "past_due" || ws.status === "suspended") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Your workspace subscription is past due or suspended. Please upgrade or reactivate billing to connect Telegram.",
+        },
+        { status: 402 }
+      );
+    }
+
     const body = await req.json();
     const { action, token, vipGroupChatId } = body;
-    const wsId = context.workspace.id;
     const supabase = createServerSupabaseClient();
+    const adminClient = createAdminSupabaseClient();
 
-    // Option 1: 1-Click Activate Official J10 Nexus Bot (Zero Headache)
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://j10-nexus.vercel.app";
+    const webhookUrl = `${appUrl}/api/webhooks/telegram`;
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "j10_nexus_telegram_secret";
+
+    // Option 1: 1-Click Activate Official J10 Nexus Bot (Internal / VIP group only)
     if (action === "activate_official" || !token) {
-      const officialToken =
-        process.env.TELEGRAM_BOT_TOKEN ||
-        "8687561980:AAGY78OR5ZNGZqYW7LNUvRVeFukARgowubk";
+      const officialToken = process.env.TELEGRAM_BOT_TOKEN;
+      if (!officialToken) {
+        return NextResponse.json(
+          { success: false, error: "Official Telegram Bot token is not configured on the server environment." },
+          { status: 500 }
+        );
+      }
       const botUsername = "j10_nexus_leads_bot";
       const botId = "8687561980";
 
-      // Ensure webhook is active on Vercel production
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://j10-nexus.vercel.app";
-      const webhookUrl = `${appUrl}/api/webhooks/telegram`;
+      // Register Webhook to permanent HTTPS endpoint with secret token
       try {
         await fetch(`https://api.telegram.org/bot${officialToken}/setWebhook`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             url: webhookUrl,
+            secret_token: webhookSecret,
             drop_pending_updates: false,
             allowed_updates: ["message", "edited_message", "callback_query"],
           }),
@@ -45,63 +68,91 @@ export async function POST(req: Request) {
       // Check existing integration row
       const { data: existing } = await supabase
         .from("integrations")
-        .select("id, metadata, public_configuration")
+        .select("id, metadata, public_configuration, credential_reference")
         .eq("workspace_id", wsId)
         .eq("provider", "telegram")
         .maybeSingle();
 
-      const metadata = {
+      const safeMetadata = {
         ...(existing?.metadata || {}),
         bot_id: botId,
         bot_username: botUsername,
-        bot_token: officialToken,
-        gemini_api_key: process.env.GEMINI_API_KEY || "",
         connected_at: new Date().toISOString(),
         is_official: true,
         vip_group_chat_id: vipGroupChatId || existing?.metadata?.vip_group_chat_id || "",
       };
+      // Explicitly purge any token fields from metadata
+      delete (safeMetadata as any).bot_token;
+      delete (safeMetadata as any).telegramBotToken;
 
-      const publicConfig = {
+      const safePublicConfig = {
         ...(existing?.public_configuration || {}),
         bot_id: botId,
         bot_username: botUsername,
-        bot_token: officialToken,
-        telegramBotToken: officialToken,
         is_official: true,
       };
+      delete (safePublicConfig as any).bot_token;
+      delete (safePublicConfig as any).telegramBotToken;
 
+      let integrationId = existing?.id;
       if (existing) {
         await supabase
           .from("integrations")
           .update({
             status: "connected",
-            metadata,
-            public_configuration: publicConfig,
+            metadata: safeMetadata,
+            public_configuration: safePublicConfig,
             updated_at: new Date().toISOString(),
           })
           .eq("id", existing.id);
       } else {
-        await supabase.from("integrations").insert({
-          workspace_id: wsId,
-          provider: "telegram",
-          status: "connected",
-          metadata,
-          public_configuration: publicConfig,
-        });
+        const { data: inserted, error: insErr } = await supabase
+          .from("integrations")
+          .insert({
+            workspace_id: wsId,
+            provider: "telegram",
+            status: "connected",
+            metadata: safeMetadata,
+            public_configuration: safePublicConfig,
+          })
+          .select("id")
+          .single();
+
+        if (insErr || !inserted) {
+          throw new Error("Failed to create Telegram integration row.");
+        }
+        integrationId = inserted.id;
       }
+
+      // Store bot token strictly in Encrypted Credential Vault
+      await storeIntegrationCredentials(
+        adminClient,
+        wsId,
+        {
+          connectionId: integrationId!,
+          values: {
+            bot_token: officialToken,
+            webhook_secret: webhookSecret,
+          },
+        }
+      );
+
+      // Generate expiring cryptographic binding token
+      const bindingToken = generateTelegramBindingToken(wsId);
 
       return NextResponse.json({
         success: true,
-        message: "J10 Official Telegram Bot activated successfully!",
+        message: "J10 Official Telegram Bot activated securely in vault!",
         bot: {
           username: botUsername,
           botId,
-          shareLink: `https://t.me/${botUsername}?start=ws_${wsId}`,
+          shareLink: `https://t.me/${botUsername}?start=${bindingToken}`,
+          bindingToken,
         },
       });
     }
 
-    // Option 2: Connect Custom Bot Token (BYO Bot like Zernio)
+    // Option 2: Connect Custom Bot Token (Client-owned bot for paid direct messaging)
     const cleanToken = token.trim();
     const testRes = await fetch(`https://api.telegram.org/bot${cleanToken}/getMe`);
     const testData = await testRes.json();
@@ -118,14 +169,13 @@ export async function POST(req: Request) {
 
     const botInfo = testData.result;
 
-    // Register Webhook to J10 NEXUS
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://j10-nexus.vercel.app";
-    const webhookUrl = `${appUrl}/api/webhooks/telegram`;
+    // Register Webhook to permanent HTTPS endpoint with secret token
     const whRes = await fetch(`https://api.telegram.org/bot${cleanToken}/setWebhook`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url: webhookUrl,
+        secret_token: webhookSecret,
         drop_pending_updates: false,
         allowed_updates: ["message", "edited_message", "callback_query"],
       }),
@@ -140,50 +190,74 @@ export async function POST(req: Request) {
       .eq("provider", "telegram")
       .maybeSingle();
 
-    const metadata = {
+    const safeMetadata = {
       ...(existing?.metadata || {}),
       bot_id: String(botInfo.id),
       bot_username: botInfo.username,
       bot_name: botInfo.first_name,
-      bot_token: cleanToken,
       connected_at: new Date().toISOString(),
       is_official: false,
       webhook_configured: whData?.ok ?? false,
       vip_group_chat_id: vipGroupChatId || existing?.metadata?.vip_group_chat_id || "",
     };
+    delete (safeMetadata as any).bot_token;
+    delete (safeMetadata as any).telegramBotToken;
 
-    const publicConfig = {
+    const safePublicConfig = {
       ...(existing?.public_configuration || {}),
       bot_id: String(botInfo.id),
       bot_username: botInfo.username,
-      bot_token: cleanToken,
-      telegramBotToken: cleanToken,
       is_official: false,
     };
+    delete (safePublicConfig as any).bot_token;
+    delete (safePublicConfig as any).telegramBotToken;
 
+    let integrationId = existing?.id;
     if (existing) {
       await supabase
         .from("integrations")
         .update({
           status: "connected",
-          metadata,
-          public_configuration: publicConfig,
+          metadata: safeMetadata,
+          public_configuration: safePublicConfig,
           updated_at: new Date().toISOString(),
         })
         .eq("id", existing.id);
     } else {
-      await supabase.from("integrations").insert({
-        workspace_id: wsId,
-        provider: "telegram",
-        status: "connected",
-        metadata,
-        public_configuration: publicConfig,
-      });
+      const { data: inserted, error: insErr } = await supabase
+        .from("integrations")
+        .insert({
+          workspace_id: wsId,
+          provider: "telegram",
+          status: "connected",
+          metadata: safeMetadata,
+          public_configuration: safePublicConfig,
+        })
+        .select("id")
+        .single();
+
+      if (insErr || !inserted) {
+        throw new Error("Failed to create custom Telegram integration row.");
+      }
+      integrationId = inserted.id;
     }
+
+    // Store bot token strictly in Encrypted Credential Vault
+    await storeIntegrationCredentials(
+      adminClient,
+      wsId,
+      {
+        connectionId: integrationId!,
+        values: {
+          bot_token: cleanToken,
+          webhook_secret: webhookSecret,
+        },
+      }
+    );
 
     return NextResponse.json({
       success: true,
-      message: `Custom Telegram bot @${botInfo.username} connected and live!`,
+      message: `Custom Telegram bot @${botInfo.username} connected securely in vault!`,
       bot: {
         username: botInfo.username,
         name: botInfo.first_name,

@@ -1,5 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import https from "https";
+import { getIntegrationCredentials } from "@/lib/integrations/credentials";
 
 interface TelegramAIMessageInput {
   supabase: SupabaseClient;
@@ -9,6 +10,34 @@ interface TelegramAIMessageInput {
   messageText: string;
   senderName: string;
   token?: string;
+}
+
+/**
+ * Cleanly converts Markdown formatting to valid Telegram HTML so customers NEVER see literal ** characters.
+ */
+export function formatTelegramHtml(text: string): { html: string; plain: string } {
+  const plain = text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    .replace(/~~(.*?)~~/g, "$1")
+    .replace(/`([^`]+)`/g, "$1");
+
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  const html = escaped
+    .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")
+    .replace(/\*(.*?)\*/g, "<i>$1</i>")
+    .replace(/__(.*?)__/g, "<u>$1</u>")
+    .replace(/_(.*?)_/g, "<i>$1</i>")
+    .replace(/~~(.*?)~~/g, "<s>$1</s>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  return { html, plain };
 }
 
 /**
@@ -120,14 +149,89 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
   const { supabase, workspaceId, threadId, chatId, messageText, senderName, token } = input;
   const lower = messageText.toLowerCase().trim();
 
-  // 1. Resolve Gemini Key from env or integration metadata
+  // 1. Thread-level AI-off and Human Handoff Enforcement
+  const { data: thread } = await supabase
+    .from("inbox_threads")
+    .select("id, metadata")
+    .eq("id", threadId)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+
+  const threadMeta = (thread?.metadata || {}) as Record<string, any>;
+  if (threadMeta.aiBotEnabled === false || threadMeta.humanHandoff === true) {
+    console.log(`[AI Dispatch] Thread ${threadId} has AI disabled or human handoff active. Skipping AI reply.`);
+    return "";
+  }
+
+  // Check if message is a human handoff request
+  if (lower === "/human" || lower === "human" || lower.includes("talk to human") || lower.includes("real person")) {
+    await supabase
+      .from("inbox_threads")
+      .update({
+        metadata: {
+          ...threadMeta,
+          aiBotEnabled: false,
+          humanHandoff: true,
+          humanRequestedAt: new Date().toISOString(),
+        },
+      })
+      .eq("id", threadId)
+      .eq("workspace_id", workspaceId);
+
+    const handoffNotice = `A human specialist has been alerted in the J10 Unified Inbox. An operator will respond directly to you here shortly. Would you prefer a callback or email in the meantime?`;
+    
+    // Resolve bot token
+    let botToken = token || process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      const { data: integ } = await supabase
+        .from("integrations")
+        .select("id")
+        .eq("workspace_id", workspaceId)
+        .eq("provider", "telegram")
+        .maybeSingle();
+      if (integ?.id) {
+        const decrypted = await getIntegrationCredentials(supabase, workspaceId, integ.id);
+        botToken = decrypted?.values?.bot_token;
+      }
+    }
+
+    if (botToken) {
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: `🤝 <b>Human Specialist Requested</b>\n\n${handoffNotice}`,
+          parse_mode: "HTML",
+        }),
+      });
+
+      await supabase.from("inbox_messages").insert({
+        workspace_id: workspaceId,
+        thread_id: threadId,
+        direction: "outbound",
+        provider: "telegram",
+        content: handoffNotice,
+        delivery_status: "delivered",
+        message_type: "system",
+        metadata: {
+          humanHandoffActive: true,
+          senderName: "J10 System",
+        },
+      });
+    }
+
+    return handoffNotice;
+  }
+
+  // 2. Resolve Gemini Key and Bot Token strictly from env or Vault
   let geminiKey = process.env.GEMINI_API_KEY?.trim();
   let botToken = token || process.env.TELEGRAM_BOT_TOKEN;
 
-  if (!geminiKey || !botToken) {
+  if (!botToken || !geminiKey) {
     const { data: integration } = await supabase
       .from("integrations")
-      .select("metadata")
+      .select("id, metadata")
       .eq("workspace_id", workspaceId)
       .eq("provider", "telegram")
       .maybeSingle();
@@ -135,12 +239,15 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
     if (!geminiKey) {
       geminiKey = integration?.metadata?.gemini_api_key;
     }
-    if (!botToken) {
-      botToken = integration?.metadata?.bot_token;
+    if (!botToken && integration?.id) {
+      try {
+        const decrypted = await getIntegrationCredentials(supabase, workspaceId, integration.id);
+        botToken = decrypted?.values?.bot_token || decrypted?.values?.telegramBotToken;
+      } catch {}
     }
   }
 
-  // 2. Fetch last 6 messages in this thread for conversational context
+  // 3. Fetch last 6 messages in this thread for conversational context
   const history: Array<{ role: "user" | "model"; text: string }> = [];
   try {
     const { data: pastMsgs } = await supabase
@@ -151,7 +258,6 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
       .limit(6);
 
     if (pastMsgs && pastMsgs.length > 0) {
-      // reverse to chronological order
       for (const m of pastMsgs.reverse()) {
         if (m.content && m.content.trim()) {
           history.push({
@@ -167,7 +273,7 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
 
   let replyText = "";
 
-  // 3. Call Google Gemini LLM
+  // 4. Call Google Gemini LLM
   if (geminiKey) {
     try {
       const aiReply = await callGeminiAPI(geminiKey, messageText, history);
@@ -179,7 +285,7 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
     }
   }
 
-  // 4. Safety Fallback if API completely unreachable
+  // 5. Safety Fallback if API completely unreachable
   if (!replyText) {
     if (lower === "/start") {
       replyText = `👋 Hello ${senderName}! Welcome to J10 NEXUS.\n\nI am your 24/7 AI Revenue & Booking Assistant. How can I help your business today?`;
@@ -190,29 +296,47 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
     }
   }
 
-  // 5. Dispatch to Telegram via Bot API sendMessage
+  // 6. Formatting Sanitization: never show literal ** characters to customer
+  const { html: formattedHtml, plain: plainText } = formatTelegramHtml(replyText);
+
+  // 7. Dispatch to Telegram via Bot API sendMessage
   if (botToken) {
     try {
-      const telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      let telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: chatId,
-          text: replyText,
+          text: formattedHtml,
+          parse_mode: "HTML",
         }),
       });
 
-      const telegramData = await telegramRes.json();
+      let telegramData = await telegramRes.json();
+      
+      // Fallback to plain text if HTML tags caused any parse error
+      if (!telegramRes.ok || !telegramData?.ok) {
+        telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: plainText,
+          }),
+        });
+        telegramData = await telegramRes.json();
+      }
+
       const externalMessageId = telegramData?.result?.message_id ? String(telegramData.result.message_id) : undefined;
 
-      // 6. Record outbound message in Supabase
+      // 8. Record outbound message in Supabase
       await supabase.from("inbox_messages").insert({
         workspace_id: workspaceId,
         thread_id: threadId,
         direction: "outbound",
         provider: "telegram",
         external_message_id: externalMessageId,
-        content: replyText,
+        content: plainText,
         delivery_status: "sent",
         message_type: "text",
         metadata: {
@@ -222,13 +346,14 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
         },
       });
 
-      // 7. Update thread timestamp & snippet
+      // 9. Update thread timestamp & snippet
       await supabase
         .from("inbox_threads")
         .update({
           last_message_at: new Date().toISOString(),
           metadata: {
-            lastMessageSnippet: replyText.slice(0, 150),
+            ...threadMeta,
+            lastMessageSnippet: plainText.slice(0, 150),
           },
         })
         .eq("id", threadId)

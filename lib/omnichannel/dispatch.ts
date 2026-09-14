@@ -413,12 +413,7 @@ export async function resolveWorkspaceChannelCredentials(
           isSharedPlatform = false;
         }
       } else if (p === "telegram" && channel === "telegram") {
-        const directToken =
-          cfg.telegramBotToken || cfg.botToken || cfg.token || cfg.bot_token;
-        if (directToken) {
-          creds.telegramBotToken = directToken;
-          isSharedPlatform = false;
-        } else if (integ.id) {
+        if (integ.id) {
           try {
             const { getIntegrationCredentials } = await import(
               "@/lib/integrations/credentials"

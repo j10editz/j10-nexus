@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase";
 import {
   ArrowRight,
   Bot,
@@ -141,17 +142,50 @@ export default function UnifiedInboxPage() {
     void loadThreads();
   }, [loadThreads]);
 
-  // Live auto-polling: refresh active thread messages every 3.5 seconds
+  // Supabase Realtime subscription for instant message arrivals without constant full polling
   useEffect(() => {
     if (!selectedThreadId || !isLivePersisted) return;
 
     void fetchThreadMessages(selectedThreadId);
 
-    const interval = setInterval(() => {
-      void fetchThreadMessages(selectedThreadId);
-    }, 3500);
+    // 1. Supabase Realtime channel
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`inbox_thread_${selectedThreadId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "inbox_messages",
+          filter: `thread_id=eq.${selectedThreadId}`,
+        },
+        () => {
+          void fetchThreadMessages(selectedThreadId);
+        }
+      )
+      .subscribe();
 
-    return () => clearInterval(interval);
+    // 2. Fallback polling with exponential backoff on inactive tabs
+    let pollIntervalMs = 12000;
+    let fallbackTimer: NodeJS.Timeout;
+
+    const cursorPoll = () => {
+      if (document.hidden) {
+        pollIntervalMs = Math.min(pollIntervalMs * 1.5, 60000);
+      } else {
+        pollIntervalMs = 12000;
+        void fetchThreadMessages(selectedThreadId);
+      }
+      fallbackTimer = setTimeout(cursorPoll, pollIntervalMs);
+    };
+
+    fallbackTimer = setTimeout(cursorPoll, pollIntervalMs);
+
+    return () => {
+      void supabase.removeChannel(channel);
+      clearTimeout(fallbackTimer);
+    };
   }, [selectedThreadId, isLivePersisted, fetchThreadMessages]);
 
   const activeThread = useMemo(() => {
@@ -465,7 +499,7 @@ export default function UnifiedInboxPage() {
               )}
             </div>
             <p className="text-xs text-white/50">
-              WhatsApp, Website Form Leads, and CRM conversations synchronized in a single command center.
+              Live Telegram 24/7 Bot and Web Inbound synchronized in real-time. Omnichannel Command Center.
             </p>
           </div>
         </div>
@@ -526,16 +560,16 @@ export default function UnifiedInboxPage() {
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
               {(
                 [
-                  { id: "all", label: "Todos" },
-                  { id: "whatsapp", label: "WhatsApp" },
-                  { id: "telegram", label: "Telegram" },
-                  { id: "instagram", label: "Instagram" },
-                  { id: "messenger", label: "Messenger" },
-                  { id: "webchat", label: "WebChat" },
-                  { id: "email", label: "Email" },
-                  { id: "sms", label: "SMS" },
-                  { id: "whatsapp_group", label: "Groups" },
-                  { id: "crm", label: "CRM" },
+                  { id: "all", label: "All Channels" },
+                  { id: "telegram", label: "Telegram (Live)" },
+                  { id: "webchat", label: "WebChat (Live)" },
+                  { id: "crm", label: "CRM (Live)" },
+                  { id: "whatsapp", label: "WhatsApp (Planned)" },
+                  { id: "whatsapp_group", label: "Groups (Live)" },
+                  { id: "instagram", label: "Instagram (Planned)" },
+                  { id: "messenger", label: "Messenger (Planned)" },
+                  { id: "email", label: "Email (Planned)" },
+                  { id: "sms", label: "SMS (Planned)" },
                 ] as const
               ).map((tab) => {
                 const count = channelCounts[tab.id] ?? 0;
