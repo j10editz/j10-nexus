@@ -20,6 +20,7 @@ function loadEnvFile(envPath) {
   }
 }
 
+loadEnvFile(path.resolve(__dirname, '..', '.env.local'));
 loadEnvFile(path.resolve('.env.local'));
 
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';

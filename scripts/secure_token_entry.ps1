@@ -32,7 +32,17 @@ if (-not ($token -match "^\d+:[A-Za-z0-9_-]+$")) {
 }
 
 Write-Host "`nEncrypting into production vault and registering webhook..." -ForegroundColor Cyan
-$token | node scripts/apply_vault_rotation.js
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $scriptDir) { $scriptDir = $PSScriptRoot }
+if (-not $scriptDir) { $scriptDir = "c:\Users\riche\OneDrive\Desktop\J10 NEXUS\j10-nexus\scripts" }
+$projectDir = Split-Path -Parent $scriptDir
+if ($projectDir -and (Test-Path $projectDir)) {
+    Set-Location $projectDir
+}
+
+$applyScript = Join-Path $scriptDir "apply_vault_rotation.js"
+$token | node "$applyScript"
 $token = $null
 
 Write-Host "`nProcess finished. Press any key to close this window..." -ForegroundColor Green
