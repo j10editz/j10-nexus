@@ -47,6 +47,8 @@ async function updateStoreFn() {
       INSERT INTO public.integration_credentials (
         integration_id,
         workspace_id,
+        user_id,
+        provider,
         encrypted_payload,
         initialization_vector,
         authentication_tag,
@@ -56,6 +58,8 @@ async function updateStoreFn() {
       VALUES (
         v_integration.id,
         v_integration.workspace_id,
+        v_integration.user_id,
+        v_integration.provider,
         p_encrypted_payload,
         p_initialization_vector,
         p_authentication_tag,
@@ -65,6 +69,8 @@ async function updateStoreFn() {
       ON CONFLICT (integration_id)
       DO UPDATE SET
         workspace_id = EXCLUDED.workspace_id,
+        user_id = EXCLUDED.user_id,
+        provider = EXCLUDED.provider,
         encrypted_payload = EXCLUDED.encrypted_payload,
         initialization_vector = EXCLUDED.initialization_vector,
         authentication_tag = EXCLUDED.authentication_tag,
@@ -73,7 +79,7 @@ async function updateStoreFn() {
       RETURNING id INTO v_cred_id;
 
       UPDATE public.integrations
-      SET credential_reference = v_cred_id::text,
+      SET credential_reference = v_cred_id,
           updated_at = now()
       WHERE id = v_integration.id;
 

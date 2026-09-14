@@ -34,10 +34,43 @@ export async function POST(request: Request, context: { params: Promise<{ endpoi
           update,
           origin: new URL(clone.url).origin,
         });
+
+        // Trigger 24/7 AI Receptionist response for custom client bot
+        const rawMsg = (update as any).message ?? (update as any).edited_message;
+        const chatId = rawMsg?.chat?.id ? String(rawMsg.chat.id) : null;
+        const text = typeof rawMsg?.text === "string" ? rawMsg.text.trim() : "";
+        const senderName =
+          [rawMsg?.from?.first_name, rawMsg?.from?.last_name].filter(Boolean).join(" ") ||
+          rawMsg?.from?.username ||
+          "Telegram User";
+
+        if (chatId && text) {
+          const { data: thread } = await supabase
+            .from("inbox_threads")
+            .select("id")
+            .eq("workspace_id", endpoint.workspaceId)
+            .eq("channel", "telegram")
+            .eq("external_thread_id", chatId)
+            .order("last_message_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (thread?.id) {
+            const { generateAndSendTelegramAIResponse } = await import("@/lib/ai/telegram-assistant");
+            await generateAndSendTelegramAIResponse({
+              supabase,
+              workspaceId: endpoint.workspaceId,
+              threadId: thread.id,
+              chatId,
+              messageText: text,
+              senderName,
+            });
+          }
+        }
       }
     }
   } catch (err) {
-    console.error("Canonical Telegram persistence failed:", err);
+    console.error("Canonical Telegram persistence or AI dispatch failed:", err);
   }
 
   return response;

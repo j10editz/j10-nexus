@@ -100,6 +100,14 @@ export const dashboardNavigationSections: DashboardNavigationSection[] = [
         status: "ready",
         href: "/dashboard/connections",
       },
+      {
+        id: "bot-setup",
+        label: "Bot Setup",
+        description: "Configure AI receptionist, business profile, services & test bot.",
+        icon: "sparkles",
+        status: "ready",
+        href: "/dashboard/bot-setup",
+      },
     ],
   },
 ];
