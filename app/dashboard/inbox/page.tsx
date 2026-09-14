@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -73,21 +73,58 @@ export default function UnifiedInboxPage() {
   const [stripeAmount, setStripeAmount] = useState<number>(4800);
   const [stripeProduct, setStripeProduct] = useState("Enterprise AI Rollout");
   const [generatingStripe, setGeneratingStripe] = useState(false);
+  const [generatingInvite, setGeneratingInvite] = useState(false);
 
-  // Fetch persistent threads from API
-  async function loadThreads(silent = false) {
+  // Auto-scroll anchor ref for active chat stream
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Fetch full messages for active thread
+  const fetchThreadMessages = useCallback(async (threadId: string) => {
+    if (!threadId) return;
+    try {
+      const res = await fetch(`/api/inbox/threads/${threadId}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.success && data.thread) {
+        setThreads((prev) =>
+          prev.map((t) => (t.id === threadId ? { ...t, ...data.thread } : t))
+        );
+      }
+    } catch {
+      // Keep current state
+    }
+  }, []);
+
+  // Fetch persistent threads from API without wiping existing messages
+  const loadThreads = useCallback(async (silent = false) => {
     if (!silent) setIsLoadingThreads(true);
     try {
       const res = await fetch("/api/inbox/threads", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.threads)) {
-          setThreads(data.threads);
+          setThreads((prev) => {
+            return data.threads.map((newThread: any) => {
+              const existing = prev.find((t) => t.id === newThread.id);
+              return {
+                ...newThread,
+                messages:
+                  existing && existing.messages && existing.messages.length > 0
+                    ? existing.messages
+                    : newThread.messages || [],
+              };
+            });
+          });
           setIsLivePersisted(true);
           setIsSandboxDemo(false);
-          if (data.threads.length > 0 && (!selectedThreadId || !data.threads.some((t: any) => t.id === selectedThreadId))) {
-            setSelectedThreadId(data.threads[0].id);
-          } else if (data.threads.length === 0) {
+          if (data.threads.length > 0) {
+            setSelectedThreadId((curr) => {
+              const valid = curr && data.threads.some((t: any) => t.id === curr);
+              const target = valid ? curr : data.threads[0].id;
+              void fetchThreadMessages(target);
+              return target;
+            });
+          } else {
             setSelectedThreadId("");
           }
           return;
@@ -98,41 +135,33 @@ export default function UnifiedInboxPage() {
     } finally {
       if (!silent) setIsLoadingThreads(false);
     }
-  }
+  }, [fetchThreadMessages]);
 
   useEffect(() => {
     void loadThreads();
-  }, []);
+  }, [loadThreads]);
 
-  // Fetch full messages for active thread when selected
+  // Live auto-polling: refresh active thread messages every 3.5 seconds
   useEffect(() => {
-    if (!isLivePersisted || !selectedThreadId) return;
+    if (!selectedThreadId || !isLivePersisted) return;
 
-    let isCurrent = true;
-    async function fetchThreadDetails() {
-      try {
-        const res = await fetch(`/api/inbox/threads/${selectedThreadId}`, { cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (isCurrent && data.success && data.thread) {
-          setThreads((prev) =>
-            prev.map((t) => (t.id === selectedThreadId ? { ...t, ...data.thread } : t)),
-          );
-        }
-      } catch {
-        // Keep current state
-      }
-    }
+    void fetchThreadMessages(selectedThreadId);
 
-    void fetchThreadDetails();
-    return () => {
-      isCurrent = false;
-    };
-  }, [selectedThreadId, isLivePersisted]);
+    const interval = setInterval(() => {
+      void fetchThreadMessages(selectedThreadId);
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [selectedThreadId, isLivePersisted, fetchThreadMessages]);
 
   const activeThread = useMemo(() => {
     return threads.find((t) => t.id === selectedThreadId) || threads[0] || null;
   }, [threads, selectedThreadId]);
+
+  // Auto-scroll to bottom of conversation whenever thread or messages update
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [activeThread?.messages?.length, selectedThreadId]);
 
   useEffect(() => {
     if (activeThread?.channel) {
@@ -371,6 +400,35 @@ export default function UnifiedInboxPage() {
     }
   }
 
+  async function handleSendGroupInvite() {
+    if (!activeThread) return;
+    setGeneratingInvite(true);
+    try {
+      const res = await fetch("/api/telegram/group-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadId: activeThread.id,
+          chatId: activeThread.contactIdentifier,
+          customerName: activeThread.contactName,
+          sendDirectly: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatusNotice("🎉 VIP Client Group single-use join link dispatched to customer!");
+        setTimeout(() => setStatusNotice(""), 4000);
+        void fetchThreadMessages(activeThread.id);
+      } else {
+        setStatusNotice(data.error || "Failed to generate group invite.");
+      }
+    } catch {
+      setStatusNotice("Failed to send group invite.");
+    } finally {
+      setGeneratingInvite(false);
+    }
+  }
+
   function handleApplyAiDraft(
     objective: "payment_request" | "deal_follow_up" | "objection_handling",
   ) {
@@ -458,11 +516,11 @@ export default function UnifiedInboxPage() {
       )}
 
       {/* Main 3-Column Split Desk */}
-      <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-12">
+      <div className="grid flex-1 min-h-0 grid-cols-1 overflow-hidden lg:grid-cols-12">
         {/* ========================================================================= */}
         {/* COLUMN 1: Threads Navigator (3.5 cols)                                   */}
         {/* ========================================================================= */}
-        <div className="flex flex-col border-r border-white/[0.08] bg-[#0C0D10] lg:col-span-4 xl:col-span-3">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-white/[0.08] bg-[#0C0D10] lg:col-span-4 xl:col-span-3">
           {/* Channel Selector Tabs */}
           <div className="border-b border-white/[0.08] p-3">
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
@@ -674,11 +732,11 @@ export default function UnifiedInboxPage() {
         {/* ========================================================================= */}
         {/* COLUMN 2: Active Chat Conversation (5.5 cols)                            */}
         {/* ========================================================================= */}
-        <div className="flex flex-col border-r border-white/[0.08] bg-[#09090B] lg:col-span-5 xl:col-span-6">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-white/[0.08] bg-[#09090B] lg:col-span-5 xl:col-span-6">
           {activeThread ? (
             <>
               {/* Active Thread Header */}
-              <div className="flex items-center justify-between border-b border-white/[0.08] bg-[#0E0F12] px-5 py-3">
+              <div className="shrink-0 flex items-center justify-between border-b border-white/[0.08] bg-[#0E0F12] px-5 py-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-500/10 text-xs font-bold text-blue-400">
                     {activeThread.contactName
@@ -738,7 +796,7 @@ export default function UnifiedInboxPage() {
 
               {/* Collision Alert Banner */}
               {activeThread.lock?.isLocked && !activeThread.lock?.isHeldByMe && (
-                <div className="flex items-center justify-between border-b border-amber-500/30 bg-amber-500/10 px-5 py-2 text-xs text-amber-300">
+                <div className="shrink-0 flex items-center justify-between border-b border-amber-500/30 bg-amber-500/10 px-5 py-2 text-xs text-amber-300">
                   <div className="flex items-center gap-2">
                     <ShieldAlert size={15} className="text-amber-400 shrink-0" />
                     <span>
@@ -756,7 +814,7 @@ export default function UnifiedInboxPage() {
               )}
 
               {/* Message Stream */}
-              <div className="flex-1 space-y-4 overflow-y-auto p-5">
+              <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-4 sm:p-5">
                 <div className="text-center">
                   <span className="rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1 text-[10px] uppercase tracking-wider text-white/40">
                     Channel Inception: {CHANNEL_METADATA[activeThread.channel].label}
@@ -846,10 +904,11 @@ export default function UnifiedInboxPage() {
                     </div>
                   );
                 })}
+                <div ref={messagesEndRef} />
               </div>
 
               {/* AI Draft Quick Actions */}
-              <div className="flex flex-wrap items-center gap-1.5 border-t border-white/[0.08] bg-[#0E0F12] px-4 py-2">
+              <div className="shrink-0 flex flex-wrap items-center gap-1.5 border-t border-white/[0.08] bg-[#0E0F12] px-4 py-2">
                 <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-white/40">
                   <Sparkles size={11} className="text-blue-400" />
                   AI Copilot:
@@ -878,7 +937,7 @@ export default function UnifiedInboxPage() {
               </div>
 
               {/* Composer Input */}
-              <div className="border-t border-white/[0.08] bg-[#0A0B0E] p-3.5">
+              <div className="shrink-0 border-t border-white/[0.08] bg-[#0A0B0E] p-3.5">
                 <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2 focus-within:border-blue-500/50">
                   <div className="mb-2 flex items-center justify-between border-b border-white/[0.06] pb-2">
                     <div className="flex items-center gap-1.5">
@@ -926,9 +985,15 @@ export default function UnifiedInboxPage() {
                         });
                       }
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void handleSendReply();
+                      }
+                    }}
                     placeholder={`Reply to ${activeThread.contactName} via ${
                       CHANNEL_METADATA[dispatchChannel || activeThread.channel]?.label || "Omnichannel"
-                    }...`}
+                    }... (Press Enter to dispatch)`}
                     className="w-full resize-none bg-transparent text-xs text-white placeholder:text-white/30 focus:outline-none"
                   />
 
@@ -970,7 +1035,7 @@ export default function UnifiedInboxPage() {
         {/* ========================================================================= */}
         {/* COLUMN 3: Deal Stage & Instant Stripe Drawer (3 cols)                    */}
         {/* ========================================================================= */}
-        <div className="flex flex-col overflow-y-auto bg-[#0C0D10] p-4 lg:col-span-3 xl:col-span-3">
+        <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[#0C0D10] p-4 lg:col-span-3 xl:col-span-3">
           {activeThread ? (
             <div className="space-y-5">
               {/* Detalles del contacto Header (Matches Setter CRM reference) */}
@@ -1191,6 +1256,31 @@ export default function UnifiedInboxPage() {
                       : "Create & Insert Stripe Checkout"}
                   </button>
                 </div>
+              </div>
+
+              {/* VIP Client Group Card */}
+              <div className="rounded-xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/20 to-black/40 p-3.5">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-white">
+                    <Users size={14} className="text-indigo-400" />
+                    VIP Telegram Group Gating
+                  </span>
+                  <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-bold text-indigo-300">
+                    PAID ACCESS
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-white/50">
+                  Generate a single-use join link for your private client group and send directly to customer.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSendGroupInvite}
+                  disabled={generatingInvite}
+                  className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-500 disabled:opacity-50"
+                >
+                  <Send size={13} />
+                  {generatingInvite ? "Dispatching VIP Link..." : "⚡ Send Paid Group Invite Link"}
+                </button>
               </div>
 
               {/* Omnichannel SLA & Operations */}

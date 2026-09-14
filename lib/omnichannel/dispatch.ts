@@ -368,7 +368,7 @@ export async function resolveWorkspaceChannelCredentials(
 ): Promise<{ credentials: ChannelProviderCredentials; isSharedPlatform: boolean }> {
   const { data: integrations } = await supabase
     .from("integrations")
-    .select("id, provider, public_configuration, credential_reference, status")
+    .select("id, provider, public_configuration, credential_reference, status, metadata")
     .eq("workspace_id", workspaceId)
     .eq("status", "connected");
 
@@ -378,7 +378,10 @@ export async function resolveWorkspaceChannelCredentials(
   if (integrations && integrations.length > 0) {
     for (const integ of integrations) {
       const p = (integ.provider || "").toLowerCase();
-      const cfg = (integ.public_configuration || {}) as Record<string, any>;
+      const cfg = {
+        ...(integ.metadata || {}),
+        ...(integ.public_configuration || {}),
+      } as Record<string, any>;
 
       if ((p === "resend" || p === "email") && channel === "email") {
         if (cfg.resendApiKey || cfg.apiKey) {
