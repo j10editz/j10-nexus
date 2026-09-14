@@ -43,6 +43,42 @@ export async function POST(request: Request) {
       origin,
     });
 
+    // 3. Trigger 24/7 AI Assistant reply directly back to Telegram
+    const rawMsg = (update as any).message ?? (update as any).edited_message;
+    const chatId = rawMsg?.chat?.id;
+    const text = rawMsg?.text;
+    const senderName = [rawMsg?.from?.first_name, rawMsg?.from?.last_name]
+      .filter(Boolean)
+      .join(" ") || rawMsg?.from?.username || "Telegram User";
+
+    if (chatId && text) {
+      try {
+        // Find or use the thread created for this contact
+        const { data: thread } = await supabase
+          .from("inbox_threads")
+          .select("id")
+          .eq("workspace_id", workspaceId)
+          .eq("channel", "telegram")
+          .order("last_message_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (thread?.id) {
+          const { generateAndSendTelegramAIResponse } = await import("@/lib/ai/telegram-assistant");
+          await generateAndSendTelegramAIResponse({
+            supabase,
+            workspaceId,
+            threadId: thread.id,
+            chatId,
+            messageText: text,
+            senderName,
+          });
+        }
+      } catch (aiErr) {
+        console.error("Failed to generate/send 24/7 AI response:", aiErr);
+      }
+    }
+
     return NextResponse.json({ ok: true, result });
   } catch (err) {
     console.error("Telegram webhook handling error:", err);
