@@ -97,6 +97,11 @@ describe("Stripe Webhook and Subscription Synchronization", () => {
 
     const mockSupabase = {
       from: () => ({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: () => Promise.resolve({ data: null, error: null }),
+          }),
+        }),
         update: (payload: any) => {
           updatedPayload = payload;
           return {

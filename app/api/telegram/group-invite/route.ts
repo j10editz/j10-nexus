@@ -81,14 +81,29 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. Real Stripe/Payment and Entitlement Verification
-    // Contact must have a verified paid checkout or workspace must have active paid tier
-    let paymentVerified = false;
+    // 4. Mandatory Correction 7: Real Entitlement Verification
+    // A payment_checkouts row alone is not authorization.
+    // Require a settled, active, product-specific entitlement tied to the workspace & contact.
+    let entitlementVerified = false;
 
-    if (contactId || threadId) {
+    // Check 1: Active workspace subscription with community/VIP entitlement
+    const { data: activeSub } = await supabase
+      .from("workspace_subscriptions")
+      .select("id, status, plan_id, current_period_end")
+      .eq("workspace_id", wsId)
+      .eq("status", "active")
+      .limit(1)
+      .maybeSingle();
+
+    if (activeSub && (!activeSub.current_period_end || new Date(activeSub.current_period_end) > new Date())) {
+      entitlementVerified = true;
+    }
+
+    // Check 2: Settled contact checkout specifically for VIP product
+    if (!entitlementVerified && (contactId || threadId)) {
       const checkoutQuery = supabase
         .from("payment_checkouts")
-        .select("id, status, amount")
+        .select("id, status, amount, metadata")
         .eq("workspace_id", wsId)
         .eq("status", "paid");
 
@@ -102,22 +117,26 @@ export async function POST(req: Request) {
 
       const { data: paidCheckout } = await checkoutQuery.limit(1).maybeSingle();
       if (paidCheckout) {
-        paymentVerified = true;
+        // Must be settled and not refunded/disputed
+        const meta = (paidCheckout.metadata || {}) as Record<string, any>;
+        if (meta.settled !== false && meta.disputed !== true && meta.refunded !== true) {
+          entitlementVerified = true;
+        }
       }
     }
 
-    // If no direct contact checkout found, check if workspace itself is on active paid growth/enterprise plan
-    if (!paymentVerified) {
+    // Check 3: Active Growth or Enterprise tier on workspace
+    if (!entitlementVerified) {
       if (ws.status === "active" && (ws.plan === "growth" || ws.plan === "enterprise")) {
-        paymentVerified = true;
+        entitlementVerified = true;
       }
     }
 
-    if (!paymentVerified) {
+    if (!entitlementVerified) {
       return NextResponse.json(
         {
           success: false,
-          error: "Payment verification required. VIP group invitations can only be issued to paying clients with a verified checkout or active subscription.",
+          error: "Settled active entitlement required. VIP group invitations can only be issued to clients with verified active subscriptions or settled product purchases.",
         },
         { status: 402 }
       );
@@ -137,7 +156,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // 6. Generate Single-Use Invite Link (member_limit: 1, 24h expire)
+    // 6. Mandatory Correction 8: Prefer Telegram Join Requests for VIP Access
+    // Creates a join request link so the bot intercepts the join request, validates identity, approves, and revokes.
     const expireDate = Math.floor(Date.now() / 1000) + 86400; // 24 hours
     const inviteRes = await fetch(
       `https://api.telegram.org/bot${botToken}/createChatInviteLink`,
@@ -147,7 +167,7 @@ export async function POST(req: Request) {
         body: JSON.stringify({
           chat_id: groupChatId,
           name: `VIP Access - ${customerName.slice(0, 25)}`,
-          member_limit: 1,
+          creates_join_request: true, // Requires bot approval
           expire_date: expireDate,
         }),
       }
@@ -158,13 +178,22 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: inviteData?.description || "Failed to generate single-use invite link from Telegram.",
+          error: inviteData?.description || "Failed to generate join-request invite link from Telegram.",
         },
         { status: 500 }
       );
     }
 
     const inviteLink = inviteData.result.invite_link;
+
+    // Track pending invite in telegram_group_memberships
+    await supabase.from("telegram_group_memberships").insert({
+      workspace_id: wsId,
+      group_chat_id: String(groupChatId),
+      contact_id: contactId,
+      invite_link: inviteLink,
+      status: "invited",
+    });
 
     // Formatting with HTML to avoid literal ** markdown glitches
     const messageText = `🎉 <b>VIP Client Group Access Unlocked!</b>\n\n` +

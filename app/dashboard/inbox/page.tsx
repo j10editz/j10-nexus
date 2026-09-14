@@ -1190,7 +1190,7 @@ export default function UnifiedInboxPage() {
               {/* Deal Stage Controls */}
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-white">Pipeline Stage</span>
+                  <span className="text-xs font-semibold text-white">Pipeline Stage & Deal Intelligence</span>
                   <span
                     className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
                       STAGE_METADATA[activeThread.dealStage].badgeClass

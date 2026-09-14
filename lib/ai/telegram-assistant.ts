@@ -224,6 +224,66 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
     return handoffNotice;
   }
 
+  // Mandatory Correction 11: Support /agent alias to re-enable AI
+  if (lower === "/agent" || lower === "agent" || lower === "/bot" || lower.includes("enable ai") || lower.includes("talk to bot")) {
+    await supabase
+      .from("inbox_threads")
+      .update({
+        metadata: {
+          ...threadMeta,
+          aiBotEnabled: true,
+          humanHandoff: false,
+          agentReactivatedAt: new Date().toISOString(),
+        },
+      })
+      .eq("id", threadId)
+      .eq("workspace_id", workspaceId);
+
+    const agentNotice = `🤖 <b>24/7 AI Assistant Reactivated</b>\n\nI am back online and ready to assist you. How can I help your business right now?`;
+    
+    let botToken = token || process.env.TELEGRAM_BOT_TOKEN;
+    if (!botToken) {
+      const { data: integ } = await supabase
+        .from("integrations")
+        .select("id")
+        .eq("workspace_id", workspaceId)
+        .eq("provider", "telegram")
+        .maybeSingle();
+      if (integ?.id) {
+        const decrypted = await getIntegrationCredentials(supabase, workspaceId, integ.id);
+        botToken = decrypted?.values?.bot_token;
+      }
+    }
+
+    if (botToken) {
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: agentNotice,
+          parse_mode: "HTML",
+        }),
+      });
+
+      await supabase.from("inbox_messages").insert({
+        workspace_id: workspaceId,
+        thread_id: threadId,
+        direction: "outbound",
+        provider: "telegram",
+        content: "24/7 AI Assistant Reactivated by user command.",
+        delivery_status: "delivered",
+        message_type: "system",
+        metadata: {
+          aiBotEnabled: true,
+          senderName: "J10 System",
+        },
+      });
+    }
+
+    return agentNotice;
+  }
+
   // 2. Resolve Gemini Key and Bot Token strictly from env or Vault
   let geminiKey = process.env.GEMINI_API_KEY?.trim();
   let botToken = token || process.env.TELEGRAM_BOT_TOKEN;
@@ -299,8 +359,28 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
   // 6. Formatting Sanitization: never show literal ** characters to customer
   const { html: formattedHtml, plain: plainText } = formatTelegramHtml(replyText);
 
-  // 7. Dispatch to Telegram via Bot API sendMessage
+  // 7. Mandatory Correction 11: Race Condition Elimination
+  // Fresh atomic re-check of thread metadata immediately before executing Telegram sendMessage.
+  // Prevents AI reply if human operator intervened or user texted /human during Gemini generation.
+  const { data: latestThread } = await supabase
+    .from("inbox_threads")
+    .select("metadata")
+    .eq("id", threadId)
+    .maybeSingle();
+
+  const freshMeta = (latestThread?.metadata || {}) as Record<string, any>;
+  if (freshMeta.aiBotEnabled === false || freshMeta.humanHandoff === true) {
+    console.warn(`[AI Handoff Guard] Aborting AI dispatch for thread ${threadId}: human operator or handoff command intervened during generation.`);
+    return "";
+  }
+
+  // 8. Dispatch to Telegram via Bot API sendMessage
   if (botToken) {
+    const idempotencyKey = `ai:${threadId}:${Date.now()}`;
+    let isDelivered = false;
+    let deliveryError: string | null = null;
+    let externalMessageId: string | undefined = undefined;
+
     try {
       let telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: "POST",
@@ -327,32 +407,41 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
         telegramData = await telegramRes.json();
       }
 
-      const externalMessageId = telegramData?.result?.message_id ? String(telegramData.result.message_id) : undefined;
+      if (telegramRes.ok && telegramData?.ok) {
+        isDelivered = true;
+        externalMessageId = telegramData?.result?.message_id ? String(telegramData.result.message_id) : undefined;
+      } else {
+        deliveryError = telegramData?.description || `HTTP ${telegramRes.status}`;
+      }
 
-      // 8. Record outbound message in Supabase
+      // 9. Record outbound message in Supabase with Mandatory Correction 12 attributes
       await supabase.from("inbox_messages").insert({
         workspace_id: workspaceId,
         thread_id: threadId,
         direction: "outbound",
         provider: "telegram",
         external_message_id: externalMessageId,
+        idempotency_key: idempotencyKey,
         content: plainText,
-        delivery_status: "sent",
+        delivery_status: isDelivered ? "sent" : "failed",
+        last_delivery_error: deliveryError,
+        retry_count: isDelivered ? 0 : 1,
         message_type: "text",
         metadata: {
           senderName: "J10 AI (24/7 Assistant)",
           isAiGenerated: true,
           telegram_chat_id: String(chatId),
+          telegram_message_id: externalMessageId,
         },
       });
 
-      // 9. Update thread timestamp & snippet
+      // 10. Update thread timestamp & snippet
       await supabase
         .from("inbox_threads")
         .update({
           last_message_at: new Date().toISOString(),
           metadata: {
-            ...threadMeta,
+            ...freshMeta,
             lastMessageSnippet: plainText.slice(0, 150),
           },
         })
@@ -361,6 +450,24 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
 
     } catch (err) {
       console.error("Failed to send Telegram AI response:", err);
+      // Record failed delivery attempt
+      await supabase.from("inbox_messages").insert({
+        workspace_id: workspaceId,
+        thread_id: threadId,
+        direction: "outbound",
+        provider: "telegram",
+        idempotency_key: idempotencyKey,
+        content: plainText,
+        delivery_status: "failed",
+        last_delivery_error: err instanceof Error ? err.message : String(err),
+        retry_count: 1,
+        message_type: "text",
+        metadata: {
+          senderName: "J10 AI (24/7 Assistant)",
+          isAiGenerated: true,
+          telegram_chat_id: String(chatId),
+        },
+      });
     }
   }
 

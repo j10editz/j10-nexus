@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createWebhookServiceClient } from "@/lib/integrations/webhooks/service-client";
 import { persistCanonicalTelegramInbound } from "@/lib/omnichannel/provider-contract";
-import { verifyTelegramBindingToken } from "@/lib/telegram/binding-token";
+import { consumeTelegramBindingToken } from "@/lib/telegram/binding-token";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +19,11 @@ export async function POST(request: Request) {
     }
 
     const update = await request.json();
-    if (!update || (!update.message && !update.edited_message)) {
+    if (!update) {
       return NextResponse.json({ ok: true, ignored: true });
     }
+
+    const supabase = createWebhookServiceClient();
 
     // 2. Duplicate update replay prevention
     const updateId = update.update_id;
@@ -35,41 +37,141 @@ export async function POST(request: Request) {
       }
     }
 
+    // 3. Mandatory Correction 8: Handle VIP Group Join Requests
+    if (update.chat_join_request) {
+      const cjr = update.chat_join_request;
+      const groupChatId = String(cjr.chat?.id);
+      const joiningUserId = String(cjr.from?.id);
+      const inviteLinkStr = cjr.invite_link?.invite_link;
+
+      // Find pending or eligible membership
+      const { data: membership } = await supabase
+        .from("telegram_group_memberships")
+        .select("id, workspace_id, contact_id, status")
+        .eq("group_chat_id", groupChatId)
+        .or(`invite_link.eq.${inviteLinkStr},telegram_user_id.eq.${joiningUserId}`)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (membership && membership.status !== "banned") {
+        // Fetch bot token for this workspace
+        const { data: integ } = await supabase
+          .from("integrations")
+          .select("id")
+          .eq("workspace_id", membership.workspace_id)
+          .eq("provider", "telegram")
+          .maybeSingle();
+
+        let botToken = process.env.TELEGRAM_BOT_TOKEN;
+        if (integ) {
+          const { getIntegrationCredentials } = await import("@/lib/integrations/credentials");
+          const creds = await getIntegrationCredentials(supabase, membership.workspace_id, integ.id);
+          botToken = creds?.values?.bot_token || botToken;
+        }
+
+        if (botToken) {
+          // Approve verified identity
+          await fetch(`https://api.telegram.org/bot${botToken}/approveChatJoinRequest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: groupChatId,
+              user_id: Number(joiningUserId),
+            }),
+          });
+
+          // Immediately revoke the invite link so it cannot be shared
+          if (inviteLinkStr) {
+            await fetch(`https://api.telegram.org/bot${botToken}/revokeChatInviteLink`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: groupChatId,
+                invite_link: inviteLinkStr,
+              }),
+            });
+          }
+
+          // Mark membership approved and clear plaintext invite_link (Requirement 8)
+          await supabase
+            .from("telegram_group_memberships")
+            .update({
+              status: "approved",
+              telegram_user_id: joiningUserId,
+              invite_link: null,
+              joined_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", membership.id);
+
+          return NextResponse.json({ ok: true, approved_join: true, user_id: joiningUserId });
+        }
+      }
+
+      return NextResponse.json({ ok: true, join_request_declined: true });
+    }
+
+    if (!update.message && !update.edited_message) {
+      return NextResponse.json({ ok: true, ignored: true });
+    }
+
     const rawMsg = (update as any).message ?? (update as any).edited_message;
     const chatId = rawMsg?.chat?.id ? String(rawMsg.chat.id) : null;
     const fromId = rawMsg?.from?.id ? String(rawMsg.from.id) : null;
     const text = typeof rawMsg?.text === "string" ? rawMsg.text.trim() : "";
     const isGroup = rawMsg?.chat?.type === "group" || rawMsg?.chat?.type === "supergroup";
 
-    const supabase = createWebhookServiceClient();
     let resolvedWorkspaceId: string | null = null;
 
-    // 3. Multi-Tenant Workspace Resolution
-    // Strategy A: Check for cryptographic deep link binding (/start b_... or legacy /start ws_...)
+    // 4. Multi-Tenant Workspace Resolution
+    // Strategy A: Check for opaque cryptographic deep link binding (/start b_...)
     if (text.startsWith("/start")) {
       const parts = text.split(/\s+/);
       if (parts.length > 1) {
         const param = parts[1].trim();
 
         if (param.startsWith("b_")) {
-          // Cryptographically signed, expiring token
-          const verification = verifyTelegramBindingToken(param);
+          // Mandatory Correction 1: Consume opaque random token with SHA-256 hash in DB
+          const verification = await consumeTelegramBindingToken(supabase, param);
           if (verification.valid && verification.workspaceId) {
+            // Mandatory Correction 4: Check if user is already bound in a private chat to a different workspace
+            if (chatId) {
+              const { data: existingBinding } = await supabase
+                .from("inbox_threads")
+                .select("workspace_id")
+                .eq("channel", "telegram")
+                .eq("external_thread_id", chatId)
+                .order("last_message_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+              if (existingBinding?.workspace_id && existingBinding.workspace_id !== verification.workspaceId) {
+                console.warn(`[Telegram Webhook] Silent workspace switch rejected for chat ${chatId}. Already bound to ${existingBinding.workspace_id}.`);
+                const botToken = process.env.TELEGRAM_BOT_TOKEN;
+                if (botToken) {
+                  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      chat_id: chatId,
+                      text: "⚠️ <b>Active Connection Notice</b>\n\nThis chat is already securely bound to another workspace. To connect to a different business, please use their dedicated client bot or contact support.",
+                      parse_mode: "HTML",
+                    }),
+                  });
+                }
+                return NextResponse.json({ ok: true, rejected_switch: true });
+              }
+            }
             resolvedWorkspaceId = verification.workspaceId;
           } else {
             console.warn("[Telegram Webhook] Rejected invalid or expired binding token:", verification.error);
-          }
-        } else if (param.startsWith("ws_")) {
-          // Legacy raw workspace deep link
-          const wsId = param.slice(3).trim();
-          if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(wsId)) {
-            resolvedWorkspaceId = wsId;
           }
         }
       }
     }
 
-    // Strategy B: If in a Group/Supergroup, resolve by group chat ID
+    // Strategy B: If in a Group/Supergroup, resolve strictly by uniquely bound group chat ID
     if (!resolvedWorkspaceId && isGroup && chatId) {
       const { data: integByGroup } = await supabase
         .from("integrations")
@@ -85,13 +187,13 @@ export async function POST(request: Request) {
       }
     }
 
-    // Strategy C: Resolve by existing thread / contact bound to this chat or sender
-    if (!resolvedWorkspaceId && (chatId || fromId)) {
+    // Strategy C: Resolve by existing thread bound to this chat
+    if (!resolvedWorkspaceId && chatId) {
       const { data: existingThread } = await supabase
         .from("inbox_threads")
         .select("workspace_id")
         .eq("channel", "telegram")
-        .or(`external_thread_id.eq.${chatId},metadata->>telegram_chat_id.eq.${chatId}`)
+        .eq("external_thread_id", chatId)
         .order("last_message_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -101,28 +203,24 @@ export async function POST(request: Request) {
       }
     }
 
-    // Strategy D: Fallback to active workspace with connected Telegram integration
+    // Mandatory Correction 4: Never silently switch or fallback to an arbitrary workspace
     if (!resolvedWorkspaceId) {
-      const { data: activeIntegrations } = await supabase
-        .from("integrations")
-        .select("workspace_id")
-        .eq("provider", "telegram")
-        .eq("status", "connected")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-      if (activeIntegrations?.workspace_id) {
-        resolvedWorkspaceId = activeIntegrations.workspace_id;
+      console.warn(`[Telegram Webhook] Unbound chat ${chatId} received without valid binding token. Dropping without silent switch.`);
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      if (botToken && chatId && !isGroup) {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: "👋 Welcome to J10 NEXUS.\n\nPlease start the bot using the direct link provided by your business dashboard to securely connect your conversation.",
+          }),
+        });
       }
+      return NextResponse.json({ ok: true, unmapped_chat: true });
     }
 
-    if (!resolvedWorkspaceId) {
-      console.warn("Telegram webhook received but could not resolve target workspace.");
-      return NextResponse.json({ ok: true, warning: "unresolved_workspace" });
-    }
-
-    // 4. Persist Canonical Inbound Message
+    // 5. Persist Canonical Inbound Message
     const origin = new URL(request.url).origin;
     const result = await persistCanonicalTelegramInbound(supabase, {
       workspaceId: resolvedWorkspaceId,
@@ -130,7 +228,7 @@ export async function POST(request: Request) {
       origin,
     });
 
-    // 5. AI Assistant & Human Handoff Pipeline
+    // 6. AI Assistant & Human Handoff Pipeline
     const senderName =
       [rawMsg?.from?.first_name, rawMsg?.from?.last_name].filter(Boolean).join(" ") ||
       rawMsg?.from?.username ||
@@ -143,6 +241,7 @@ export async function POST(request: Request) {
           .select("id, metadata")
           .eq("workspace_id", resolvedWorkspaceId)
           .eq("channel", "telegram")
+          .eq("external_thread_id", chatId)
           .order("last_message_at", { ascending: false })
           .limit(1)
           .maybeSingle();

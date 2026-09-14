@@ -504,6 +504,28 @@ export async function dispatchOmnichannelMessage(
     }
   }
 
+  // Mandatory Correction 12: Outbound Idempotency Check
+  const idempotencyKey = input.metadata?.idempotencyKey;
+  if (idempotencyKey) {
+    const { data: existingMsg } = await supabase
+      .from("inbox_messages")
+      .select("id, provider, external_message_id, delivery_status")
+      .eq("workspace_id", input.workspaceId)
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle();
+
+    if (existingMsg) {
+      return {
+        success: existingMsg.delivery_status !== "failed",
+        messageId: existingMsg.id,
+        provider: existingMsg.provider,
+        externalMessageId: existingMsg.external_message_id || "",
+        deliveryStatus: existingMsg.delivery_status as ChannelDeliveryState,
+        channel: input.channel,
+      };
+    }
+  }
+
   // 3. Resolve credentials server-side from workspace integration or platform
   const { credentials, isSharedPlatform } = await resolveWorkspaceChannelCredentials(
     supabase,
@@ -579,8 +601,11 @@ export async function dispatchOmnichannelMessage(
       direction: "outbound",
       provider: dispatchResult.provider,
       external_message_id: dispatchResult.externalId,
+      idempotency_key: idempotencyKey || null,
       content: input.body,
       delivery_status: dispatchResult.status,
+      last_delivery_error: dispatchResult.error || null,
+      retry_count: dispatchResult.status === "failed" ? 1 : 0,
       message_type: input.metadata?.stripeCheckoutUrl ? "payment_request" : "text",
       metadata: {
         ...(input.metadata || {}),

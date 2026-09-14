@@ -59,17 +59,20 @@ export async function verifyBotGroupPermissions(
 }
 
 /**
- * Revokes a member's access from a Telegram supergroup upon cancellation, refund, or dispute.
- * Uses banChatMember followed by unbanChatMember (kick behavior).
+ * Mandatory Correction 9:
+ * Bans a member from a Telegram supergroup upon cancellation, refund, dispute, or expiration.
+ * KEEPS the member permanently banned until verified reactivation.
+ * Does NOT call unbanChatMember!
  */
-export async function removeTelegramGroupMember(params: {
+export async function banTelegramGroupMember(params: {
   botToken: string;
   groupChatId: string | number;
   telegramUserId: string | number;
+  supabase?: any;
+  workspaceId?: string;
 }): Promise<{ success: boolean; error?: string }> {
-  const { botToken, groupChatId, telegramUserId } = params;
+  const { botToken, groupChatId, telegramUserId, supabase, workspaceId } = params;
   try {
-    // 1. Kick/ban from chat
     const banRes = await fetch(
       `https://api.telegram.org/bot${botToken}/banChatMember`,
       {
@@ -86,12 +89,49 @@ export async function removeTelegramGroupMember(params: {
     if (!banRes.ok || !banData?.ok) {
       return {
         success: false,
-        error: banData?.description || "Failed to ban/remove member from Telegram group.",
+        error: banData?.description || "Failed to ban member from Telegram group.",
       };
     }
 
-    // 2. Unban immediately so user is removed without permanent blacklist
-    await fetch(
+    // Requirement 8: Clear plaintext invite_link on cancellation/ban
+    if (supabase) {
+      const q = supabase
+        .from("telegram_group_memberships")
+        .update({
+          status: "banned",
+          invite_link: null,
+          banned_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("group_chat_id", String(groupChatId))
+        .eq("telegram_user_id", String(telegramUserId));
+
+      if (workspaceId) {
+        q.eq("workspace_id", workspaceId);
+      }
+      await q;
+    }
+
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Unbans a member upon verified payment reactivation so they can request to rejoin.
+ */
+export async function unbanTelegramGroupMember(params: {
+  botToken: string;
+  groupChatId: string | number;
+  telegramUserId: string | number;
+}): Promise<{ success: boolean; error?: string }> {
+  const { botToken, groupChatId, telegramUserId } = params;
+  try {
+    const unbanRes = await fetch(
       `https://api.telegram.org/bot${botToken}/unbanChatMember`,
       {
         method: "POST",
@@ -103,6 +143,13 @@ export async function removeTelegramGroupMember(params: {
         }),
       }
     );
+    const unbanData = await unbanRes.json();
+    if (!unbanRes.ok || !unbanData?.ok) {
+      return {
+        success: false,
+        error: unbanData?.description || "Failed to unban member from Telegram group.",
+      };
+    }
 
     return { success: true };
   } catch (err) {
@@ -111,4 +158,15 @@ export async function removeTelegramGroupMember(params: {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * Backward compatibility alias: strictly calls banTelegramGroupMember to keep user banned.
+ */
+export async function removeTelegramGroupMember(params: {
+  botToken: string;
+  groupChatId: string | number;
+  telegramUserId: string | number;
+}): Promise<{ success: boolean; error?: string }> {
+  return banTelegramGroupMember(params);
 }

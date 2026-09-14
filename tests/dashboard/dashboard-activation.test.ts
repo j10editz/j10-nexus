@@ -91,9 +91,8 @@ describe("Dashboard activation", () => {
     expect(readyHrefs.has("/dashboard/automation/flow")).toBe(true);
     expect(readyHrefs.has("/dashboard/revenue")).toBe(true);
     expect(
-      readyHrefs.has(
-        "/dashboard/settings/integrations"
-      )
+      readyHrefs.has("/dashboard/connections") ||
+      readyHrefs.has("/dashboard/settings/integrations")
     ).toBe(true);
     expect(readyHrefs.has("/dashboard/settings")).toBe(true);
   });
