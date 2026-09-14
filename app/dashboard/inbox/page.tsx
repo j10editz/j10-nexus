@@ -79,6 +79,7 @@ export default function UnifiedInboxPage() {
   // Auto-scroll anchor ref for active chat stream
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const selectedThreadIdRef = useRef<string>(selectedThreadId);
+  const isRealtimeHealthyRef = useRef<boolean>(false);
 
   useEffect(() => {
     selectedThreadIdRef.current = selectedThreadId;
@@ -154,9 +155,17 @@ export default function UnifiedInboxPage() {
     }
   }, [selectedThreadId, fetchThreadMessages]);
 
-  // Supabase Realtime subscription + responsive 3s live sync for instant message arrivals
+  // Supabase Realtime subscription with fallback polling only during disconnect/error/recovery
   useEffect(() => {
     if (!isLivePersisted) return;
+
+    const triggerSync = () => {
+      void loadThreads(true);
+      const currentThreadId = selectedThreadIdRef.current;
+      if (currentThreadId) {
+        void fetchThreadMessages(currentThreadId);
+      }
+    };
 
     // 1. Supabase Realtime channel for live table updates
     const supabase = createClient();
@@ -192,35 +201,41 @@ export default function UnifiedInboxPage() {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          isRealtimeHealthyRef.current = true;
+        } else {
+          isRealtimeHealthyRef.current = false;
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+            triggerSync();
+          }
+        }
+      });
 
-    // 2. Responsive polling fallback: 3s when tab is active, 15s when hidden
+    // 2. Responsive polling fallback: runs ONLY when Realtime is disconnected, errored, or recovering
     let pollIntervalMs = 3000;
     let fallbackTimer: NodeJS.Timeout;
 
-    const triggerSync = () => {
-      void loadThreads(true);
-      const currentThreadId = selectedThreadIdRef.current;
-      if (currentThreadId) {
-        void fetchThreadMessages(currentThreadId);
-      }
-    };
-
     const cursorPoll = () => {
-      if (document.hidden) {
-        pollIntervalMs = 15000;
+      if (!isRealtimeHealthyRef.current) {
+        if (document.hidden) {
+          pollIntervalMs = 15000;
+        } else {
+          pollIntervalMs = 3000;
+          triggerSync();
+        }
       } else {
-        pollIntervalMs = 3000;
-        triggerSync();
+        // While Realtime subscription is healthy, do not poll continuously
+        pollIntervalMs = 5000;
       }
       fallbackTimer = setTimeout(cursorPoll, pollIntervalMs);
     };
 
     fallbackTimer = setTimeout(cursorPoll, pollIntervalMs);
 
-    // Sync immediately upon tab regaining focus or visibility
+    // Sync upon focus or visibility only if Realtime is degraded
     const handleVisibilityOrFocus = () => {
-      if (!document.hidden) {
+      if (!document.hidden && !isRealtimeHealthyRef.current) {
         triggerSync();
       }
     };
@@ -229,6 +244,7 @@ export default function UnifiedInboxPage() {
     document.addEventListener("visibilitychange", handleVisibilityOrFocus);
 
     return () => {
+      isRealtimeHealthyRef.current = false;
       void supabase.removeChannel(channel);
       clearTimeout(fallbackTimer);
       window.removeEventListener("focus", handleVisibilityOrFocus);

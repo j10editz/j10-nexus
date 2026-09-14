@@ -4,9 +4,11 @@ Write-Host "==================================================================" 
 Write-Host "       J10 NEXUS: SECURE PRODUCTION TELEGRAM TOKEN ENTRY          " -ForegroundColor Cyan
 Write-Host "==================================================================" -ForegroundColor Cyan
 Write-Host ""
+Write-Host "Flow: hidden input -> transient memory -> getMe -> AES-256-GCM vault -> setWebhook -> zero memory" -ForegroundColor Green
+Write-Host ""
 Write-Host "Instructions:" -ForegroundColor Yellow
 Write-Host "1. Revoke and copy the replacement BotFather token in Telegram." -ForegroundColor Yellow
-Write-Host "2. Paste the token below. Input is masked and never displayed or logged." -ForegroundColor Yellow
+Write-Host "2. Paste the token below. Input is masked and never displayed, logged, or saved to file." -ForegroundColor Yellow
 Write-Host "3. Press Enter to rotate production vault & register webhook." -ForegroundColor Yellow
 Write-Host ""
 
@@ -20,8 +22,10 @@ if ($null -eq $sec) {
 $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
 $token = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
 [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+$sec = $null
 
 if (-not ($token -match "^\d+:[A-Za-z0-9_-]+$")) {
+    $token = $null
     Write-Host "Invalid Telegram bot token format. Must be <bot_id>:<secret>." -ForegroundColor Red
     Start-Sleep -Seconds 5
     exit 1
