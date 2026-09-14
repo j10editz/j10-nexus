@@ -13,6 +13,9 @@ export async function GET() {
     process.env.WHATSAPP_ACCESS_TOKEN || process.env.META_WHATSAPP_TOKEN
   );
   const openaiConfigured = Boolean(process.env.OPENAI_API_KEY);
+  const geminiConfigured = Boolean(
+    process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_API_KEY
+  );
 
   return NextResponse.json(
     {
@@ -29,6 +32,7 @@ export async function GET() {
         stripe: stripeConfigured ? "configured" : "not_configured",
         whatsapp: whatsappConfigured ? "configured" : "not_configured",
         openai: openaiConfigured ? "configured" : "not_configured",
+        gemini: geminiConfigured ? "configured" : "not_configured",
       },
     },
     {
