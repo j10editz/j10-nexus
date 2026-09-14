@@ -51,7 +51,7 @@ export async function GET(req: Request) {
         metadata,
         created_at,
         updated_at,
-        contact:contacts(
+        contact:contacts!inbox_threads_contact_id_fkey(
           id,
           name,
           email,

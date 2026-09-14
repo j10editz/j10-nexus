@@ -36,7 +36,7 @@ export async function GET(
         metadata,
         created_at,
         updated_at,
-        contact:contacts(*)
+        contact:contacts!inbox_threads_contact_id_fkey(*)
       `)
       .eq("id", threadId)
       .eq("workspace_id", wsId)
