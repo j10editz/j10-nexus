@@ -11,6 +11,14 @@ const processedUpdateIds = new Set<number>();
 
 export async function POST(request: Request) {
   try {
+    // 0. Check maintenance mode
+    if (process.env.TELEGRAM_MAINTENANCE_MODE === "true") {
+      return NextResponse.json(
+        { status: "maintenance", message: "Telegram ingress temporarily paused for maintenance window" },
+        { status: 503 }
+      );
+    }
+
     // 1. Verify webhook secret token if configured
     const expectedSecret = (process.env.TELEGRAM_WEBHOOK_SECRET || "j10_nexus_telegram_secret").trim();
     const receivedSecret = request.headers.get("x-telegram-bot-api-secret-token")?.trim();
