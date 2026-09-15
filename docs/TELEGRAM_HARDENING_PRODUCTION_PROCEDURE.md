@@ -1,7 +1,10 @@
 # Production Telegram Hardening: Operational Runbook, Preflight & Rollback
 
-> **STATUS: PRE-PRODUCTION GATE CERTIFIED — WAITING FOR EXPLICIT OPERATOR APPROVAL**
-> **ZERO PRODUCTION MUTATIONS APPLIED**
+> **STATUS: DUAL-TIER CERTIFICATION STATUS**
+> - **Standard Telegram Bot DM**: Externally verified (real inbound DM webhook, Gemini AI generation, outbound Telegram Bot API dispatch).
+> - **Telegram Business Secretary Mode**: Locally certified & unit tested; external acceptance **NOT RUN** (requires Telegram Premium). Feature-flag guarded and disabled by default (`ENABLE_TELEGRAM_BUSINESS_SECRETARY=false`).
+> - **Notice**: Telegram integration is NOT claimed as 100% externally certified.
+> **ZERO PRODUCTION MUTATIONS APPLIED TO MAIN OR PRODUCTION DB**
 
 ---
 

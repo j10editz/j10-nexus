@@ -141,5 +141,7 @@ The platform explicitly defines and meters exactly 9 production channels mapped 
 - website: website_outbound
 - crm: crm_outbound
 
-Channels outside this list (including Telegram, LINE, WeChat, Viber, and RCS) are not supported or substituted. Any dispatch attempt targeting an unsupported channel halts pre-reservation with an explicit error before external provider invocation.
+Channels outside this list (including Telegram, LINE, WeChat, Viber, and RCS) are not part of the standard 9-channel quota billing matrix.
+- Telegram Standard Bot DM: Inbound webhook, Gemini AI processing, and outbound dispatch are **externally verified**.
+- Telegram Business Secretary Mode: Locally certified and unit-tested; **external acceptance not run** (requires Telegram Premium). Guarded behind `ENABLE_TELEGRAM_BUSINESS_SECRETARY` feature flag. Telegram is NOT claimed as 100% externally certified.
 

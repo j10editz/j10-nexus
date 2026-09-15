@@ -78,6 +78,19 @@ export async function POST(request: Request) {
 
     const supabase = createWebhookServiceClient();
 
+    // Feature Flag Guard: Keep Telegram Business Secretary Mode disabled by default
+    const isSecretaryModeEnabled = process.env.ENABLE_TELEGRAM_BUSINESS_SECRETARY === "true";
+    if (
+      !isSecretaryModeEnabled &&
+      (update.business_connection ||
+        update.business_message ||
+        update.edited_business_message ||
+        update.deleted_business_messages)
+    ) {
+      console.log("[Telegram Webhook] Telegram Business Secretary Mode is disabled by feature flag. Ignoring update.");
+      return NextResponse.json({ ok: true });
+    }
+
     // 3. Handle VIP Group Join Requests
     if (update.chat_join_request) {
       const cjr = update.chat_join_request;
@@ -148,8 +161,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // 4. Handle Telegram Business Connection Updates (Secretary Mode Activation & Rights Changes)
-    if (update.business_connection) {
+    // 4. Handle Telegram Business Connection Updates (Only when Secretary Mode feature flag is enabled)
+    if (isSecretaryModeEnabled && update.business_connection) {
       const bc = update.business_connection;
       const bcId = String(bc.id);
       const tgUserId = String(bc.user?.id);
@@ -199,8 +212,8 @@ export async function POST(request: Request) {
       }
     }
 
-    // 5. Handle Deleted Business Messages
-    if (update.deleted_business_messages) {
+    // 5. Handle Deleted Business Messages (Only when Secretary Mode feature flag is enabled)
+    if (isSecretaryModeEnabled && update.deleted_business_messages) {
       const del = update.deleted_business_messages;
       const messageIds = (del.message_ids || []).map(String);
 
@@ -218,12 +231,11 @@ export async function POST(request: Request) {
     }
 
     // 6. Extract Inbound Message Payload (Standard or Business)
-    const isBusinessMessage = Boolean(update.business_message || update.edited_business_message);
+    const isBusinessMessage = Boolean(isSecretaryModeEnabled && (update.business_message || update.edited_business_message));
     const rawMsg =
       (update as any).message ??
       (update as any).edited_message ??
-      (update as any).business_message ??
-      (update as any).edited_business_message;
+      (isSecretaryModeEnabled ? ((update as any).business_message ?? (update as any).edited_business_message) : null);
 
     if (!rawMsg) {
       return NextResponse.json({ ok: true });
@@ -234,17 +246,17 @@ export async function POST(request: Request) {
     const text = typeof rawMsg?.text === "string" ? rawMsg.text.trim() : "";
     const isGroup = rawMsg?.chat?.type === "group" || rawMsg?.chat?.type === "supergroup";
     const businessConnectionId =
-      typeof rawMsg?.business_connection_id === "string"
+      isSecretaryModeEnabled && typeof rawMsg?.business_connection_id === "string"
         ? rawMsg.business_connection_id
-        : typeof (update as any).business_connection_id === "string"
+        : isSecretaryModeEnabled && typeof (update as any).business_connection_id === "string"
         ? (update as any).business_connection_id
         : undefined;
 
     let resolvedWorkspaceId: string | null = null;
 
     // 7. Multi-Tenant Workspace Resolution
-    // Strategy A1: Telegram Business Connection Resolution
-    if (isBusinessMessage && businessConnectionId) {
+    // Strategy A1: Telegram Business Connection Resolution (Flag-guarded)
+    if (isSecretaryModeEnabled && isBusinessMessage && businessConnectionId) {
       const permissionCheck = await verifyBusinessConnectionCanReply(supabase, businessConnectionId);
       if (permissionCheck.allowed && permissionCheck.connection) {
         resolvedWorkspaceId = permissionCheck.connection.workspace_id;
@@ -261,7 +273,7 @@ export async function POST(request: Request) {
         const param = parts[1].trim();
 
         // Mode 1: Telegram Business Onboarding Session (/start tb_...)
-        if (param.startsWith("tb_")) {
+        if (isSecretaryModeEnabled && param.startsWith("tb_")) {
           const sessionVerification = await consumeTelegramBusinessSession(
             supabase,
             param,
@@ -344,13 +356,14 @@ export async function POST(request: Request) {
       }
     }
 
-    // Strategy C: Resolve by existing thread bound to this chat
+    // Strategy C: Resolve by existing thread strictly scoped by receiving_bot_id + telegram_chat_id
     if (!resolvedWorkspaceId && chatId) {
       const { data: existingThread } = await supabase
         .from("inbox_threads")
         .select("workspace_id")
         .eq("channel", "telegram")
         .eq("external_thread_id", chatId)
+        .or("metadata->>receiving_bot_id.eq.official,metadata->>receiving_bot_id.is.null")
         .order("last_message_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -360,37 +373,10 @@ export async function POST(request: Request) {
       }
     }
 
-    // Strategy D: Fallback to active telegram integration or active workspace for single-tenant / staging bots
+    // Strict Invariant: Strategy D is completely removed.
+    // Unresolved updates NEVER persist into any tenant. Return HTTP 200 with sanitized logging.
     if (!resolvedWorkspaceId) {
-      const { data: defaultInteg } = await supabase
-        .from("integrations")
-        .select("workspace_id")
-        .eq("provider", "telegram")
-        .limit(1)
-        .maybeSingle();
-
-      if (defaultInteg?.workspace_id) {
-        resolvedWorkspaceId = defaultInteg.workspace_id;
-      }
-    }
-
-    if (!resolvedWorkspaceId) {
-      const { data: defaultWs } = await supabase
-        .from("workspaces")
-        .select("id")
-        .eq("status", "active")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-      if (defaultWs?.id) {
-        resolvedWorkspaceId = defaultWs.id;
-      }
-    }
-
-    // If still unresolved, drop safely
-    if (!resolvedWorkspaceId) {
-      console.warn(`[Telegram Webhook] Unbound chat ${chatId} received without valid workspace. Dropping.`);
+      console.warn(`[Telegram Webhook] Unbound update for chat ${chatId} dropped without tenant assignment.`);
       return NextResponse.json({ ok: true });
     }
 
@@ -447,21 +433,20 @@ export async function POST(request: Request) {
       console.warn("[Telegram Webhook] Non-blocking canonical lead intake warning:", intakeErr);
     }
 
-    // 10. Immediate synchronous worker invocation for instantaneous Telegram AI reply (< 2s)
+    // 10. Non-blocking Background Worker Trigger:
+    // Webhook returns HTTP 200 immediately without awaiting Gemini generation or Telegram outbound dispatch
     const workerSecret = (process.env.TELEGRAM_WORKER_SECRET || "j10_staging_worker_8f92a1c74b8e3092d65a").trim();
     if (workerSecret) {
-      try {
-        const origin = new URL(request.url).origin;
-        await fetch(`${origin}/api/workers/telegram-ai`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${workerSecret}`,
-            "Content-Type": "application/json",
-          },
-        });
-      } catch (workerErr) {
-        console.warn("[Telegram Webhook] Worker invocation notice:", workerErr);
-      }
+      const origin = new URL(request.url).origin;
+      fetch(`${origin}/api/workers/telegram-ai`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${workerSecret}`,
+          "Content-Type": "application/json",
+        },
+      }).catch((workerErr) => {
+        console.warn("[Telegram Webhook] Non-blocking worker trigger notice:", workerErr?.message || workerErr);
+      });
     }
 
     // 11. Fast Return to Telegram: return strictly { ok: true }
