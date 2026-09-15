@@ -350,7 +350,7 @@ export default function RevenueCommandCenter({
   };
 
   return (
-    <div className="j10-canvas min-h-screen bg-[#080A0F] text-slate-200 font-sans antialiased selection:bg-cyan-500/20">
+    <div className="j10-canvas min-h-screen bg-[#080A0F] text-slate-200 font-sans antialiased selection:bg-cyan-500/20 w-full min-w-0">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg border border-slate-700 bg-[#0E121B] px-4 py-2.5 text-xs font-medium text-slate-100 shadow-xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-3 duration-150">
@@ -359,7 +359,7 @@ export default function RevenueCommandCenter({
         </div>
       )}
 
-      <div className="mx-auto max-w-[1600px] px-4 py-4 sm:px-6 lg:px-8 space-y-3.5">
+      <div className="mx-auto max-w-[1680px] w-full min-w-0 px-4 py-4 sm:px-6 lg:px-8 space-y-3.5">
         {/* =========================================================================
             ZONE 1: CLEAN EXECUTIVE HEADER
             ========================================================================= */}

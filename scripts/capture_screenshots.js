@@ -7,7 +7,10 @@ const ARTIFACTS_DIR = "C:\\Users\\riche\\.gemini\\antigravity-ide\\brain\\97987c
 const TARGET_URL = "http://localhost:3000/dashboard?demo=true";
 
 const VIEWPORTS = [
-  { name: "1440px", width: 1440, height: 1100, isMobile: false },
+  { name: "1440x900", width: 1440, height: 900, isMobile: false },
+  { name: "1920x1080", width: 1920, height: 1080, isMobile: false },
+  { name: "2048x950", width: 2048, height: 950, isMobile: false },
+  { name: "1440px", width: 1440, height: 900, isMobile: false },
   { name: "1024px", width: 1024, height: 1000, isMobile: false },
   { name: "768px", width: 768, height: 1200, isMobile: false },
   { name: "390px", width: 390, height: 1200, isMobile: true, deviceScaleFactor: 2 },
