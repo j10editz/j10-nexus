@@ -447,20 +447,21 @@ export async function POST(request: Request) {
       console.warn("[Telegram Webhook] Non-blocking canonical lead intake warning:", intakeErr);
     }
 
-    // 10. Best-effort immediate authenticated worker invocation for low latency
-    // If missed or failed, Supabase pg_cron reconciles every minute.
+    // 10. Immediate synchronous worker invocation for instantaneous Telegram AI reply (< 2s)
     const workerSecret = (process.env.TELEGRAM_WORKER_SECRET || "j10_staging_worker_8f92a1c74b8e3092d65a").trim();
     if (workerSecret) {
-      const origin = new URL(request.url).origin;
-      fetch(`${origin}/api/workers/telegram-ai`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${workerSecret}`,
-          "Content-Type": "application/json",
-        },
-      }).catch((workerErr) => {
-        console.warn("[Telegram Webhook] Immediate worker invocation notice (pg_cron will reconcile):", workerErr?.message || workerErr);
-      });
+      try {
+        const origin = new URL(request.url).origin;
+        await fetch(`${origin}/api/workers/telegram-ai`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${workerSecret}`,
+            "Content-Type": "application/json",
+          },
+        });
+      } catch (workerErr) {
+        console.warn("[Telegram Webhook] Worker invocation notice:", workerErr);
+      }
     }
 
     // 11. Fast Return to Telegram: return strictly { ok: true }

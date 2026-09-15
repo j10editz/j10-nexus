@@ -560,18 +560,23 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
   // 7. Resolve Gemini API Key (Workspace Vault or Environment Variable)
   let geminiKey = process.env.GEMINI_API_KEY?.trim() || "";
   if (!geminiKey) {
-    const { data: integ } = await supabase
+    const { data: integs } = await supabase
       .from("integrations")
-      .select("id")
+      .select("id, provider")
       .eq("workspace_id", workspaceId)
-      .eq("provider", "google_gemini")
-      .maybeSingle();
+      .in("provider", ["google_gemini", "telegram"]);
 
-    if (integ?.id) {
-      try {
-        const decrypted = await getIntegrationCredentials(supabase, workspaceId, integ.id);
-        geminiKey = decrypted?.values?.api_key || decrypted?.values?.geminiApiKey || "";
-      } catch {}
+    if (integs && integs.length > 0) {
+      for (const integ of integs) {
+        try {
+          const decrypted = await getIntegrationCredentials(supabase, workspaceId, integ.id);
+          const foundKey = decrypted?.values?.gemini_api_key || decrypted?.values?.geminiApiKey || decrypted?.values?.api_key;
+          if (foundKey && foundKey.trim()) {
+            geminiKey = foundKey.trim();
+            break;
+          }
+        } catch {}
+      }
     }
   }
 
