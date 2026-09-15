@@ -28,7 +28,11 @@ const results = [];
 for (const suite of suites) {
   process.stdout.write(`Running ${suite}... `);
   try {
-    const output = execSync(`npm run ${suite}`, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const output = execSync(`npm run ${suite}`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, NODE_OPTIONS: "--max-old-space-size=4096" },
+    });
     results.push({ suite, status: "passed", output });
     console.log("PASS");
   } catch (err) {
