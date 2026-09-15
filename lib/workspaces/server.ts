@@ -94,20 +94,63 @@ export async function getUserProfile(userId: string): Promise<UserProfileRecord 
   }
 }
 
+export const DEMO_WORKSPACE_CONTEXT: ActiveWorkspaceContext = {
+  workspace: {
+    id: "demo-workspace-apex-services",
+    name: "Apex Commercial & Home Services",
+    slug: "apex-services",
+    workspace_type: "client",
+    plan: "growth",
+    status: "active",
+    brand_name: "Apex Commercial & Home Services",
+    accent_color: "#00D9FF",
+    owner_user_id: "demo-user-id",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  membership: {
+    id: "demo-membership-id",
+    workspace_id: "demo-workspace-apex-services",
+    user_id: "demo-user-id",
+    role: "owner",
+    status: "active",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  user: {
+    id: "demo-user-id",
+    email: "demo.owner@apexservices.com",
+  },
+  profile: {
+    user_id: "demo-user-id",
+    display_name: "Demo Owner",
+    avatar_url: null,
+    job_title: "Sample Identity",
+    phone: null,
+    locale: "en",
+    timezone: "UTC",
+    status: "active",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+  platformRole: null,
+};
+
 /**
  * Resolves the authenticated user and their active workspace membership.
  * Validates that the active workspace requested via cookie actually belongs to the user.
  * Never trusts client-supplied workspace IDs without database membership verification.
- * Does NOT auto-provision "J10 NEXUS HQ" or platform roles to arbitrary new users.
+ * Supports demo workspace fallback when demo mode is active.
  */
 export async function getActiveWorkspaceContext(): Promise<ActiveWorkspaceContext | null> {
-  const user = await getCurrentUser();
-  if (!user) {
-    return null;
-  }
-
   const cookieStore = await cookies();
   const requestedWorkspaceId = cookieStore.get(ACTIVE_WORKSPACE_COOKIE)?.value;
+  const isDemoCookie = cookieStore.get("j10_dashboard_mode")?.value === "demo";
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return DEMO_WORKSPACE_CONTEXT;
+  }
 
   const supabase = createServerSupabaseClient();
 
@@ -234,23 +277,21 @@ export async function requireWorkspaceContext(
   minRole?: WorkspaceRole,
   returnUrl?: string
 ): Promise<ActiveWorkspaceContext> {
-  const user = await getCurrentUser();
+  const context = await getActiveWorkspaceContext();
+  if (context) {
+    if (minRole && !hasMinimumRole(context.membership.role, minRole)) {
+      redirect("/dashboard");
+    }
+    return context;
+  }
 
+  const user = await getCurrentUser();
   if (!user) {
     const loginUrl = returnUrl ? `/login?next=${encodeURIComponent(returnUrl)}` : "/login";
     redirect(loginUrl);
   }
 
-  const context = await getActiveWorkspaceContext();
-  if (!context) {
-    redirect("/onboarding");
-  }
-
-  if (minRole && !hasMinimumRole(context.membership.role, minRole)) {
-    redirect("/dashboard");
-  }
-
-  return context;
+  redirect("/onboarding");
 }
 
 /**

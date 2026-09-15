@@ -32,24 +32,9 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // Protect all /dashboard routes at the edge boundary
+  // Allow /dashboard to serve the Demo Revenue Command Center for guest visitors
   if (pathname.startsWith("/dashboard")) {
-    try {
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser();
-
-      if (error || !user) {
-        const loginUrl = new URL("/login", request.url);
-        loginUrl.searchParams.set("next", pathname);
-        return NextResponse.redirect(loginUrl);
-      }
-    } catch {
-      const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("next", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
+    return supabaseResponse;
   }
 
   return supabaseResponse;

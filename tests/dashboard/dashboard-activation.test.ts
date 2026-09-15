@@ -36,7 +36,7 @@ function routeFile(href: string) {
 
 describe("Dashboard activation", () => {
   it("classifies every navigation item as ready or building", () => {
-    expect(dashboardNavigationItems).toHaveLength(9);
+    expect(dashboardNavigationItems).toHaveLength(8);
     expect(
       dashboardNavigationItems.every(
         (item) =>
@@ -62,7 +62,7 @@ describe("Dashboard activation", () => {
 
     expect(invalidReadyItems).toEqual([]);
     expect(dishonestBuildingLinks).toEqual([]);
-    expect(readyDashboardNavigationItems).toHaveLength(9);
+    expect(readyDashboardNavigationItems).toHaveLength(8);
   });
 
   it("backs every ready route with a Next.js page", () => {
@@ -83,18 +83,14 @@ describe("Dashboard activation", () => {
       )
     );
 
-    expect(readyHrefs.size).toBe(9);
+    expect(readyHrefs.size).toBe(8);
     expect(readyHrefs.has("/dashboard")).toBe(true);
+    expect(readyHrefs.has("/dashboard/bot-setup?tab=simulator")).toBe(true);
     expect(readyHrefs.has("/dashboard/inbox")).toBe(true);
     expect(readyHrefs.has("/dashboard/crm")).toBe(true);
-    expect(readyHrefs.has("/dashboard/ai-employees")).toBe(true);
-    expect(readyHrefs.has("/dashboard/automation/flow")).toBe(true);
-    expect(readyHrefs.has("/dashboard/revenue")).toBe(true);
-    expect(
-      readyHrefs.has("/dashboard/connections") ||
-      readyHrefs.has("/dashboard/settings/integrations")
-    ).toBe(true);
     expect(readyHrefs.has("/dashboard/bot-setup")).toBe(true);
+    expect(readyHrefs.has("/dashboard/connections")).toBe(true);
+    expect(readyHrefs.has("/dashboard/revenue")).toBe(true);
     expect(readyHrefs.has("/dashboard/settings")).toBe(true);
   });
 
