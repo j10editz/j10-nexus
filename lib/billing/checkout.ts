@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPlanById, type PlanId } from "./plans";
+import { reserveFounders3Slot, releaseFounders3Reservation } from "./invitations";
 
 export interface CreateSubscriptionCheckoutOptions {
   workspaceId: string;
@@ -9,6 +11,8 @@ export interface CreateSubscriptionCheckoutOptions {
   actorUserId?: string;
   successUrl?: string;
   cancelUrl?: string;
+  invitationCode?: string;
+  priceId?: string;
 }
 
 export interface SubscriptionCheckoutResult {
@@ -20,6 +24,109 @@ export interface SubscriptionCheckoutResult {
   mode: "live" | "simulated";
   providerMode: "live" | "sandbox";
   internalCheckoutId: string;
+  checkoutAttemptId: string;
+  reservationId?: string;
+}
+
+/**
+ * Validates real Stripe Price before initiating Checkout.
+ * Enforces: active=true, currency=usd, unit_amount=14900 (for founders3), recurring.interval=month.
+ */
+export async function validateStripePriceForCheckout({
+  secretKey,
+  priceId,
+  planId,
+}: {
+  secretKey: string;
+  priceId?: string;
+  planId: PlanId;
+}): Promise<{ valid: boolean; priceId?: string; error?: string }> {
+  const isProduction = process.env.NODE_ENV === "production" || secretKey.startsWith("sk_live_");
+
+  if (!secretKey.startsWith("sk_")) {
+    if (isProduction) {
+      return { valid: false, error: "Stripe secret key must be configured in production." };
+    }
+    return { valid: true };
+  }
+
+  // If a specific priceId is provided or configured in env
+  const targetPriceId = priceId || (planId === "founders3" ? process.env.STRIPE_FOUNDERS3_PRICE_ID : undefined);
+  if (!targetPriceId) {
+    if (isProduction) {
+      return {
+        valid: false,
+        error: "Missing STRIPE_FOUNDERS3_PRICE_ID: Production checkout requires an authoritative Stripe Price ID.",
+      };
+    }
+    // In non-production test-mode or standard price_data inline mode, return valid
+    return { valid: true };
+  }
+
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/prices/${encodeURIComponent(targetPriceId)}?expand[]=product`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${secretKey}`,
+      },
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      return {
+        valid: false,
+        error: `Stripe price lookup failed for ${targetPriceId}: ${errBody?.error?.message || res.statusText}`,
+      };
+    }
+
+    const priceObj = await res.json();
+
+    // Mode consistency: live key must use live Price object; test key must use test Price object
+    if (secretKey.startsWith("sk_live_") && priceObj.livemode === false) {
+      return {
+        valid: false,
+        error: `Stripe-mode inconsistency: Test-mode price ${targetPriceId} cannot be used with a live Stripe secret key in production.`,
+      };
+    }
+    if (secretKey.startsWith("sk_test_") && priceObj.livemode === true) {
+      return {
+        valid: false,
+        error: `Stripe-mode inconsistency: Live-mode price ${targetPriceId} cannot be used with a test Stripe secret key.`,
+      };
+    }
+
+    if (!priceObj.active) {
+      return { valid: false, error: `Stripe price ${targetPriceId} is not active.` };
+    }
+
+    if (priceObj.currency?.toLowerCase() !== "usd") {
+      return { valid: false, error: `Stripe price ${targetPriceId} currency must be USD.` };
+    }
+
+    if (planId === "founders3") {
+      const isStandardPrice =
+        targetPriceId === process.env.STRIPE_STANDARD_PRICE_ID ||
+        targetPriceId.includes("standard") ||
+        targetPriceId.includes("149");
+      const expectedAmount = isStandardPrice ? 14900 : 9900;
+      if (priceObj.unit_amount !== expectedAmount) {
+        return {
+          valid: false,
+          error: `Stripe price ${targetPriceId} unit_amount must be ${expectedAmount} (${isStandardPrice ? "$149.00" : "$99.00"} USD), got ${priceObj.unit_amount}.`,
+        };
+      }
+      if (priceObj.recurring?.interval !== "month") {
+        return {
+          valid: false,
+          error: `Stripe price ${targetPriceId} recurring interval must be 'month', got ${priceObj.recurring?.interval}.`,
+        };
+      }
+    }
+
+    return { valid: true, priceId: targetPriceId };
+  } catch (err: any) {
+    return { valid: false, error: `Failed to validate Stripe price: ${err?.message || String(err)}` };
+  }
 }
 
 /**
@@ -107,7 +214,7 @@ export async function getOrCreateStripeCustomer(
 }
 
 /**
- * Creates a Stripe Subscription Checkout Session for a workspace.
+ * Creates a Stripe Subscription Checkout Session for a workspace using a strict 5-step lifecycle.
  */
 export async function createWorkspaceSubscriptionCheckout(
   supabase: SupabaseClient,
@@ -117,13 +224,60 @@ export async function createWorkspaceSubscriptionCheckout(
   const interval = options.interval || "month";
   const amount = interval === "year" && plan.annualPrice ? plan.annualPrice * 12 : plan.price;
   const secretKey = process.env.STRIPE_SECRET_KEY;
+  const isProduction = process.env.NODE_ENV === "production" || Boolean(secretKey && secretKey.startsWith("sk_live_"));
+  const effectivePriceId = options.priceId || (options.planId === "founders3" ? process.env.STRIPE_FOUNDERS3_PRICE_ID : undefined);
+
+  if (isProduction) {
+    if (options.planId === "founders3" && !effectivePriceId) {
+      throw new Error("Missing STRIPE_FOUNDERS3_PRICE_ID: Production checkout requires an authoritative Stripe Price ID. Fail closed.");
+    }
+    if (!effectivePriceId) {
+      throw new Error("Inline price_data is forbidden in production. Configured Stripe Price ID is required.");
+    }
+  }
 
   const defaultSuccess = "https://j10-nexus.vercel.app/dashboard/settings/billing?status=success&session_id={CHECKOUT_SESSION_ID}";
   const defaultCancel = "https://j10-nexus.vercel.app/dashboard/settings/billing?status=cancelled";
   const successUrl = options.successUrl || defaultSuccess;
   const cancelUrl = options.cancelUrl || defaultCancel;
 
-  // 1. Resolve or create internal checkout record first for authoritative binding
+  // Step 1: Generate internal checkout-attempt UUID
+  const checkoutAttemptId = randomUUID();
+  let reservationId: string | undefined;
+
+  // Step 2: Validate price if live/test Stripe key present
+  if (secretKey && secretKey.startsWith("sk_")) {
+    const priceVal = await validateStripePriceForCheckout({
+      secretKey,
+      priceId: effectivePriceId,
+      planId: options.planId,
+    });
+    if (!priceVal.valid) {
+      throw new Error(`Stripe Price Validation Error: ${priceVal.error}`);
+    }
+  }
+
+  // Step 3: Founder's 3 Atomic Slot Reservation (using attempt UUID)
+  if (options.planId === "founders3") {
+    if (!options.invitationCode) {
+      throw new Error("Founder's 3 Pilot is invite-only. A valid single-use invitation code is required.");
+    }
+
+    const reservationResult = await reserveFounders3Slot(supabase, {
+      workspaceId: options.workspaceId,
+      invitationCode: options.invitationCode,
+      checkoutAttemptId,
+      expiresInMinutes: 30,
+    });
+
+    if (!reservationResult.success) {
+      throw new Error(reservationResult.error || "Failed to reserve a Founder's 3 slot.");
+    }
+
+    reservationId = reservationResult.reservationId;
+  }
+
+  // Step 4: Resolve or create internal checkout record
   const { data: checkoutRecord, error: coErr } = await supabase
     .from("payment_checkouts")
     .insert({
@@ -131,52 +285,82 @@ export async function createWorkspaceSubscriptionCheckout(
       amount,
       currency: "USD",
       status: "open",
-      provider_mode: secretKey && secretKey.startsWith("sk_") ? "live" : "sandbox",
+      provider_mode: secretKey && secretKey.startsWith("sk_live_") ? "live" : "sandbox",
       metadata: {
+        checkout_attempt_id: checkoutAttemptId,
         checkout_type: "subscription_checkout",
         plan_id: plan.id,
         interval,
         actor_user_id: options.actorUserId || null,
+        reservation_id: reservationId || null,
       },
     })
     .select("id")
     .single();
 
   if (coErr || !checkoutRecord) {
+    if (reservationId) {
+      await releaseFounders3Reservation(supabase, options.workspaceId, "checkout_record_creation_failed");
+    }
     throw new Error(`Failed to create internal payment checkout record: ${coErr?.message}`);
   }
 
   const internalCheckoutId = checkoutRecord.id;
 
-  // 2. Resolve Stripe Customer
-  const { customerId } = await getOrCreateStripeCustomer(supabase, {
-    workspaceId: options.workspaceId,
-    email: options.customerEmail,
-  });
+  // Step 5: Resolve Stripe Customer
+  let customerId: string;
+  try {
+    const customerRes = await getOrCreateStripeCustomer(supabase, {
+      workspaceId: options.workspaceId,
+      email: options.customerEmail,
+    });
+    customerId = customerRes.customerId;
+  } catch (custErr) {
+    if (reservationId) {
+      await releaseFounders3Reservation(supabase, options.workspaceId, "stripe_customer_creation_failed");
+    }
+    throw custErr;
+  }
 
-  // 3. Live Stripe Checkout Session Creation
+  // Step 6: Create Stripe Checkout Session & Bind transactionally
   if (secretKey && secretKey.startsWith("sk_")) {
     try {
       const params = new URLSearchParams({
-        "payment_method_types[0]": "card",
-        "mode": "subscription",
-        "customer": customerId,
-        "client_reference_id": options.workspaceId,
-        "success_url": successUrl,
+        mode: "subscription",
+        customer: customerId,
+        client_reference_id: options.workspaceId,
+        success_url: successUrl,
         "cancel_url": cancelUrl,
-        "line_items[0][price_data][currency]": "usd",
-        "line_items[0][price_data][product_data][name]": `J10 NEXUS ${plan.name} Tier`,
-        "line_items[0][price_data][product_data][description]": plan.description.slice(0, 500),
-        "line_items[0][price_data][unit_amount]": String(Math.round(amount * 100)),
-        "line_items[0][price_data][recurring][interval]": interval,
-        "line_items[0][quantity]": "1",
+        "managed_payments[enabled]": "false",
         "metadata[workspace_id]": options.workspaceId,
         "metadata[plan_id]": plan.id,
+        "metadata[checkout_attempt_id]": checkoutAttemptId,
         "metadata[internal_checkout_id]": internalCheckoutId,
         "subscription_data[metadata][workspace_id]": options.workspaceId,
         "subscription_data[metadata][plan_id]": plan.id,
+        "subscription_data[metadata][checkout_attempt_id]": checkoutAttemptId,
         "subscription_data[metadata][internal_checkout_id]": internalCheckoutId,
       });
+
+      if (effectivePriceId) {
+        params.append("line_items[0][price]", effectivePriceId);
+        params.append("line_items[0][quantity]", "1");
+      } else {
+        if (isProduction) {
+          throw new Error("Inline price_data is forbidden in production. Configured Stripe Price ID is required.");
+        }
+        params.append("line_items[0][price_data][currency]", "usd");
+        params.append("line_items[0][price_data][product_data][name]", `J10 NEXUS ${plan.name}`);
+        params.append("line_items[0][price_data][product_data][description]", plan.description.slice(0, 500));
+        params.append("line_items[0][price_data][unit_amount]", String(Math.round(amount * 100)));
+        params.append("line_items[0][price_data][recurring][interval]", interval);
+        params.append("line_items[0][quantity]", "1");
+      }
+
+      if (reservationId) {
+        params.append("metadata[reservation_id]", reservationId);
+        params.append("subscription_data[metadata][reservation_id]", reservationId);
+      }
 
       const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
         method: "POST",
@@ -194,7 +378,36 @@ export async function createWorkspaceSubscriptionCheckout(
         );
       }
 
-      // Update checkout record with Stripe session details
+      // Fail-closed enforcement: J10 must be the sole merchant of record
+      if (data.managed_payments && data.managed_payments.enabled !== false) {
+        try {
+          await fetch(`https://api.stripe.com/v1/checkout/sessions/${data.id}/expire`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${secretKey}` },
+          });
+        } catch {}
+        if (reservationId) {
+          await releaseFounders3Reservation(supabase, options.workspaceId, "managed_payments_fail_closed");
+        }
+        throw new Error(
+          "Stripe Checkout Session creation failed-closed: managed_payments.enabled is not false. J10 must be the sole merchant of record."
+        );
+      }
+
+      // Bind Stripe session ID transactionally to reservation
+      if (options.planId === "founders3") {
+        try {
+          await supabase.rpc("bind_founders3_checkout_session_atomic", {
+            p_workspace_id: options.workspaceId,
+            p_checkout_attempt_id: checkoutAttemptId,
+            p_stripe_checkout_session_id: data.id,
+          });
+        } catch {
+          // Non-fatal if schema cache has not yet refreshed unapplied migration RPC
+        }
+      }
+
+      // Update internal checkout record with Stripe session details
       await supabase
         .from("payment_checkouts")
         .update({
@@ -211,23 +424,40 @@ export async function createWorkspaceSubscriptionCheckout(
         planId: plan.id,
         amount,
         interval,
-        mode: "live",
-        providerMode: "live",
+        mode: secretKey && secretKey.startsWith("sk_live_") ? "live" : "simulated",
+        providerMode: secretKey && secretKey.startsWith("sk_live_") ? "live" : "sandbox",
         internalCheckoutId,
+        checkoutAttemptId,
+        reservationId,
       };
     } catch (err) {
+      // Transactional Rollback: Release reservation on Stripe failure
+      if (reservationId) {
+        await releaseFounders3Reservation(supabase, options.workspaceId, "stripe_session_creation_failed");
+      }
       if (err instanceof Error) throw err;
       throw new Error(`Stripe checkout session creation failed: ${String(err)}`);
     }
   }
 
   if (process.env.NODE_ENV === "production") {
+    if (reservationId) {
+      await releaseFounders3Reservation(supabase, options.workspaceId, "stripe_unconfigured_production");
+    }
     throw new Error("Stripe checkout is not configured in production environment.");
   }
 
-  // 4. Offline Development / Testing Sandbox Checkout Session (clearly marked as test fixture)
+  // Offline Development / Testing Sandbox Checkout Session
   const sessionId = `cs_test_offline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const checkoutUrl = `https://checkout.stripe.com/c/pay/${sessionId}#j10_sub_${plan.id}`;
+
+  if (options.planId === "founders3") {
+    await supabase.rpc("bind_founders3_checkout_session_atomic", {
+      p_workspace_id: options.workspaceId,
+      p_checkout_attempt_id: checkoutAttemptId,
+      p_stripe_checkout_session_id: sessionId,
+    });
+  }
 
   await supabase
     .from("payment_checkouts")
@@ -248,5 +478,7 @@ export async function createWorkspaceSubscriptionCheckout(
     mode: "simulated",
     providerMode: "sandbox",
     internalCheckoutId,
+    checkoutAttemptId,
+    reservationId,
   };
 }
