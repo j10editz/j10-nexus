@@ -1,18 +1,26 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { PLANS } from "@/lib/billing/plans";
 import { resolvePlanLimits } from "@/lib/billing/stripe-webhook";
 
 describe("Billing Subscription API & Tier Alignment", () => {
-  it("defines the 3 core commercial tiers with correct limits", () => {
-    expect(PLANS).toHaveLength(3);
+  it("defines the Founder's 3 pilot and 3 core commercial tiers with correct limits", () => {
+    expect(PLANS).toHaveLength(4);
 
+    const founders = PLANS.find((p) => p.id === "founders3");
     const starter = PLANS.find((p) => p.id === "starter");
     const growth = PLANS.find((p) => p.id === "growth");
     const enterprise = PLANS.find((p) => p.id === "enterprise");
 
+    expect(founders).toBeDefined();
     expect(starter).toBeDefined();
     expect(growth).toBeDefined();
     expect(enterprise).toBeDefined();
+
+    expect(founders?.price).toBe(99);
+    expect(founders?.standardPrice).toBe(149);
+    expect(founders?.introductoryCycleDuration).toBe(12);
+    expect(founders?.messageLimit).toBe(1000);
+    expect(founders?.aiEmployees).toBe(3);
 
     expect(starter?.price).toBe(49);
     expect(starter?.messageLimit).toBe(1000);

@@ -3,10 +3,11 @@ import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/auth";
 import { PLANS, getPlanById, type PlanId } from "@/lib/billing/plans";
 import { createWorkspaceSubscriptionCheckout } from "@/lib/billing/checkout";
+import { getFounders3SlotStatus } from "@/lib/billing/invitations";
 
 export { PLANS };
 
-export async function GET() {
+export async function GET(request?: Request) {
   try {
     const context = await getActiveWorkspaceContext();
     if (!context) {
@@ -29,6 +30,77 @@ export async function GET() {
       console.error("Error fetching workspace subscription:", error);
     }
 
+    // Live Stripe reconciliation if requested (e.g. on portal return)
+    if (request && sub?.stripe_subscription_id) {
+      try {
+        const url = new URL(request.url);
+        if (url.searchParams.get("refresh") === "true") {
+          const secretKey = process.env.STRIPE_SECRET_KEY;
+          if (secretKey && secretKey.startsWith("sk_")) {
+            const stripeRes = await fetch(
+              `https://api.stripe.com/v1/subscriptions/${sub.stripe_subscription_id}`,
+              {
+                method: "GET",
+                headers: { Authorization: `Bearer ${secretKey}` },
+              }
+            );
+            if (stripeRes.ok) {
+              const stripeSub = await stripeRes.json();
+              const currentPeriodEndSec = stripeSub.current_period_end;
+              const cancelAtPeriodEnd = Boolean(
+                stripeSub.cancel_at_period_end ||
+                (stripeSub.cancel_at && currentPeriodEndSec && Number(stripeSub.cancel_at) >= Number(currentPeriodEndSec))
+              );
+
+              const reconciledStatus = cancelAtPeriodEnd
+                ? "canceled_at_period_end"
+                : stripeSub.status;
+
+              const updatePayload: Record<string, any> = {
+                cancel_at_period_end: cancelAtPeriodEnd,
+                status: reconciledStatus,
+                stripe_status: stripeSub.status,
+                updated_at: new Date().toISOString(),
+              };
+
+              if (stripeSub.current_period_start) {
+                updatePayload.current_period_start = new Date(stripeSub.current_period_start * 1000).toISOString();
+              }
+              if (stripeSub.current_period_end) {
+                updatePayload.current_period_end = new Date(stripeSub.current_period_end * 1000).toISOString();
+              }
+
+              const admin = createAdminSupabaseClient();
+              await admin
+                .from("workspace_subscriptions")
+                .update(updatePayload)
+                .eq("workspace_id", context.workspace.id);
+
+              Object.assign(sub, updatePayload);
+            }
+          }
+        }
+      } catch (reconcileErr) {
+        console.warn("Live Stripe reconciliation skipped or failed:", reconcileErr);
+      }
+    }
+
+    // Query active team member seat count
+    const { count: seatsCount } = await supabase
+      .from("workspace_memberships")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", context.workspace.id);
+
+    // Query connected channels count
+    const { count: channelsCount } = await supabase
+      .from("integrations")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", context.workspace.id)
+      .eq("status", "connected");
+
+    // Live Founder's 3 slot status
+    const slotStatus = await getFounders3SlotStatus(supabase, context.workspace.id);
+
     // Honest state: If no subscription row exists, report unconfigured rather than inventing an active plan
     if (!sub) {
       return NextResponse.json({
@@ -43,6 +115,13 @@ export async function GET() {
           monthlyMessageLimit: 0,
           messagesUsed: 0,
           usagePercent: 0,
+          seatsQuota: 1,
+          seatsUsed: seatsCount || 1,
+          channelsQuota: 1,
+          channelsUsed: channelsCount || 0,
+          aiConversationsQuota: 0,
+          aiConversationsUsed: 0,
+          cancelAtPeriodEnd: false,
           currentPeriodStart: null,
           currentPeriodEnd: null,
           gracePeriodEnd: null,
@@ -57,16 +136,21 @@ export async function GET() {
           lastDunningAt: null,
           stripeCustomerId: null,
           stripeSubscriptionId: null,
+          stripePriceId: null,
         },
+        slotStatus,
         plans: PLANS,
       });
     }
 
     const currentPlanId = (sub.plan_id || "starter") as PlanId;
     const currentPlan = getPlanById(currentPlanId);
-    const messageLimit = sub.monthly_message_limit ?? currentPlan.messageLimit;
+    const messageLimit = sub.ai_conversations_quota ?? sub.monthly_message_limit ?? currentPlan.messageLimit;
     const messagesUsed = sub.messages_used_this_period ?? 0;
     const usagePercent = messageLimit > 0 ? Math.min(100, Math.round((messagesUsed / messageLimit) * 100)) : 0;
+
+    const seatsQuota = sub.seats_quota ?? currentPlan.seatsAllowed ?? 3;
+    const channelsQuota = sub.channels_quota ?? currentPlan.connectedChannelsAllowed ?? 2;
 
     const periodEnd = sub.current_period_end ? new Date(sub.current_period_end) : null;
     const now = Date.now();
@@ -86,7 +170,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      isConfigured: sub.status === "active" || sub.status === "trialing",
+      isConfigured: sub.status === "active" || sub.status === "trialing" || sub.status === "past_due" || sub.status === "canceled_at_period_end",
       subscription: {
         id: sub.id,
         workspaceId: sub.workspace_id,
@@ -96,6 +180,13 @@ export async function GET() {
         monthlyMessageLimit: messageLimit,
         messagesUsed,
         usagePercent,
+        seatsQuota,
+        seatsUsed: seatsCount || 1,
+        channelsQuota,
+        channelsUsed: channelsCount || 0,
+        aiConversationsQuota: messageLimit,
+        aiConversationsUsed: messagesUsed,
+        cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
         currentPeriodStart: sub.current_period_start,
         currentPeriodEnd: sub.current_period_end,
         gracePeriodEnd: sub.grace_period_end,
@@ -110,7 +201,17 @@ export async function GET() {
         lastDunningAt: sub.last_dunning_at,
         stripeCustomerId: sub.stripe_customer_id || null,
         stripeSubscriptionId: sub.stripe_subscription_id || null,
+        stripePriceId: sub.stripe_price_id || null,
+        stripeStatus: sub.stripe_status || sub.status,
+        entitlementState: sub.entitlement_state || ((sub.status === "active" || sub.status === "canceled_at_period_end") ? "active" : "none"),
+        billingHoldReason: sub.billing_hold_reason || "none",
+        founderCycleCount: sub.founder_cycle_count ?? (currentPlanId === "founders3" ? 1 : 0),
+        founderCycleTarget: sub.founder_cycle_target ?? 12,
+        founderStartDate: sub.founder_start_date || sub.current_period_start || null,
+        expectedTransitionDate: sub.expected_transition_date || null,
+        priceTransitionStatus: sub.price_transition_status || (currentPlanId === "founders3" ? "introductory" : "none"),
       },
+      slotStatus,
       plans: PLANS,
     });
   } catch (error) {
@@ -141,11 +242,12 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const targetPlanId = String(body.planId || "").toLowerCase();
+    const invitationCode = typeof body.invitationCode === "string" ? body.invitationCode.trim() : undefined;
 
     const plan = PLANS.find((p) => p.id === targetPlanId);
     if (!plan) {
       return NextResponse.json(
-        { success: false, error: "Invalid plan. Must be one of: starter, growth, enterprise." },
+        { success: false, error: "Invalid plan. Must be one of: founders3, starter, growth, enterprise." },
         { status: 400 }
       );
     }
@@ -162,6 +264,7 @@ export async function POST(request: Request) {
         planId: plan.id,
         customerEmail: context.user.email,
         actorUserId: context.user.id,
+        invitationCode,
       });
 
       return NextResponse.json({
@@ -188,6 +291,9 @@ export async function POST(request: Request) {
           status: "active",
           provenance: "internal_grant",
           monthly_message_limit: plan.messageLimit,
+          ai_conversations_quota: plan.messageLimit,
+          seats_quota: plan.seatsAllowed,
+          channels_quota: plan.connectedChannelsAllowed,
           messages_used_this_period: 0,
           current_period_start: now.toISOString(),
           current_period_end: periodEnd.toISOString(),
@@ -217,8 +323,9 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Billing upgrade error:", error);
+    const message = error instanceof Error ? error.message : "Failed to process plan change.";
     return NextResponse.json(
-      { success: false, error: "Failed to process plan change." },
+      { success: false, error: message },
       { status: 500 }
     );
   }

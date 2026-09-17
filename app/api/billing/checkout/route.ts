@@ -14,25 +14,33 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const rawPlanId = String(body.planId || "").toLowerCase();
 
-    if (!["starter", "growth", "enterprise"].includes(rawPlanId)) {
+    if (!["founders3", "starter", "growth", "enterprise"].includes(rawPlanId)) {
       return NextResponse.json(
-        { success: false, error: "Invalid planId. Must be one of: starter, growth, enterprise." },
+        { success: false, error: "Invalid planId. Must be one of: founders3, starter, growth, enterprise." },
         { status: 400 }
       );
     }
 
     const planId = rawPlanId as PlanId;
     const interval = body.interval === "year" ? "year" : "month";
+    const invitationCode = typeof body.invitationCode === "string" ? body.invitationCode.trim() : undefined;
     const supabase = createServerSupabaseClient();
+
+    const priceId =
+      planId === "founders3"
+        ? process.env.STRIPE_FOUNDERS3_PRICE_ID || undefined
+        : undefined;
 
     const checkoutResult = await createWorkspaceSubscriptionCheckout(supabase, {
       workspaceId: context.workspace.id,
       planId,
       interval,
+      priceId,
       customerEmail: context.user.email,
       actorUserId: context.user.id,
       successUrl: body.successUrl,
       cancelUrl: body.cancelUrl,
+      invitationCode,
     });
 
     return NextResponse.json({
