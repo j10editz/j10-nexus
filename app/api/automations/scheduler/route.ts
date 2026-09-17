@@ -864,6 +864,17 @@ export async function POST(
       }
     }
 
+    // Recovery: Drain and recover pending/retryable WhatsApp AI jobs
+    let whatsappRecoveryCount = 0;
+    try {
+      const { processWhatsAppAiJobsOnce } = await import("@/lib/whatsapp/ai-worker");
+      const { createWebhookServiceClient } = await import("@/lib/integrations/webhooks/service-client");
+      const waResult = await processWhatsAppAiJobsOnce(createWebhookServiceClient(), { limit: 5 });
+      whatsappRecoveryCount = waResult.processedCount;
+    } catch (waErr) {
+      console.warn("[J10 Scheduler] WhatsApp AI recovery notice:", waErr);
+    }
+
     /*
     ============================================================
     RESPONSE
@@ -881,6 +892,9 @@ export async function POST(
       scheduler: {
         checkedAt:
           schedulerStartedISO,
+
+        whatsappRecovered:
+          whatsappRecoveryCount,
 
         scanned:
           automations.length,

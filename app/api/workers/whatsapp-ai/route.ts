@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { createWebhookServiceClient } from "@/lib/integrations/webhooks/service-client";
-import {
-  generateAndSendWhatsAppAIResponse,
-  type WhatsAppAIMessageInput,
-} from "@/lib/ai/whatsapp-assistant";
+import { processWhatsAppAiJobsOnce } from "@/lib/whatsapp/ai-worker";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Validates worker invocation against WHATSAPP_WORKER_SECRET / TELEGRAM_WORKER_SECRET using constant-time comparison.
  * Strictly rejects missing tokens, incorrect tokens, and normal browser/workspace sessions.
+ * Never falls back to SUPABASE_SERVICE_ROLE_KEY or unauthenticated calls.
  */
 function verifyWorkerAuth(request: Request): boolean {
   const authHeader = request.headers.get("authorization");
@@ -44,32 +42,15 @@ async function handleWorkerExecution(request: Request) {
       );
     }
 
-    let body: any = {};
-    try {
-      body = await request.json();
-    } catch {
-      // Body is optional for poll/drain mode
-    }
-
+    // Atomically claim and process jobs from durable database outbox
+    // Invariant: Do not trust caller-supplied workspace/thread/phone data!
     const supabase = createWebhookServiceClient();
+    const result = await processWhatsAppAiJobsOnce(supabase, {
+      limit: 3, // Maximum 3 claimed jobs per invocation
+      leaseSeconds: 120, // 120-second crash recovery lease
+    });
 
-    // If specific job payload provided in dispatch
-    if (body.workspaceId && body.threadId && body.recipientPhone && body.inboundText && body.inboundWamid) {
-      const result = await generateAndSendWhatsAppAIResponse({
-        supabase,
-        workspaceId: body.workspaceId,
-        integrationId: body.integrationId || "",
-        threadId: body.threadId,
-        recipientPhone: body.recipientPhone,
-        inboundText: body.inboundText,
-        senderName: body.senderName || "WhatsApp User",
-        inboundWamid: body.inboundWamid,
-      });
-
-      return NextResponse.json({ ok: true, result });
-    }
-
-    return NextResponse.json({ ok: true, message: "WhatsApp AI worker ready" });
+    return NextResponse.json({ ok: true, result });
   } catch (err) {
     console.error("[WhatsApp AI Worker Route] Execution error:", err);
     return NextResponse.json(
@@ -79,10 +60,16 @@ async function handleWorkerExecution(request: Request) {
   }
 }
 
+/**
+ * GET: Supported for cron invokers and recovery schedulers.
+ */
 export async function GET(request: Request) {
   return handleWorkerExecution(request);
 }
 
+/**
+ * POST: Standard authenticated worker trigger.
+ */
 export async function POST(request: Request) {
   return handleWorkerExecution(request);
 }
