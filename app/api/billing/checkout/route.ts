@@ -53,9 +53,18 @@ export async function POST(request: NextRequest) {
       providerMode: checkoutResult.providerMode,
     });
   } catch (error: any) {
-    console.error("Subscription checkout error:", error);
+    console.error("[Subscription Checkout Error]:", error);
+    const rawMessage = typeof error?.message === "string" ? error.message : "";
+    const isDbOrSchemaLeak =
+      /relation|constraint|column|violates|not-null|pgrst|pg_|syntax error|table/i.test(rawMessage);
+
+    const safeMessage =
+      isDbOrSchemaLeak || !rawMessage
+        ? "Unable to initialize checkout session. Please try again in a few moments."
+        : rawMessage;
+
     return NextResponse.json(
-      { success: false, error: error?.message || "Failed to create subscription checkout session." },
+      { success: false, error: safeMessage },
       { status: 500 }
     );
   }
