@@ -1097,4 +1097,39 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
     // Attempt second insert with same key (simulating retry): checked via uniqueness
     expect(outboundKey).toBe(`outbound_${inboundWamid}`);
   });
+
+  // 26. Migration Contract: 20261006_whatsapp_ai_cron_reconciliation.sql
+  it("26. Migration Contract: 20261006_whatsapp_ai_cron_reconciliation.sql defines 1-minute cadence, /api/workers/whatsapp-ai endpoint, Bearer auth, and zero literal secrets", () => {
+    const cronMigrationPath = resolve(process.cwd(), "supabase/migrations/20261006_whatsapp_ai_cron_reconciliation.sql");
+    const cronSql = readFileSync(cronMigrationPath, "utf8");
+
+    // 1. Every-minute schedule cadence
+    expect(cronSql).toContain("'* * * * *'");
+
+    // 2. Unique job name
+    expect(cronSql).toContain("'whatsapp-ai-worker-reconciliation'");
+
+    // 3. Invocation endpoint
+    expect(cronSql).toContain("'/api/workers/whatsapp-ai'");
+
+    // 4. Bearer authentication header pattern
+    expect(cronSql).toContain("'Authorization', 'Bearer ' || v_secret");
+
+    // 5. Dynamic configuration resolution (Vault/app.settings pattern)
+    expect(cronSql).toContain("current_setting('app.settings.app_url', true)");
+    expect(cronSql).toContain("current_setting('app.settings.whatsapp_worker_secret', true)");
+
+    // 6. Zero literal secrets or hardcoded bearer tokens
+    expect(cronSql).not.toMatch(/Bearer\s+['"][a-zA-Z0-9_-]{15,}['"]/);
+    expect(cronSql).not.toMatch(/https:\/\/[a-zA-Z0-9-]+\.vercel\.app/);
+
+    // 7. Security hardening: SECURITY DEFINER, fixed search_path, privilege revocation
+    expect(cronSql).toContain("SECURITY DEFINER");
+    expect(cronSql).toContain("SET search_path = public, extensions, pg_temp");
+    expect(cronSql).toContain("REVOKE ALL ON FUNCTION public.trigger_whatsapp_ai_worker_cron(TEXT, TEXT) FROM PUBLIC, anon;");
+    expect(cronSql).toContain("GRANT EXECUTE ON FUNCTION public.trigger_whatsapp_ai_worker_cron(TEXT, TEXT) TO service_role;");
+
+    // 8. Idempotent cleanup before scheduling
+    expect(cronSql).toContain("cron.unschedule('whatsapp-ai-worker-reconciliation')");
+  });
 });
