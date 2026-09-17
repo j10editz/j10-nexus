@@ -57,8 +57,8 @@ describe("White-Label & Multi-Tenancy Workspace Engine", () => {
       "utf8",
     );
 
-    expect(componentContent).toContain("Managed Client MRR");
-    expect(componentContent).toContain("Revenue from client tenants");
+    expect(componentContent).toContain("Client Subscription MRR");
+    expect(componentContent).toContain("agencyStats.totalMonthlyRevenue");
     expect(componentContent).toContain("Onboard Client Workspace");
     expect(componentContent).toContain("starter");
     expect(componentContent).toContain("growth");

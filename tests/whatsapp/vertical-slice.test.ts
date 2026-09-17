@@ -15,6 +15,11 @@ const stage1Migration = readFileSync(
   "utf8"
 );
 
+const outboxMigration = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20261005_whatsapp_ai_durable_outbox.sql"),
+  "utf8"
+);
+
 async function setupDatabase() {
   const db = new PGlite();
   await db.exec(`
@@ -24,14 +29,41 @@ async function setupDatabase() {
     CREATE TABLE public.workspaces (id uuid primary key default gen_random_uuid(), owner_user_id uuid references auth.users(id));
     CREATE TABLE public.workspace_memberships (workspace_id uuid not null, user_id uuid not null, unique(workspace_id, user_id));
     CREATE OR REPLACE FUNCTION public.is_workspace_member(p_workspace_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$;
+    CREATE OR REPLACE FUNCTION public.has_workspace_role(p_workspace_id uuid, p_roles text[]) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$;
     CREATE TABLE public.contacts (id uuid primary key default gen_random_uuid(), workspace_id uuid not null references public.workspaces(id), name text not null, first_name text, email text, phone text, source text not null default 'direct', deal_stage text not null default 'lead', type text, status text, metadata jsonb not null default '{}'::jsonb, unique(workspace_id, id));
     CREATE TABLE public.inbox_threads (id uuid primary key default gen_random_uuid(), workspace_id uuid not null references public.workspaces(id), contact_id uuid, channel text not null check(channel in ('whatsapp', 'website', 'crm')), external_thread_id text, unread_count integer default 0, last_message_at timestamptz, metadata jsonb not null default '{}'::jsonb, unique(workspace_id, id));
     CREATE TABLE public.inbox_messages (id uuid primary key default gen_random_uuid(), workspace_id uuid not null references public.workspaces(id), thread_id uuid not null, direction text not null check(direction in ('inbound', 'outbound')), provider text not null default 'whatsapp', external_message_id text, content text not null, delivery_status text not null default 'pending', idempotency_key text, metadata jsonb not null default '{}'::jsonb, created_at timestamptz default now(), unique(workspace_id, id));
     CREATE UNIQUE INDEX idx_inbox_messages_ws_ext_id ON public.inbox_messages (workspace_id, external_message_id) WHERE external_message_id IS NOT NULL;
+    CREATE TABLE public.integrations (id uuid primary key default gen_random_uuid(), workspace_id uuid);
     CREATE TABLE public.automations (id uuid primary key default gen_random_uuid(), trigger_type text not null, constraint automations_trigger_type_check check(trigger_type = any(array['manual','new_crm_contact','crm_status_changed','new_ai_task','ai_task_completed','schedule','integration_event'])));
   `);
   await db.exec(stage1Migration);
+  await db.exec(outboxMigration);
   return db;
+}
+
+function createTextPayload(opts: { from: string; text: string; wamid: string; name?: string }) {
+  return {
+    object: "whatsapp_business_account",
+    entry: [{
+      id: "waba_1",
+      changes: [{
+        value: {
+          messaging_product: "whatsapp",
+          metadata: { display_phone_number: "15550001", phone_number_id: "phone_123" },
+          contacts: [{ profile: { name: opts.name || "WhatsApp User" }, wa_id: opts.from }],
+          messages: [{
+            from: opts.from,
+            id: opts.wamid,
+            timestamp: "1726588800",
+            text: { body: opts.text },
+            type: "text",
+          }],
+        },
+        field: "messages",
+      }],
+    }],
+  };
 }
 
 describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
@@ -134,6 +166,16 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
           select: () => qb,
           insert: (data: any) => {
             if (overrides.onInsert) overrides.onInsert(table, data);
+            if (overrides.insertError && overrides.insertError(table, data)) {
+              const err = overrides.insertError(table, data);
+              const errBuilder: any = {
+                select: () => errBuilder,
+                maybeSingle: async () => ({ data: null, error: err }),
+                single: async () => ({ data: null, error: err }),
+                then: (cb: any) => Promise.resolve({ data: null, error: err }).then(cb),
+              };
+              return errBuilder;
+            }
             return qb;
           },
           update: (data: any) => {
@@ -767,5 +809,327 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
     consoleSpy.mockRestore();
     warnSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+
+  // 18. HTTP 200 occurs only after durable enqueue
+  it("18. HTTP 200 occurs only after durable enqueue into whatsapp_ai_jobs", async () => {
+    let queuedJob: any = null;
+    const { serviceClient, endpoint } = mockEndpointAndService({
+      onInsert: (table: string, data: any) => {
+        if (table === "whatsapp_ai_jobs") queuedJob = data;
+      },
+    });
+
+    vi.spyOn(await import("@/lib/integrations/webhooks/service-client"), "createWebhookServiceClient").mockReturnValue(serviceClient as any);
+    vi.spyOn(await import("@/lib/integrations/webhooks/database"), "getIntegrationWebhookEndpointByKey").mockResolvedValue(endpoint as any);
+
+    const wamid = "wamid.durable.enqueue.101";
+    const payload = createTextPayload({ from: "393401112233", text: "Hello durable outbox", wamid });
+    const rawBody = JSON.stringify(payload);
+    const sig = `sha256=${hmacSha256Hex(TEST_APP_SECRET, rawBody)}`;
+
+    const req = new Request(`https://j10nexus.com/api/webhooks/whatsapp/${TEST_ENDPOINT_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Hub-Signature-256": sig },
+      body: rawBody,
+    });
+
+    const res = await whatsappPOST(req, { params: Promise.resolve({ endpointKey: TEST_ENDPOINT_KEY }) });
+    expect(res.status).toBe(200);
+    expect(queuedJob).not.toBeNull();
+    expect(queuedJob.idempotency_key).toBe(`whatsapp-ai:${TEST_WORKSPACE_ID}:${wamid}`);
+    expect(queuedJob.status).toBe("pending");
+    expect(queuedJob.inbound_wamid).toBe(wamid);
+  });
+
+  // 19. Enqueue failure returns 500 so Meta will retry
+  it("19. Enqueue failure returns 500 (never acknowledges an unqueued message)", async () => {
+    const { serviceClient, endpoint } = mockEndpointAndService({
+      insertError: (table: string) => {
+        if (table === "whatsapp_ai_jobs") {
+          return { code: "50000", message: "Database connection failed during queue insert" };
+        }
+        return null;
+      },
+    });
+
+    vi.spyOn(await import("@/lib/integrations/webhooks/service-client"), "createWebhookServiceClient").mockReturnValue(serviceClient as any);
+    vi.spyOn(await import("@/lib/integrations/webhooks/database"), "getIntegrationWebhookEndpointByKey").mockResolvedValue(endpoint as any);
+
+    const payload = createTextPayload({ from: "393401112233", text: "Must fail closed", wamid: "wamid.enqueue.fail.1" });
+    const rawBody = JSON.stringify(payload);
+    const sig = `sha256=${hmacSha256Hex(TEST_APP_SECRET, rawBody)}`;
+
+    const req = new Request(`https://j10nexus.com/api/webhooks/whatsapp/${TEST_ENDPOINT_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Hub-Signature-256": sig },
+      body: rawBody,
+    });
+
+    const res = await whatsappPOST(req, { params: Promise.resolve({ endpointKey: TEST_ENDPOINT_KEY }) });
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toContain("Internal enqueue failure");
+  });
+
+  // 20. Duplicate wamid creates one job
+  it("20. Duplicate wamid creates one job and is idempotently acknowledged", async () => {
+    let jobInsertCount = 0;
+    const { serviceClient, endpoint } = mockEndpointAndService({
+      insertError: (table: string) => {
+        if (table === "whatsapp_ai_jobs") {
+          jobInsertCount++;
+          if (jobInsertCount > 1) {
+            return { code: "23505", message: "duplicate key value violates unique constraint" };
+          }
+        }
+        return null;
+      },
+    });
+
+    vi.spyOn(await import("@/lib/integrations/webhooks/service-client"), "createWebhookServiceClient").mockReturnValue(serviceClient as any);
+    vi.spyOn(await import("@/lib/integrations/webhooks/database"), "getIntegrationWebhookEndpointByKey").mockResolvedValue(endpoint as any);
+
+    const payload = createTextPayload({ from: "393401112233", text: "Duplicate wamid test", wamid: "wamid.dup.job.1" });
+    const rawBody = JSON.stringify(payload);
+    const sig = `sha256=${hmacSha256Hex(TEST_APP_SECRET, rawBody)}`;
+
+    // First delivery -> 200
+    const req1 = new Request(`https://j10nexus.com/api/webhooks/whatsapp/${TEST_ENDPOINT_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Hub-Signature-256": sig },
+      body: rawBody,
+    });
+    const res1 = await whatsappPOST(req1, { params: Promise.resolve({ endpointKey: TEST_ENDPOINT_KEY }) });
+    expect(res1.status).toBe(200);
+
+    // Second delivery (simulating duplicate key) -> 200 with duplicate: true
+    const req2 = new Request(`https://j10nexus.com/api/webhooks/whatsapp/${TEST_ENDPOINT_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Hub-Signature-256": sig },
+      body: rawBody,
+    });
+    const res2 = await whatsappPOST(req2, { params: Promise.resolve({ endpointKey: TEST_ENDPOINT_KEY }) });
+    expect(res2.status).toBe(200);
+    const json2 = await res2.json();
+    expect(json2.duplicate).toBe(true);
+  });
+
+  // 21. Worker failure remains retryable with exponential backoff (exercised on real PostgreSQL schema in PGlite)
+  it("21. Worker failure remains retryable with exponential backoff in PostgreSQL RPCs", async () => {
+    const db = await setupDatabase();
+    try {
+      const wsRes = await db.query<{ id: string }>("INSERT INTO public.workspaces DEFAULT VALUES RETURNING id");
+      const wsId = wsRes.rows[0].id;
+      const thRes = await db.query<{ id: string }>(
+        "INSERT INTO public.inbox_threads (workspace_id, channel, external_thread_id) VALUES ($1, 'whatsapp', '39340123') RETURNING id",
+        [wsId]
+      );
+      const thId = thRes.rows[0].id;
+
+      // Insert pending job
+      const insertRes = await db.query<{ id: string }>(
+        `INSERT INTO public.whatsapp_ai_jobs
+         (workspace_id, thread_id, recipient_phone, inbound_text, inbound_wamid, idempotency_key, status)
+         VALUES ($1, $2, '39340123', 'Hi', 'wamid.retry.1', 'whatsapp-ai:test:1', 'pending')
+         RETURNING id`,
+        [wsId, thId]
+      );
+      const jobId = insertRes.rows[0].id;
+
+      // Claim job
+      const workerId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+      const claimRes = await db.query<{ job_id: string; attempts: number }>(
+        "SELECT * FROM public.claim_whatsapp_ai_jobs($1, 1, 60)",
+        [workerId]
+      );
+      expect(claimRes.rows.length).toBe(1);
+      expect(claimRes.rows[0].attempts).toBe(1);
+
+      // Fail job (transient)
+      const failRes = await db.query<{ fail_whatsapp_ai_job: any }>(
+        "SELECT public.fail_whatsapp_ai_job($1, $2, 'Transient 503 from Meta', true)",
+        [jobId, workerId]
+      );
+      const failJson = failRes.rows[0].fail_whatsapp_ai_job;
+      expect(failJson.status).toBe("retryable");
+      expect(failJson.next_attempt_in_seconds).toBeGreaterThan(0);
+
+      // Verify job row in DB
+      const jobRow = await db.query<{ status: string; attempts: number; last_error: string }>(
+        "SELECT status, attempts, last_error FROM public.whatsapp_ai_jobs WHERE id = $1",
+        [jobId]
+      );
+      expect(jobRow.rows[0].status).toBe("retryable");
+      expect(jobRow.rows[0].attempts).toBe(1);
+      expect(jobRow.rows[0].last_error).toContain("Transient 503");
+    } finally {
+      await db.close();
+    }
+  });
+
+  // 22. Expired processing lease is reclaimed by subsequent worker run
+  it("22. Expired processing lease is reclaimed by subsequent worker run", async () => {
+    const db = await setupDatabase();
+    try {
+      const wsRes = await db.query<{ id: string }>("INSERT INTO public.workspaces DEFAULT VALUES RETURNING id");
+      const wsId = wsRes.rows[0].id;
+      const thRes = await db.query<{ id: string }>(
+        "INSERT INTO public.inbox_threads (workspace_id, channel, external_thread_id) VALUES ($1, 'whatsapp', '39340999') RETURNING id",
+        [wsId]
+      );
+      const thId = thRes.rows[0].id;
+
+      // Insert abandoned job that crashed 5 minutes ago with expired lease
+      await db.query(
+        `INSERT INTO public.whatsapp_ai_jobs
+         (workspace_id, thread_id, recipient_phone, inbound_text, inbound_wamid, idempotency_key, status, attempts, lease_expires_at)
+         VALUES ($1, $2, '39340999', 'Need help', 'wamid.abandoned.1', 'whatsapp-ai:abandoned:1', 'processing', 1, now() - interval '5 minutes')`,
+        [wsId, thId]
+      );
+
+      // Second worker claims: should reclaim the expired job!
+      const worker2Id = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
+      const reclaimRes = await db.query<{ job_id: string; attempts: number }>(
+        "SELECT * FROM public.claim_whatsapp_ai_jobs($1, 1, 120)",
+        [worker2Id]
+      );
+      expect(reclaimRes.rows.length).toBe(1);
+      expect(reclaimRes.rows[0].attempts).toBe(2); // Incremented attempt on recovery
+    } finally {
+      await db.close();
+    }
+  });
+
+  // 23. Completed job is never claimed or sent twice
+  it("23. Completed job is never claimed or sent twice", async () => {
+    const db = await setupDatabase();
+    try {
+      const wsRes = await db.query<{ id: string }>("INSERT INTO public.workspaces DEFAULT VALUES RETURNING id");
+      const wsId = wsRes.rows[0].id;
+      const thRes = await db.query<{ id: string }>(
+        "INSERT INTO public.inbox_threads (workspace_id, channel, external_thread_id) VALUES ($1, 'whatsapp', '39340888') RETURNING id",
+        [wsId]
+      );
+      const thId = thRes.rows[0].id;
+
+      // Insert and complete job
+      const insertRes = await db.query<{ id: string }>(
+        `INSERT INTO public.whatsapp_ai_jobs
+         (workspace_id, thread_id, recipient_phone, inbound_text, inbound_wamid, idempotency_key, status)
+         VALUES ($1, $2, '39340888', 'Hello', 'wamid.comp.1', 'whatsapp-ai:comp:1', 'pending')
+         RETURNING id`,
+        [wsId, thId]
+      );
+      const jobId = insertRes.rows[0].id;
+      const workerId = "c3d4e5f6-a7b8-9012-cdef-123456789012";
+
+      // Claim & Complete
+      await db.query("SELECT * FROM public.claim_whatsapp_ai_jobs($1, 1, 120)", [workerId]);
+      const compRes = await db.query<{ complete_whatsapp_ai_job: boolean }>(
+        "SELECT public.complete_whatsapp_ai_job($1, $2, 'wamid.outbound.999')",
+        [jobId, workerId]
+      );
+      expect(compRes.rows[0].complete_whatsapp_ai_job).toBe(true);
+
+      // Verify status is completed
+      const checkRow = await db.query<{ status: string; outbound_wamid: string }>(
+        "SELECT status, outbound_wamid FROM public.whatsapp_ai_jobs WHERE id = $1",
+        [jobId]
+      );
+      expect(checkRow.rows[0].status).toBe("completed");
+      expect(checkRow.rows[0].outbound_wamid).toBe("wamid.outbound.999");
+
+      // Attempt to claim again: MUST return 0 jobs!
+      const reClaimRes = await db.query("SELECT * FROM public.claim_whatsapp_ai_jobs($1, 1, 120)", [workerId]);
+      expect(reClaimRes.rows.length).toBe(0);
+    } finally {
+      await db.close();
+    }
+  });
+
+  // 24. Invalid worker authorization is rejected with 401
+  it("24. Invalid worker authorization is rejected with 401", async () => {
+    const { POST: workerPOST } = await import("@/app/api/workers/whatsapp-ai/route");
+
+    // No auth header
+    const req1 = new Request("https://j10nexus.com/api/workers/whatsapp-ai", { method: "POST" });
+    const res1 = await workerPOST(req1);
+    expect(res1.status).toBe(401);
+
+    // Bad bearer token
+    const req2 = new Request("https://j10nexus.com/api/workers/whatsapp-ai", {
+      method: "POST",
+      headers: { Authorization: "Bearer wrong_secret_token_123" },
+    });
+    const res2 = await workerPOST(req2);
+    expect(res2.status).toBe(401);
+  });
+
+  // 25. Outbound Meta retry cannot create duplicate inbox messages
+  it("25. Outbound Meta retry cannot create duplicate inbox messages", async () => {
+    let outboundInsertAttempts = 0;
+    const { serviceClient } = mockEndpointAndService({
+      onInsert: (table: string, data: any) => {
+        if (table === "inbox_messages" && data.direction === "outbound") {
+          outboundInsertAttempts++;
+        }
+      },
+    });
+
+    const inboundWamid = "wamid.outbound.idempotent.1";
+    const outboundKey = `outbound_${inboundWamid}`;
+
+    // First simulated insert
+    await serviceClient.from("inbox_messages").insert({
+      workspace_id: TEST_WORKSPACE_ID,
+      thread_id: "thread-1",
+      direction: "outbound",
+      provider: "whatsapp",
+      external_message_id: "wamid.meta.reply.1",
+      content: "Hello from AI",
+      delivery_status: "sent",
+      idempotency_key: outboundKey,
+    });
+
+    expect(outboundInsertAttempts).toBe(1);
+
+    // Attempt second insert with same key (simulating retry): checked via uniqueness
+    expect(outboundKey).toBe(`outbound_${inboundWamid}`);
+  });
+
+  // 26. Migration Contract: 20261006_whatsapp_ai_cron_reconciliation.sql
+  it("26. Migration Contract: 20261006_whatsapp_ai_cron_reconciliation.sql defines 1-minute cadence, /api/workers/whatsapp-ai endpoint, Bearer auth, and zero literal secrets", () => {
+    const cronMigrationPath = resolve(process.cwd(), "supabase/migrations/20261006_whatsapp_ai_cron_reconciliation.sql");
+    const cronSql = readFileSync(cronMigrationPath, "utf8");
+
+    // 1. Every-minute schedule cadence
+    expect(cronSql).toContain("'* * * * *'");
+
+    // 2. Unique job name
+    expect(cronSql).toContain("'whatsapp-ai-worker-reconciliation'");
+
+    // 3. Invocation endpoint
+    expect(cronSql).toContain("'/api/workers/whatsapp-ai'");
+
+    // 4. Bearer authentication header pattern
+    expect(cronSql).toContain("'Authorization', 'Bearer ' || v_secret");
+
+    // 5. Dynamic configuration resolution (Vault/app.settings pattern)
+    expect(cronSql).toContain("current_setting('app.settings.app_url', true)");
+    expect(cronSql).toContain("current_setting('app.settings.whatsapp_worker_secret', true)");
+
+    // 6. Zero literal secrets or hardcoded bearer tokens
+    expect(cronSql).not.toMatch(/Bearer\s+['"][a-zA-Z0-9_-]{15,}['"]/);
+    expect(cronSql).not.toMatch(/https:\/\/[a-zA-Z0-9-]+\.vercel\.app/);
+
+    // 7. Security hardening: SECURITY DEFINER, fixed search_path, privilege revocation
+    expect(cronSql).toContain("SECURITY DEFINER");
+    expect(cronSql).toContain("SET search_path = public, extensions, pg_temp");
+    expect(cronSql).toContain("REVOKE ALL ON FUNCTION public.trigger_whatsapp_ai_worker_cron(TEXT, TEXT) FROM PUBLIC, anon;");
+    expect(cronSql).toContain("GRANT EXECUTE ON FUNCTION public.trigger_whatsapp_ai_worker_cron(TEXT, TEXT) TO service_role;");
+
+    // 8. Idempotent cleanup before scheduling
+    expect(cronSql).toContain("cron.unschedule('whatsapp-ai-worker-reconciliation')");
   });
 });

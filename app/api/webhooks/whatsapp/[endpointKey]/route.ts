@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
+import { processWhatsAppAiJobsOnce } from "@/lib/whatsapp/ai-worker";
 
 import {
   POST as processIntegrationWebhook,
@@ -552,30 +553,78 @@ export async function POST(
         created_at: new Date().toISOString(),
       });
 
-      // 10. Asynchronous AI Receptionist Invocation
-      const workerSecret =
-        process.env.WHATSAPP_WORKER_SECRET?.trim() ||
-        process.env.TELEGRAM_WORKER_SECRET?.trim();
+      // 10. Durable Outbox Enqueue: whatsapp_ai_jobs
+      const aiJobIdempotencyKey = `whatsapp-ai:${workspaceId}:${wamid}`;
+      const { data: jobData, error: jobError } = await supabase
+        .from("whatsapp_ai_jobs")
+        .insert({
+          workspace_id: workspaceId,
+          integration_id: endpoint.integrationId || null,
+          thread_id: threadId,
+          recipient_phone: fromPhone,
+          inbound_text: textBody,
+          sender_name: contactName,
+          inbound_wamid: wamid,
+          idempotency_key: aiJobIdempotencyKey,
+          status: "pending",
+          next_attempt_at: new Date().toISOString(),
+        })
+        .select("id")
+        .maybeSingle();
 
-      if (workerSecret) {
-        fetch(`${origin}/api/workers/whatsapp-ai`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${workerSecret}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            workspaceId,
-            integrationId: endpoint.integrationId,
-            threadId,
-            recipientPhone: fromPhone,
-            inboundText: textBody,
-            senderName: contactName,
-            inboundWamid: wamid,
-          }),
-        }).catch((workerErr) => {
-          console.warn("[WhatsApp Webhook] Worker invocation notice:", workerErr?.message || workerErr);
+      if (jobError) {
+        // If unique constraint violation (duplicate wamid), treat as idempotent duplicate replay
+        if (
+          jobError.code === "23505" ||
+          jobError.message?.includes("unique") ||
+          jobError.message?.includes("duplicate")
+        ) {
+          return NextResponse.json(
+            {
+              success: true,
+              accepted: true,
+              duplicate: true,
+              wamid,
+            },
+            { status: 200 }
+          );
+        }
+
+        // Hard failure on enqueue: Return HTTP 500 so Meta will retry!
+        // INVARIANT: Never acknowledge an unqueued message!
+        console.error("[WhatsApp Webhook] Durable AI job enqueue failed:", jobError);
+        return NextResponse.json(
+          { error: "Internal enqueue failure: message could not be durably queued" },
+          { status: 500 }
+        );
+      }
+
+      // 11. Low-latency accelerator using Next.js after()
+      // NOTE: after() is used only as an accelerator; the database outbox is the source of truth.
+      try {
+        after(async () => {
+          try {
+            const workerSecret =
+              process.env.WHATSAPP_WORKER_SECRET?.trim() ||
+              process.env.TELEGRAM_WORKER_SECRET?.trim();
+
+            if (workerSecret) {
+              await fetch(`${origin}/api/workers/whatsapp-ai`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${workerSecret}`,
+                  "Content-Type": "application/json",
+                },
+              });
+            } else {
+              await processWhatsAppAiJobsOnce(supabase, { limit: 1, leaseSeconds: 120 });
+            }
+          } catch (accelErr) {
+            console.warn("[WhatsApp Webhook] Low-latency after() worker notice:", accelErr);
+          }
         });
+      } catch {
+        // If after() is not supported in the execution context, the job is already safe in the outbox
       }
 
       return NextResponse.json(
@@ -584,6 +633,7 @@ export async function POST(
           accepted: true,
           wamid,
           threadId,
+          jobId: jobData?.id,
         },
         { status: 200 },
       );
