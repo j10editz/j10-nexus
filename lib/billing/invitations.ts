@@ -109,6 +109,39 @@ export async function createFounders3Invitation(
 }
 
 /**
+ * Revokes an existing Founder's 3 invitation so it cannot be redeemed.
+ */
+export async function revokeFounders3Invitation(
+  supabase: SupabaseClient,
+  {
+    invitationId,
+    workspaceId,
+  }: {
+    invitationId: string;
+    workspaceId?: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  let query = supabase
+    .from("founders3_invitations")
+    .update({
+      status: "revoked",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", invitationId);
+
+  if (workspaceId) {
+    query = query.eq("workspace_id", workspaceId);
+  }
+
+  const { error } = await query;
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+/**
  * Retrieves the live slot count and reservation status for Founder's 3 pilot.
  */
 export async function getFounders3SlotStatus(
