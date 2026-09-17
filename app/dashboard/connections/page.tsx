@@ -178,7 +178,7 @@ export default function ConnectionsDashboardPage() {
           id: wa.id || "whatsapp-business-cloud",
           provider: "whatsapp",
           name: wa.wabaName || "WhatsApp Business Cloud",
-          identifier: wa.maskedPhone || (wa.phoneNumberId ? `ID: ${wa.phoneNumberId}` : "Phone Not Set"),
+          identifier: wa.maskedPhone || (wa.phoneNumberId ? `ID: ${wa.phoneNumberId}` : "Not configured"),
           type: "WhatsApp Business Cloud API (Official)",
           status: wa.status,
           mode: "whatsapp_cloud",

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
-import { createServerSupabaseClient } from "@/lib/auth";
-import { createWhatsAppConnectionSession } from "@/lib/whatsapp/embedded-signup";
+import { createAdminSupabaseClient } from "@/lib/auth";
+import {
+  createWhatsAppConnectionSession,
+  META_WHATSAPP_GRAPH_API_VERSION,
+} from "@/lib/whatsapp/embedded-signup";
 
 export const dynamic = "force-dynamic";
 
@@ -30,8 +33,9 @@ export async function POST() {
       );
     }
 
-    const supabase = createServerSupabaseClient();
-    const session = await createWhatsAppConnectionSession(supabase, {
+    // Privileged client is used ONLY AFTER canonical authorization has verified owner/admin role
+    const adminSupabase = createAdminSupabaseClient();
+    const session = await createWhatsAppConnectionSession(adminSupabase, {
       workspaceId: ws.id,
       userId: context.user.id,
     });
@@ -53,6 +57,7 @@ export async function POST() {
       expiresAt: session.expiresAt,
       appId,
       configId,
+      graphVersion: META_WHATSAPP_GRAPH_API_VERSION,
     });
   } catch (err: any) {
     console.error("[WhatsApp Session API] Error:", err?.message || err);

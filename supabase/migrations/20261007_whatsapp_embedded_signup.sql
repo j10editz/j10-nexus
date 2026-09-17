@@ -1,6 +1,6 @@
 -- Migration: 20261007_whatsapp_embedded_signup.sql
 -- Description: Schema and session state tracking for Meta WhatsApp Embedded Signup
--- Security: Strict tenant isolation, RLS, zero token storage in session table
+-- Security: Strict tenant isolation, RLS, initiating-user session binding, cross-workspace uniqueness
 
 BEGIN;
 
@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_connection_sessions (
     CHECK (status IN ('pending', 'completed', 'expired', 'failed'))
 );
 
--- 2. Indexes for fast single-use token lookups and workspace queries
-CREATE INDEX IF NOT EXISTS idx_whatsapp_conn_sessions_hash
+-- 2. Unique constraint and indexes for fast single-use token lookups and workspace queries
+CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_conn_sessions_token_hash
   ON public.whatsapp_connection_sessions(state_token_hash);
 
 CREATE INDEX IF NOT EXISTS idx_whatsapp_conn_sessions_ws
@@ -50,10 +50,14 @@ CREATE POLICY "whatsapp_sessions_tenant_insert" ON public.whatsapp_connection_se
   FOR INSERT TO authenticated
   WITH CHECK (public.has_workspace_role(workspace_id, ARRAY['owner', 'admin']));
 
--- 4. Atomic single-use consumption RPC
+-- 4. Atomic single-use consumption RPC bound to initiating user and workspace
+-- Drop old 2-argument signature if present
+DROP FUNCTION IF EXISTS public.consume_whatsapp_connection_session(TEXT, UUID);
+
 CREATE OR REPLACE FUNCTION public.consume_whatsapp_connection_session(
   p_token_hash TEXT,
-  p_workspace_id UUID
+  p_workspace_id UUID,
+  p_user_id UUID
 )
 RETURNS TABLE (
   session_id UUID,
@@ -69,7 +73,7 @@ AS $$
 DECLARE
   v_session RECORD;
 BEGIN
-  -- Lock the pending session row
+  -- Lock the pending session row matching token hash and workspace
   SELECT s.id, s.workspace_id, s.created_by_user_id, s.status, s.expires_at
   INTO v_session
   FROM public.whatsapp_connection_sessions s
@@ -82,11 +86,19 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Verify session was created by the initiating user
+  IF v_session.created_by_user_id IS NOT NULL AND (p_user_id IS NULL OR v_session.created_by_user_id != p_user_id) THEN
+    RETURN QUERY SELECT v_session.id, v_session.workspace_id, v_session.created_by_user_id, FALSE, 'Initiating user mismatch'::TEXT;
+    RETURN;
+  END IF;
+
+  -- Replay prevention
   IF v_session.status != 'pending' THEN
     RETURN QUERY SELECT v_session.id, v_session.workspace_id, v_session.created_by_user_id, FALSE, 'Session token has already been consumed'::TEXT;
     RETURN;
   END IF;
 
+  -- Expiration check
   IF v_session.expires_at <= now() THEN
     UPDATE public.whatsapp_connection_sessions
     SET status = 'expired', updated_at = now()
@@ -96,7 +108,7 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Mark session consumed
+  -- Mark session consumed atomically
   UPDATE public.whatsapp_connection_sessions
   SET status = 'completed', updated_at = now()
   WHERE id = v_session.id;
@@ -105,7 +117,60 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.consume_whatsapp_connection_session(TEXT, UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.consume_whatsapp_connection_session(TEXT, UUID) TO authenticated, service_role;
+-- Restrict RPC execution strictly to service_role (privileged client used after app auth)
+REVOKE ALL ON FUNCTION public.consume_whatsapp_connection_session(TEXT, UUID, UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.consume_whatsapp_connection_session(TEXT, UUID, UUID) TO service_role;
+
+-- 5. Cross-workspace ownership enforcement for active WhatsApp integrations in Postgres
+-- Audit existing rows before applying uniqueness constraints
+DO $$
+DECLARE
+  v_dup_phones INT;
+  v_dup_wabas INT;
+BEGIN
+  -- Check for existing duplicate active phone numbers across different workspaces
+  SELECT count(*) INTO v_dup_phones
+  FROM (
+    SELECT external_account_id
+    FROM public.integrations
+    WHERE provider = 'whatsapp-business'
+      AND status = 'connected'
+      AND external_account_id IS NOT NULL
+    GROUP BY external_account_id
+    HAVING count(DISTINCT workspace_id) > 1
+  ) dups;
+
+  IF v_dup_phones > 0 THEN
+    RAISE EXCEPTION 'Audit failed: % active WhatsApp phone numbers are shared across multiple workspaces', v_dup_phones;
+  END IF;
+
+  -- Check for existing duplicate active WABA IDs across different workspaces
+  SELECT count(*) INTO v_dup_wabas
+  FROM (
+    SELECT COALESCE(public_configuration->>'waba_id', public_configuration->>'business_account_id') AS waba_id
+    FROM public.integrations
+    WHERE provider = 'whatsapp-business'
+      AND status = 'connected'
+      AND (public_configuration->>'waba_id' IS NOT NULL OR public_configuration->>'business_account_id' IS NOT NULL)
+    GROUP BY COALESCE(public_configuration->>'waba_id', public_configuration->>'business_account_id')
+    HAVING count(DISTINCT workspace_id) > 1
+  ) dups;
+
+  IF v_dup_wabas > 0 THEN
+    RAISE EXCEPTION 'Audit failed: % active WhatsApp WABA IDs are shared across multiple workspaces', v_dup_wabas;
+  END IF;
+END $$;
+
+-- Enforce exactly one active workspace per phone number
+CREATE UNIQUE INDEX IF NOT EXISTS uq_active_whatsapp_phone_number_id
+  ON public.integrations (external_account_id)
+  WHERE provider = 'whatsapp-business' AND status = 'connected';
+
+-- Enforce exactly one active workspace per WABA ID
+CREATE UNIQUE INDEX IF NOT EXISTS uq_active_whatsapp_waba_id
+  ON public.integrations (((public_configuration->>'waba_id')))
+  WHERE provider = 'whatsapp-business'
+    AND status = 'connected'
+    AND (public_configuration->>'waba_id') IS NOT NULL;
 
 COMMIT;

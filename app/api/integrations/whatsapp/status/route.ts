@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
-import { createServerSupabaseClient } from "@/lib/auth";
+import { createAdminSupabaseClient } from "@/lib/auth";
 import { getWhatsAppConnectionStatus } from "@/lib/whatsapp/embedded-signup";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +12,10 @@ export async function GET() {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
 
-    const supabase = createServerSupabaseClient();
-    const status = await getWhatsAppConnectionStatus(supabase, context.workspace.id);
+    // Privileged client allows any authorized workspace member to read the integration status,
+    // avoiding user-scoped RLS policies that would otherwise hide integrations created by other admins.
+    const adminSupabase = createAdminSupabaseClient();
+    const status = await getWhatsAppConnectionStatus(adminSupabase, context.workspace.id);
 
     return NextResponse.json({
       success: true,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
-import { createServerSupabaseClient } from "@/lib/auth";
+import { createAdminSupabaseClient } from "@/lib/auth";
 import { disconnectWhatsAppIntegration } from "@/lib/whatsapp/embedded-signup";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +23,9 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const reason = body.reason || "Disconnected via J10 NEXUS Connections dashboard";
 
-    const supabase = createServerSupabaseClient();
-    await disconnectWhatsAppIntegration(supabase, wsId, reason);
+    // Privileged client used strictly after owner/admin authorization
+    const adminSupabase = createAdminSupabaseClient();
+    await disconnectWhatsAppIntegration(adminSupabase, wsId, reason);
 
     return NextResponse.json({
       success: true,

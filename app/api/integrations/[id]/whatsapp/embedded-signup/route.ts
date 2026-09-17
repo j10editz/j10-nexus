@@ -1,117 +1,138 @@
 import { NextResponse } from "next/server";
 
-import { createServerSupabaseClient } from "@/lib/auth";
+import { createAdminSupabaseClient } from "@/lib/auth";
 import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import { integrationApiErrorResponse, parseRequestObject } from "@/lib/integrations/api";
-import { getIntegrationCredentials, storeIntegrationCredentials } from "@/lib/integrations/credentials";
 import {
-  getIntegrationConnectionById,
-  updateIntegrationConnectionConfiguration,
-  updateIntegrationConnectionStatus,
-} from "@/lib/integrations/database";
+  assertNoCrossWorkspaceConflict,
+  exchangeMetaCodeForAccessToken,
+  subscribeWabaToWebhook,
+  upsertWhatsAppIntegration,
+  validateAndConsumeWhatsAppSession,
+  verifyWabaAndPhoneNumber,
+} from "@/lib/whatsapp/embedded-signup";
 
 type RouteContext = { params: Promise<{ id: string }> };
 type JsonRecord = Record<string, unknown>;
-const GRAPH_VERSION = "v26.0";
-const META_APP_ID = process.env.META_WHATSAPP_APP_ID ?? process.env.NEXT_PUBLIC_META_APP_ID ?? "1830547288111074";
 
 function requiredString(body: JsonRecord, key: string, pattern: RegExp, label: string) {
-  const value = typeof body[key] === "string" ? body[key].trim() : "";
+  const value = typeof body[key] === "string" ? (body[key] as string).trim() : "";
   if (!value || !pattern.test(value)) throw new Error(`${label} is missing or invalid.`);
   return value;
-}
-
-async function graphJson(url: URL, token?: string): Promise<JsonRecord> {
-  const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : undefined, signal: AbortSignal.timeout(20_000), cache: "no-store" });
-  const text = await response.text();
-  if (text.length > 131_072) throw new Error("Meta returned an oversized response.");
-  let body: JsonRecord = {};
-  try { body = text ? JSON.parse(text) as JsonRecord : {}; } catch { throw new Error("Meta returned an unreadable response."); }
-  if (!response.ok) throw new Error("Meta rejected the WhatsApp authorization. Please reconnect and try again.");
-  return body;
 }
 
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
+    // 1. Authorize owner/admin workspace context
     const auth = await requireApiWorkspaceContext("admin");
     if (auth.error) {
       return auth.error;
     }
     const { context: wsContext } = auth;
-    const supabase = createServerSupabaseClient();
+    const wsId = wsContext.workspace.id;
+    const userId = wsContext.user.id;
 
-    const connection = await getIntegrationConnectionById(
-      supabase,
-      { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id },
-      id,
-    );
-    if (!connection || connection.providerId !== "whatsapp-business") {
+    const body = parseRequestObject(await request.json().catch(() => ({})));
+
+    // 2. Enforce strict single-use CSRF state token bound to initiating user
+    const stateToken = typeof body.state === "string" ? body.state.trim() : "";
+    if (!stateToken) {
       return NextResponse.json(
-        { success: false, error: "WhatsApp Business connection was not found." },
-        { status: 404 },
+        { success: false, error: "Missing required CSRF state token." },
+        { status: 400 }
       );
     }
 
-    const body = parseRequestObject(await request.json());
-    const code = requiredString(body, "code", /^[A-Za-z0-9_.#=-]{20,4096}$/, "Authorization code");
-    const wabaId = requiredString(body, "wabaId", /^\d{5,30}$/, "WhatsApp Business Account ID");
-    const phoneNumberId = requiredString(body, "phoneNumberId", /^\d{5,30}$/, "Phone number ID");
-    const appSecret = process.env.META_WHATSAPP_APP_SECRET ?? process.env.META_APP_SECRET;
+    const adminSupabase = createAdminSupabaseClient();
+
+    const stateValidation = await validateAndConsumeWhatsAppSession(
+      adminSupabase,
+      stateToken,
+      wsId,
+      userId
+    );
+
+    if (!stateValidation.valid) {
+      return NextResponse.json(
+        { success: false, error: stateValidation.error || "Invalid or expired session state." },
+        { status: 403 }
+      );
+    }
+
+    const code = requiredString(body, "code", /^[A-Za-z0-9_.#=-]{10,4096}$/, "Authorization code");
+    const wabaId = requiredString(body, "wabaId", /^[A-Za-z0-9_-]{3,50}$/, "WhatsApp Business Account ID");
+    const phoneNumberId = requiredString(body, "phoneNumberId", /^[A-Za-z0-9_-]{3,50}$/, "Phone number ID");
+
+    // 3. Reject cross-workspace conflicts before token exchange or mutation
+    try {
+      await assertNoCrossWorkspaceConflict(adminSupabase, wsId, phoneNumberId, wabaId);
+    } catch (conflictErr: any) {
+      return NextResponse.json(
+        { success: false, error: conflictErr.message },
+        { status: 409 }
+      );
+    }
+
+    // 4. Token exchange
+    const appSecret =
+      process.env.META_WHATSAPP_APP_SECRET?.trim() ||
+      process.env.META_APP_SECRET?.trim() ||
+      "";
+
     if (!appSecret) {
       return NextResponse.json(
-        { success: false, error: "J10 server setup is missing META_WHATSAPP_APP_SECRET." },
-        { status: 503 },
+        { success: false, error: "Meta App Secret is not configured on the server." },
+        { status: 503 }
       );
     }
 
-    const tokenUrl = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/oauth/access_token`);
-    tokenUrl.searchParams.set("client_id", META_APP_ID);
-    tokenUrl.searchParams.set("client_secret", appSecret);
-    tokenUrl.searchParams.set("code", code);
-    const tokenBody = await graphJson(tokenUrl);
-    const accessToken = typeof tokenBody.access_token === "string" ? tokenBody.access_token.trim() : "";
-    if (!accessToken || accessToken.length > 32_768) throw new Error("Meta did not return a valid access token.");
+    const tokenResult = await exchangeMetaCodeForAccessToken(code, undefined, appSecret);
+    const { accessToken } = tokenResult;
 
-    const phones = await graphJson(new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating`), accessToken);
-    const rows = Array.isArray(phones.data) ? phones.data : [];
-    const phone = rows.find((entry) => entry && typeof entry === "object" && (entry as JsonRecord).id === phoneNumberId) as JsonRecord | undefined;
-    if (!phone) {
+    // 5. Verify WABA and phone
+    const verifiedDetails = await verifyWabaAndPhoneNumber(accessToken, wabaId, phoneNumberId);
+
+    // 6. Subscribe WABA to webhook
+    const subscribed = await subscribeWabaToWebhook(accessToken, wabaId);
+
+    // 7. Upsert integration & encrypted credentials
+    const { integrationId, endpointKey, isReconnect } = await upsertWhatsAppIntegration(
+      adminSupabase,
+      {
+        workspaceId: wsId,
+        userId,
+        verifiedDetails,
+        accessToken,
+        appSecret,
+        webhookSubscribed: subscribed,
+      }
+    );
+
+    if (!subscribed) {
       return NextResponse.json(
-        { success: false, error: "The selected phone number does not belong to the selected WhatsApp Business Account." },
-        { status: 409 },
+        {
+          success: false,
+          status: "action_required",
+          error: "WhatsApp account verified, but webhook subscription could not be confirmed. Reconnection is required.",
+          integrationId,
+          endpointKey,
+        },
+        { status: 422 }
       );
     }
-
-    const scope = { workspaceId: wsContext.workspace.id, actorUserId: wsContext.user.id };
-    const existing = await getIntegrationCredentials(supabase, scope, connection.id);
-    await storeIntegrationCredentials(supabase, scope, {
-      connectionId: connection.id,
-      values: { ...(existing?.values ?? {}), access_token: accessToken },
-    });
-    await updateIntegrationConnectionConfiguration(supabase, scope, connection.id, {
-      publicConfiguration: {
-        ...connection.publicConfiguration,
-        phone_number_id: phoneNumberId,
-        business_account_id: wabaId,
-        onboarding_method: "embedded_signup_coexistence",
-        graph_api_version: GRAPH_VERSION,
-      },
-      enabledCapabilities: connection.enabledCapabilities,
-    });
-    await updateIntegrationConnectionStatus(supabase, scope, connection.id, {
-      status: "connected",
-      reason: "Meta Embedded Signup verified the WhatsApp account and phone number.",
-      metadata: { source: "meta_embedded_signup", waba_id: wabaId, phone_number_id: phoneNumberId },
-    });
 
     return NextResponse.json({
       success: true,
+      status: "connected",
+      integrationId,
+      endpointKey,
+      isReconnect,
       phone: {
         id: phoneNumberId,
-        displayPhoneNumber: typeof phone.display_phone_number === "string" ? phone.display_phone_number : null,
-        verifiedName: typeof phone.verified_name === "string" ? phone.verified_name : null,
-        qualityRating: typeof phone.quality_rating === "string" ? phone.quality_rating : null,
+        displayPhoneNumber: verifiedDetails.displayPhoneNumber,
+        verifiedName: verifiedDetails.verifiedName,
+        qualityRating: verifiedDetails.qualityRating,
       },
     });
   } catch (error) {

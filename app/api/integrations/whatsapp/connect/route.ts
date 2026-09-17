@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
-import { createServerSupabaseClient } from "@/lib/auth";
+import { createAdminSupabaseClient } from "@/lib/auth";
 import {
   assertNoCrossWorkspaceConflict,
   exchangeMetaCodeForAccessToken,
@@ -63,10 +63,17 @@ export async function POST(req: Request) {
       );
     }
 
-    const supabase = createServerSupabaseClient();
+    // Privileged client used strictly after canonical owner/admin authorization
+    const adminSupabase = createAdminSupabaseClient();
 
-    // 1. Validate and atomically consume CSRF state token
-    const stateValidation = await validateAndConsumeWhatsAppSession(supabase, state, wsId);
+    // 1. Validate and atomically consume CSRF state token bound to initiating user
+    const stateValidation = await validateAndConsumeWhatsAppSession(
+      adminSupabase,
+      state,
+      wsId,
+      context.user.id
+    );
+
     if (!stateValidation.valid) {
       return NextResponse.json(
         { success: false, error: stateValidation.error || "Invalid or expired session state." },
@@ -76,7 +83,7 @@ export async function POST(req: Request) {
 
     // 2. Reject cross-workspace conflicts before token exchange or mutation
     try {
-      await assertNoCrossWorkspaceConflict(supabase, wsId, phoneNumberId, wabaId);
+      await assertNoCrossWorkspaceConflict(adminSupabase, wsId, phoneNumberId, wabaId);
     } catch (conflictErr: any) {
       return NextResponse.json(
         { success: false, error: conflictErr.message },
@@ -124,7 +131,7 @@ export async function POST(req: Request) {
     const subscribed = await subscribeWabaToWebhook(accessToken, wabaId);
 
     // 6. Create or update integration & encrypted credentials
-    const { integrationId, endpointKey, isReconnect } = await upsertWhatsAppIntegration(supabase, {
+    const { integrationId, endpointKey, isReconnect, status } = await upsertWhatsAppIntegration(adminSupabase, {
       workspaceId: wsId,
       userId: context.user.id,
       verifiedDetails,
@@ -136,8 +143,33 @@ export async function POST(req: Request) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://j10-nexus.vercel.app";
     const canonicalWebhookUrl = `${appUrl}/api/webhooks/whatsapp/${endpointKey}`;
 
+    // Requirement 9: If webhook subscription fails, do not display Active; store action_required and return 422
+    if (!subscribed) {
+      return NextResponse.json(
+        {
+          success: false,
+          status: "action_required",
+          error: "WhatsApp account verified, but webhook subscription could not be confirmed. Please click Reconnect to retry.",
+          integrationId,
+          endpointKey,
+          isReconnect,
+          account: {
+            wabaId: verifiedDetails.wabaId,
+            wabaName: verifiedDetails.wabaName,
+            phoneNumberId: verifiedDetails.phoneNumberId,
+            displayPhoneNumber: verifiedDetails.displayPhoneNumber,
+            verifiedName: verifiedDetails.verifiedName,
+            qualityRating: verifiedDetails.qualityRating,
+            webhookSubscribed: false,
+          },
+        },
+        { status: 422 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
+      status: "connected",
       integrationId,
       endpointKey,
       webhookUrl: canonicalWebhookUrl,
@@ -149,7 +181,7 @@ export async function POST(req: Request) {
         displayPhoneNumber: verifiedDetails.displayPhoneNumber,
         verifiedName: verifiedDetails.verifiedName,
         qualityRating: verifiedDetails.qualityRating,
-        webhookSubscribed: subscribed,
+        webhookSubscribed: true,
       },
     });
   } catch (err: any) {

@@ -4,9 +4,6 @@ import Script from "next/script";
 import { CheckCircle2, Loader2, MessageSquareText, AlertCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const META_APP_ID = process.env.NEXT_PUBLIC_META_APP_ID ?? "1830547288111074";
-const META_CONFIG_ID = process.env.NEXT_PUBLIC_META_WHATSAPP_CONFIG_ID ?? "28294076036901722";
-
 type SignupSession = { wabaId: string; phoneNumberId: string };
 type FacebookLoginResponse = { authResponse?: { code?: string }; status?: string };
 type FacebookSdk = {
@@ -29,13 +26,11 @@ export interface WhatsAppEmbeddedSignupProps {
 }
 
 export function WhatsAppEmbeddedSignup({
-  integrationId,
   onConnected,
   onSuccess,
   onCancel,
   standalone = false,
 }: WhatsAppEmbeddedSignupProps) {
-  const [sdkReady, setSdkReady] = useState(false);
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
@@ -46,32 +41,29 @@ export function WhatsAppEmbeddedSignup({
   const stateTokenRef = useRef<string | null>(null);
   const submittedRef = useRef(false);
 
+  // Finish connects via the canonical /api/integrations/whatsapp/connect route
   const finish = useCallback(async () => {
     if (!codeRef.current || !sessionRef.current || submittedRef.current) return;
     submittedRef.current = true;
     setIsError(false);
 
     try {
-      // Connect endpoint accepts code, state, wabaId, phoneNumberId
-      const connectUrl = integrationId
-        ? `/api/integrations/${integrationId}/whatsapp/embedded-signup`
-        : `/api/integrations/whatsapp/connect`;
-
-      const response = await fetch(connectUrl, {
+      const response = await fetch("/api/integrations/whatsapp/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: codeRef.current,
-          state: stateTokenRef.current || undefined,
+          state: stateTokenRef.current,
           ...sessionRef.current,
         }),
       });
 
-      const body = (await response.json()) as {
+      const body = (await response.json().catch(() => ({}))) as {
         success?: boolean;
         error?: string;
-        phone?: { displayPhoneNumber?: string };
+        status?: string;
         account?: { displayPhoneNumber?: string };
+        phone?: { displayPhoneNumber?: string };
       };
 
       if (!response.ok || !body.success) {
@@ -80,7 +72,7 @@ export function WhatsAppEmbeddedSignup({
 
       setSuccess(true);
       const displayPhone =
-        body.phone?.displayPhoneNumber || body.account?.displayPhoneNumber;
+        body.account?.displayPhoneNumber || body.phone?.displayPhoneNumber;
       setMessage(
         displayPhone
           ? `${displayPhone} is connected and ready for AI automation.`
@@ -95,7 +87,7 @@ export function WhatsAppEmbeddedSignup({
     } finally {
       setWorking(false);
     }
-  }, [integrationId, onConnected, onSuccess]);
+  }, [onConnected, onSuccess]);
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -160,25 +152,58 @@ export function WhatsAppEmbeddedSignup({
   const connect = async () => {
     codeRef.current = null;
     sessionRef.current = null;
+    stateTokenRef.current = null;
     submittedRef.current = false;
     setMessage(null);
     setIsError(false);
     setSuccess(false);
     setWorking(true);
 
+    // 1. Fetch validated, persisted CSRF state token and config from server
+    let sessionData: {
+      success?: boolean;
+      state?: string;
+      appId?: string;
+      configId?: string;
+      graphVersion?: string;
+      error?: string;
+    };
+
     try {
-      // 1. Fetch CSRF state token from server
       const sessionRes = await fetch("/api/integrations/whatsapp/session", {
         method: "POST",
       });
 
-      if (sessionRes.ok) {
-        const sessionData = await sessionRes.json();
-        stateTokenRef.current = sessionData.state || null;
+      if (!sessionRes.ok) {
+        setWorking(false);
+        setIsError(true);
+        setMessage("WhatsApp connection is not configured");
+        return;
       }
+
+      sessionData = await sessionRes.json();
     } catch {
-      // Allow continuation in offline/mock test environments
+      setWorking(false);
+      setIsError(true);
+      setMessage("WhatsApp connection is not configured");
+      return;
     }
+
+    // FAIL CLOSED: If state, appId, or configId is missing, stop immediately.
+    // Do NOT launch FB.login without a verified persisted state.
+    const stateToken = sessionData?.state?.trim();
+    const appId = sessionData?.appId?.trim();
+    const configId = sessionData?.configId?.trim();
+    const graphVersion = sessionData?.graphVersion?.trim() || "v21.0";
+
+    if (!sessionData?.success || !stateToken || !appId || !configId) {
+      setWorking(false);
+      setIsError(true);
+      setMessage("WhatsApp connection is not configured");
+      return;
+    }
+
+    stateTokenRef.current = stateToken;
 
     if (!window.FB) {
       setWorking(false);
@@ -187,6 +212,18 @@ export function WhatsAppEmbeddedSignup({
         "Meta SDK is not loaded. Please check your browser connection or disable ad-blockers."
       );
       return;
+    }
+
+    // Initialize FB SDK with validated server values
+    try {
+      window.FB.init({
+        appId,
+        cookie: true,
+        xfbml: true,
+        version: graphVersion,
+      });
+    } catch (initErr) {
+      console.error("[Meta SDK] Init error:", initErr);
     }
 
     // Launch Meta Embedded Signup
@@ -202,7 +239,7 @@ export function WhatsAppEmbeddedSignup({
         void finish();
       },
       {
-        config_id: META_CONFIG_ID,
+        config_id: configId,
         response_type: "code",
         override_default_response_type: true,
         extras: {
@@ -225,15 +262,6 @@ export function WhatsAppEmbeddedSignup({
       <Script
         src="https://connect.facebook.net/en_US/sdk.js"
         strategy="afterInteractive"
-        onLoad={() => {
-          window.FB?.init({
-            appId: META_APP_ID,
-            cookie: true,
-            xfbml: true,
-            version: "v21.0",
-          });
-          setSdkReady(Boolean(window.FB));
-        }}
       />
 
       <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
