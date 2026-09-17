@@ -21,8 +21,27 @@ export async function createBillingPortalSession(
     returnUrl?: string;
   }
 ): Promise<BillingPortalSessionResult> {
-  const defaultReturn = "https://j10-nexus.vercel.app/dashboard/settings/billing";
-  const resolvedReturnUrl = returnUrl || defaultReturn;
+  // Tenant verification: ensure workspace exists and caller has authority
+  const { data: ws, error: wsErr } = await supabase
+    .from("workspaces")
+    .select("id")
+    .eq("id", workspaceId)
+    .maybeSingle();
+
+  if (wsErr || !ws) {
+    throw new Error(`Unauthorized or invalid workspace ID for portal session: ${workspaceId}`);
+  }
+
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.NODE_ENV === "production"
+      ? "https://j10-nexus.vercel.app"
+      : "http://localhost:3000");
+  const defaultReturn = `${appUrl}/dashboard/settings/billing?portal_return=true`;
+  let resolvedReturnUrl = returnUrl || defaultReturn;
+  if (!resolvedReturnUrl.includes("portal_return=true")) {
+    resolvedReturnUrl += (resolvedReturnUrl.includes("?") ? "&" : "?") + "portal_return=true";
+  }
 
   // Retrieve customer ID from workspace_subscriptions
   const { data: sub } = await supabase

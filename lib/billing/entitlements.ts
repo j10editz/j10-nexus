@@ -7,13 +7,51 @@ import {
 } from "./plans";
 
 export type SubscriptionStatus =
+  | "incomplete"
+  | "incomplete_expired"
   | "active"
   | "trialing"
   | "past_due"
+  | "canceled_at_period_end"
   | "canceled"
   | "unpaid"
+  | "paused"
+  | "refunded"
+  | "disputed"
   | "grace_period"
   | "none";
+
+export type StripeSubscriptionStatus =
+  | "incomplete"
+  | "incomplete_expired"
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "canceled"
+  | "unpaid"
+  | "paused"
+  | "none";
+
+export type EntitlementState =
+  | "active"
+  | "grace_period"
+  | "past_due_hold"
+  | "restricted"
+  | "paused"
+  | "suspended"
+  | "canceled"
+  | "none";
+
+export type BillingHoldReason =
+  | "payment_failed"
+  | "subscription_canceled"
+  | "dispute_hold"
+  | "quota_exceeded"
+  | "dunning_grace"
+  | "dunning_expired"
+  | "user_paused"
+  | "none"
+  | null;
 
 export type SubscriptionProvenance = "stripe" | "trial" | "internal_grant" | "none";
 
@@ -44,6 +82,10 @@ export interface WorkspaceSubscription {
   provenance: SubscriptionProvenance;
   monthlyMessageLimit: number;
   messagesUsed: number;
+  aiConversationsQuota?: number;
+  seatsQuota?: number;
+  channelsQuota?: number;
+  cancelAtPeriodEnd?: boolean;
   currentPeriodStart?: string;
   currentPeriodEnd: string;
   gracePeriodEnd: string | null;
@@ -55,6 +97,7 @@ export interface WorkspaceSubscription {
   lastDunningAt?: string | null;
   stripeCustomerId?: string | null;
   stripeSubscriptionId?: string | null;
+  stripePriceId?: string | null;
 }
 
 export class BillingRequiredError extends Error {
@@ -83,7 +126,7 @@ export async function getWorkspaceSubscription(
     const { data, error } = await supabase
       .from("workspace_subscriptions")
       .select(
-        "id,workspace_id,plan_id,status,provenance,monthly_message_limit,messages_used_this_period,current_period_start,current_period_end,grace_period_end,trial_start,trial_end,has_used_trial,dunning_status,dunning_attempt_count,last_dunning_at,stripe_customer_id,stripe_subscription_id"
+        "id,workspace_id,plan_id,status,provenance,monthly_message_limit,messages_used_this_period,ai_conversations_quota,seats_quota,channels_quota,cancel_at_period_end,current_period_start,current_period_end,grace_period_end,trial_start,trial_end,has_used_trial,dunning_status,dunning_attempt_count,last_dunning_at,stripe_customer_id,stripe_subscription_id,stripe_price_id"
       )
       .eq("workspace_id", workspaceId)
       .maybeSingle();
@@ -98,6 +141,10 @@ export async function getWorkspaceSubscription(
       provenance: (data.provenance as SubscriptionProvenance) || "none",
       monthlyMessageLimit: data.monthly_message_limit ?? 0,
       messagesUsed: data.messages_used_this_period ?? 0,
+      aiConversationsQuota: data.ai_conversations_quota ?? 1000,
+      seatsQuota: data.seats_quota ?? 3,
+      channelsQuota: data.channels_quota ?? 2,
+      cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
       currentPeriodStart: data.current_period_start,
       currentPeriodEnd: data.current_period_end,
       gracePeriodEnd: data.grace_period_end ?? null,
@@ -109,6 +156,7 @@ export async function getWorkspaceSubscription(
       lastDunningAt: data.last_dunning_at ?? null,
       stripeCustomerId: data.stripe_customer_id ?? null,
       stripeSubscriptionId: data.stripe_subscription_id ?? null,
+      stripePriceId: data.stripe_price_id ?? null,
     };
   } catch {
     return null;
@@ -149,8 +197,16 @@ export async function assertWorkspaceEntitlement(
 
   const now = new Date();
 
-  // 2. Status check: Canceled, unpaid, or invalid status
-  if (sub.status === "canceled" || sub.status === "unpaid" || sub.status === "none") {
+  // 2. Status check: Canceled, unpaid, refunded, disputed, or invalid status
+  if (sub.status === "refunded" || sub.status === "disputed") {
+    throw new BillingRequiredError(
+      `Your workspace subscription has been flagged for administrator review due to ${sub.status}. Paid automation is paused.`,
+      `SUBSCRIPTION_${sub.status.toUpperCase()}`,
+      sub
+    );
+  }
+
+  if (sub.status === "canceled" || sub.status === "unpaid" || sub.status === "none" || sub.status === "incomplete") {
     throw new BillingRequiredError(
       "Your workspace subscription is inactive. Activate a plan in Billing Settings to resume automated actions.",
       "SUBSCRIPTION_INACTIVE",
@@ -693,4 +749,43 @@ export async function getWorkspaceEntitlements(
       },
     },
   };
+}
+
+/**
+ * Atomically records usage for an AI-handled conversation.
+ * Defines "AI-handled conversation" as: one unique customer thread in which J10 sends at least
+ * one automated AI response during the active monthly billing period.
+ * Idempotency key strictly scopes to (workspace_id, thread_id, billing_period_start), ensuring
+ * multiple messages in the same thread during the same billing cycle do not double-increment usage.
+ */
+export async function recordAiConversationUsage(
+  supabase: SupabaseClient,
+  {
+    workspaceId,
+    threadId,
+    billingPeriodStart,
+    actorUserId,
+  }: {
+    workspaceId: string;
+    threadId: string;
+    billingPeriodStart: string;
+    actorUserId?: string;
+  }
+): Promise<UsageRecordResult> {
+  const idempotencyKey = `ai-convo:${workspaceId}:${threadId}:${billingPeriodStart}`;
+
+  return recordVerifiedWorkspaceUsage(supabase, {
+    workspaceId,
+    metricName: "ai_tokens",
+    quantity: 1,
+    idempotencyKey,
+    resourceId: threadId,
+    actorUserId,
+    metadata: {
+      metric_type: "ai_handled_conversation",
+      thread_id: threadId,
+      billing_period_start: billingPeriodStart,
+      recorded_at: new Date().toISOString(),
+    },
+  });
 }
