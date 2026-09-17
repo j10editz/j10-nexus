@@ -241,8 +241,9 @@ export async function createWorkspaceSubscriptionCheckout(
   const successUrl = options.successUrl || defaultSuccess;
   const cancelUrl = options.cancelUrl || defaultCancel;
 
-  // Step 1: Generate internal checkout-attempt UUID
+  // Step 1: Generate internal checkout-attempt UUID and internal checkout UUID
   const checkoutAttemptId = randomUUID();
+  let internalCheckoutId = randomUUID();
   let reservationId: string | undefined;
 
   // Step 2: Validate price if live/test Stripe key present
@@ -257,7 +258,7 @@ export async function createWorkspaceSubscriptionCheckout(
     }
   }
 
-  // Step 3: Founder's 3 Atomic Slot Reservation (using attempt UUID)
+  // Step 3: Founder's 3 Atomic Slot Reservation (using attempt UUID and internal checkout UUID)
   if (options.planId === "founders3") {
     if (!options.invitationCode) {
       throw new Error("Founder's 3 Pilot is invite-only. A valid single-use invitation code is required.");
@@ -267,6 +268,7 @@ export async function createWorkspaceSubscriptionCheckout(
       workspaceId: options.workspaceId,
       invitationCode: options.invitationCode,
       checkoutAttemptId,
+      checkoutId: internalCheckoutId,
       expiresInMinutes: 30,
     });
 
@@ -277,37 +279,7 @@ export async function createWorkspaceSubscriptionCheckout(
     reservationId = reservationResult.reservationId;
   }
 
-  // Step 4: Resolve or create internal checkout record
-  const { data: checkoutRecord, error: coErr } = await supabase
-    .from("payment_checkouts")
-    .insert({
-      workspace_id: options.workspaceId,
-      amount,
-      currency: "USD",
-      status: "open",
-      provider_mode: secretKey && secretKey.startsWith("sk_live_") ? "live" : "sandbox",
-      metadata: {
-        checkout_attempt_id: checkoutAttemptId,
-        checkout_type: "subscription_checkout",
-        plan_id: plan.id,
-        interval,
-        actor_user_id: options.actorUserId || null,
-        reservation_id: reservationId || null,
-      },
-    })
-    .select("id")
-    .single();
-
-  if (coErr || !checkoutRecord) {
-    if (reservationId) {
-      await releaseFounders3Reservation(supabase, options.workspaceId, "checkout_record_creation_failed");
-    }
-    throw new Error(`Failed to create internal payment checkout record: ${coErr?.message}`);
-  }
-
-  const internalCheckoutId = checkoutRecord.id;
-
-  // Step 5: Resolve Stripe Customer
+  // Step 4: Resolve Stripe Customer
   let customerId: string;
   try {
     const customerRes = await getOrCreateStripeCustomer(supabase, {
@@ -322,7 +294,37 @@ export async function createWorkspaceSubscriptionCheckout(
     throw custErr;
   }
 
+  // Step 5: Idempotently expire any prior uncompleted pending checkout for this workspace
+  try {
+    const { data: stalePendingCheckout } = await supabase
+      .from("payment_checkouts")
+      .select("id, stripe_checkout_session_id")
+      .eq("workspace_id", options.workspaceId)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    if (stalePendingCheckout) {
+      if (stalePendingCheckout.stripe_checkout_session_id && secretKey && secretKey.startsWith("sk_")) {
+        try {
+          await fetch(`https://api.stripe.com/v1/checkout/sessions/${stalePendingCheckout.stripe_checkout_session_id}/expire`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${secretKey}` },
+          });
+        } catch {
+          // Best effort stale session expiration
+        }
+      }
+      await supabase
+        .from("payment_checkouts")
+        .update({ status: "expired", updated_at: new Date().toISOString() })
+        .eq("id", stalePendingCheckout.id);
+    }
+  } catch {
+    // Non-fatal if payment_checkouts lookup is skipped or mocked simply
+  }
+
   // Step 6: Create Stripe Checkout Session & Bind transactionally
+  let stripeSession: { id: string; url: string } | null = null;
   if (secretKey && secretKey.startsWith("sk_")) {
     try {
       const params = new URLSearchParams({
@@ -330,7 +332,7 @@ export async function createWorkspaceSubscriptionCheckout(
         customer: customerId,
         client_reference_id: options.workspaceId,
         success_url: successUrl,
-        "cancel_url": cancelUrl,
+        cancel_url: cancelUrl,
         "managed_payments[enabled]": "false",
         "metadata[workspace_id]": options.workspaceId,
         "metadata[plan_id]": plan.id,
@@ -407,29 +409,7 @@ export async function createWorkspaceSubscriptionCheckout(
         }
       }
 
-      // Update internal checkout record with Stripe session details
-      await supabase
-        .from("payment_checkouts")
-        .update({
-          checkout_url: data.url,
-          stripe_checkout_session_id: data.id,
-          stripe_customer_id: customerId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", internalCheckoutId);
-
-      return {
-        checkoutUrl: data.url,
-        sessionId: data.id,
-        planId: plan.id,
-        amount,
-        interval,
-        mode: secretKey && secretKey.startsWith("sk_live_") ? "live" : "simulated",
-        providerMode: secretKey && secretKey.startsWith("sk_live_") ? "live" : "sandbox",
-        internalCheckoutId,
-        checkoutAttemptId,
-        reservationId,
-      };
+      stripeSession = { id: data.id, url: data.url };
     } catch (err) {
       // Transactional Rollback: Release reservation on Stripe failure
       if (reservationId) {
@@ -438,6 +418,71 @@ export async function createWorkspaceSubscriptionCheckout(
       if (err instanceof Error) throw err;
       throw new Error(`Stripe checkout session creation failed: ${String(err)}`);
     }
+  }
+
+  if (stripeSession) {
+    // Step 7: Single atomic insertion into payment_checkouts with complete non-null checkout_url
+    const isLive = Boolean(secretKey && secretKey.startsWith("sk_live_"));
+    const dbProviderMode = isLive ? "live" : "test";
+
+    const { data: checkoutRecord, error: coErr } = await supabase
+      .from("payment_checkouts")
+      .insert({
+        id: internalCheckoutId,
+        workspace_id: options.workspaceId,
+        amount,
+        currency: "USD",
+        status: "pending",
+        checkout_url: stripeSession.url,
+        stripe_checkout_session_id: stripeSession.id,
+        stripe_customer_id: customerId,
+        provider_mode: dbProviderMode,
+        metadata: {
+          checkout_attempt_id: checkoutAttemptId,
+          checkout_type: "subscription_checkout",
+          plan_id: plan.id,
+          interval,
+          actor_user_id: options.actorUserId || null,
+          reservation_id: reservationId || null,
+        },
+      })
+      .select("id")
+      .single();
+
+    if (coErr) {
+      console.error("[Checkout Persistence Error] Failed to create internal payment checkout record:", coErr);
+      // Expire newly created Stripe session to prevent orphan active sessions
+      try {
+        await fetch(`https://api.stripe.com/v1/checkout/sessions/${stripeSession.id}/expire`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${secretKey}` },
+        });
+      } catch (expireErr) {
+        console.error("[Checkout Compensation Error] Failed to expire Stripe session on checkout persistence failure:", expireErr);
+      }
+      // Roll back Founder's 3 slot reservation
+      if (reservationId) {
+        await releaseFounders3Reservation(supabase, options.workspaceId, "checkout_record_creation_failed");
+      }
+      throw new Error("Unable to create internal payment checkout record. Please try again.");
+    }
+
+    if (checkoutRecord?.id) {
+      internalCheckoutId = checkoutRecord.id;
+    }
+
+    return {
+      checkoutUrl: stripeSession.url,
+      sessionId: stripeSession.id,
+      planId: plan.id,
+      amount,
+      interval,
+      mode: isLive ? "live" : "simulated",
+      providerMode: isLive ? "live" : "sandbox",
+      internalCheckoutId,
+      checkoutAttemptId,
+      reservationId,
+    };
   }
 
   if (process.env.NODE_ENV === "production") {
@@ -452,22 +497,52 @@ export async function createWorkspaceSubscriptionCheckout(
   const checkoutUrl = `https://checkout.stripe.com/c/pay/${sessionId}#j10_sub_${plan.id}`;
 
   if (options.planId === "founders3") {
-    await supabase.rpc("bind_founders3_checkout_session_atomic", {
-      p_workspace_id: options.workspaceId,
-      p_checkout_attempt_id: checkoutAttemptId,
-      p_stripe_checkout_session_id: sessionId,
-    });
+    try {
+      await supabase.rpc("bind_founders3_checkout_session_atomic", {
+        p_workspace_id: options.workspaceId,
+        p_checkout_attempt_id: checkoutAttemptId,
+        p_stripe_checkout_session_id: sessionId,
+      });
+    } catch {
+      // Non-fatal in sandbox
+    }
   }
 
-  await supabase
+  const { data: offlineCheckoutRecord, error: offlineCoErr } = await supabase
     .from("payment_checkouts")
-    .update({
+    .insert({
+      id: internalCheckoutId,
+      workspace_id: options.workspaceId,
+      amount,
+      currency: "USD",
+      status: "pending",
       checkout_url: checkoutUrl,
       stripe_checkout_session_id: sessionId,
       stripe_customer_id: customerId,
-      updated_at: new Date().toISOString(),
+      provider_mode: "test",
+      metadata: {
+        checkout_attempt_id: checkoutAttemptId,
+        checkout_type: "subscription_checkout",
+        plan_id: plan.id,
+        interval,
+        actor_user_id: options.actorUserId || null,
+        reservation_id: reservationId || null,
+      },
     })
-    .eq("id", internalCheckoutId);
+    .select("id")
+    .single();
+
+  if (offlineCoErr) {
+    console.error("[Offline Checkout Persistence Error]:", offlineCoErr);
+    if (reservationId) {
+      await releaseFounders3Reservation(supabase, options.workspaceId, "checkout_record_creation_failed");
+    }
+    throw new Error("Unable to create internal payment checkout record. Please try again.");
+  }
+
+  if (offlineCheckoutRecord?.id) {
+    internalCheckoutId = offlineCheckoutRecord.id;
+  }
 
   return {
     checkoutUrl,
