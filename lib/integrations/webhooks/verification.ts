@@ -368,11 +368,20 @@ function getWhatsAppEventIdentity(
 function verifyWhatsAppWebhook(
   input: VerifyWebhookDeliveryInput,
 ): IntegrationWebhookVerificationResult {
-  const appSecret = requiredCredential(
-    input.credentials,
-    "app_secret",
-    "WhatsApp Business",
-  );
+  const appSecret =
+    input.credentials.app_secret?.trim() ||
+    input.credentials.appSecret?.trim() ||
+    process.env.META_WHATSAPP_APP_SECRET?.trim() ||
+    process.env.META_APP_SECRET?.trim();
+
+  if (!appSecret) {
+    throw new IntegrationWebhookError(
+      "WhatsApp Business webhook verification is not configured.",
+      "WEBHOOK_SIGNATURE_SECRET_MISSING",
+      503,
+      true,
+    );
+  }
 
   const receivedSignature = normalizeSignatureHex(
     input.headers.get("x-hub-signature-256"),

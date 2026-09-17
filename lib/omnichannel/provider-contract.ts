@@ -170,3 +170,85 @@ export async function persistCanonicalTelegramInbound(
   );
 }
 
+/**
+ * Atomically persists a verified incoming WhatsApp message into Stage 1 canonical records:
+ * contact, contact identity (phone), lead intake, inbox thread, inbox message, and lead.received outbox.
+ * Inbound inquiries do NOT automatically grant marketing consent.
+ */
+export async function persistCanonicalWhatsAppInbound(
+  supabase: import("@supabase/supabase-js").SupabaseClient,
+  args: {
+    workspaceId: string;
+    payload: Record<string, unknown>;
+    origin: string;
+  }
+) {
+  const { recordCanonicalLeadIntake } = await import("@/lib/leads/intake");
+
+  const entry = Array.isArray(args.payload.entry) ? (args.payload.entry[0] as Record<string, unknown> | undefined) : undefined;
+  const change = Array.isArray(entry?.changes) ? (entry?.changes[0] as Record<string, unknown> | undefined) : undefined;
+  const value = (change?.value && typeof change.value === "object" ? change.value : {}) as Record<string, unknown>;
+
+  const message = Array.isArray(value.messages) ? (value.messages[0] as Record<string, unknown> | undefined) : undefined;
+  if (!message) {
+    return null;
+  }
+
+  // Only text messages create AI / lead responses in this vertical slice
+  const messageType = typeof message.type === "string" ? message.type : "unknown";
+  const messageText = messageType === "text" && message.text && typeof message.text === "object"
+    ? String((message.text as Record<string, unknown>).body || "").trim()
+    : "";
+
+  if (!messageText) {
+    return null;
+  }
+
+  const rawFrom = typeof message.from === "string" ? message.from.trim() : "";
+  const digits = rawFrom.replace(/\D/g, "");
+  const normalizedPhone = digits.length >= 7 ? `+${digits}` : null;
+
+  const contactsList = Array.isArray(value.contacts) ? value.contacts : [];
+  const senderContact = contactsList.length > 0 && typeof contactsList[0] === "object"
+    ? (contactsList[0] as Record<string, unknown>)
+    : null;
+  const profile = senderContact?.profile && typeof senderContact.profile === "object"
+    ? (senderContact.profile as Record<string, unknown>)
+    : null;
+  const profileName = typeof profile?.name === "string" ? profile.name.trim() : "";
+
+  const senderName = profileName || normalizedPhone || "WhatsApp User";
+  const messageId = typeof message.id === "string" ? message.id.trim() : undefined;
+  const idempotencyKey = `wa_${args.workspaceId}_${rawFrom}_${messageId || Date.now()}`;
+
+  return await recordCanonicalLeadIntake(
+    supabase,
+    {
+      workspaceId: args.workspaceId,
+      source: "whatsapp",
+      channel: "whatsapp",
+      name: senderName,
+      email: null,
+      phone: normalizedPhone,
+      message: messageText,
+      sourceEventId: messageId,
+      idempotencyKey,
+      consents: [
+        {
+          status: "not_provided",
+          communicationChannel: "whatsapp",
+          purpose: "marketing",
+          disclosureVersion: "v1",
+          captureSource: "inbound_whatsapp_message",
+        },
+      ],
+      metadata: {
+        whatsapp_message_id: messageId,
+        whatsapp_from: rawFrom,
+        whatsapp_profile_name: profileName || null,
+        whatsapp_timestamp: message.timestamp || null,
+      },
+    },
+    args.origin
+  );
+}
