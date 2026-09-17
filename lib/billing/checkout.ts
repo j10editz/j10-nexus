@@ -268,7 +268,7 @@ export async function createWorkspaceSubscriptionCheckout(
       workspaceId: options.workspaceId,
       invitationCode: options.invitationCode,
       checkoutAttemptId,
-      checkoutId: internalCheckoutId,
+      // checkoutId is omitted (NULL) on initial hold to prevent FK violation before payment_checkouts insert
       expiresInMinutes: 30,
     });
 
@@ -323,7 +323,7 @@ export async function createWorkspaceSubscriptionCheckout(
     // Non-fatal if payment_checkouts lookup is skipped or mocked simply
   }
 
-  // Step 6: Create Stripe Checkout Session & Bind transactionally
+  // Step 6: Create Stripe Checkout Session
   let stripeSession: { id: string; url: string } | null = null;
   if (secretKey && secretKey.startsWith("sk_")) {
     try {
@@ -374,9 +374,9 @@ export async function createWorkspaceSubscriptionCheckout(
       });
 
       const data = await res.json();
-      if (!res.ok || !data.url) {
+      if (!res.ok || !data?.id || !data?.url) {
         throw new Error(
-          `Stripe Checkout Session creation failed: ${data?.error?.message || res.statusText || "Unknown error"}`
+          `Stripe Checkout Session creation failed: ${data?.error?.message || res.statusText || "Missing session id or url"}`
         );
       }
 
@@ -396,19 +396,6 @@ export async function createWorkspaceSubscriptionCheckout(
         );
       }
 
-      // Bind Stripe session ID transactionally to reservation
-      if (options.planId === "founders3") {
-        try {
-          await supabase.rpc("bind_founders3_checkout_session_atomic", {
-            p_workspace_id: options.workspaceId,
-            p_checkout_attempt_id: checkoutAttemptId,
-            p_stripe_checkout_session_id: data.id,
-          });
-        } catch {
-          // Non-fatal if schema cache has not yet refreshed unapplied migration RPC
-        }
-      }
-
       stripeSession = { id: data.id, url: data.url };
     } catch (err) {
       // Transactional Rollback: Release reservation on Stripe failure
@@ -422,6 +409,7 @@ export async function createWorkspaceSubscriptionCheckout(
 
   if (stripeSession) {
     // Step 7: Single atomic insertion into payment_checkouts with complete non-null checkout_url
+    // Adheres strictly to the live 15-column schema (stripe_customer_id stored in metadata)
     const isLive = Boolean(secretKey && secretKey.startsWith("sk_live_"));
     const dbProviderMode = isLive ? "live" : "test";
 
@@ -435,7 +423,6 @@ export async function createWorkspaceSubscriptionCheckout(
         status: "pending",
         checkout_url: stripeSession.url,
         stripe_checkout_session_id: stripeSession.id,
-        stripe_customer_id: customerId,
         provider_mode: dbProviderMode,
         metadata: {
           checkout_attempt_id: checkoutAttemptId,
@@ -444,6 +431,8 @@ export async function createWorkspaceSubscriptionCheckout(
           interval,
           actor_user_id: options.actorUserId || null,
           reservation_id: reservationId || null,
+          customer_id: customerId,
+          stripe_customer_id: customerId,
         },
       })
       .select("id")
@@ -471,6 +460,68 @@ export async function createWorkspaceSubscriptionCheckout(
       internalCheckoutId = checkoutRecord.id;
     }
 
+    // Step 8: AFTER payment_checkouts insertion succeeds, bind reservation to internalCheckoutId
+    if (options.planId === "founders3" && reservationId) {
+      const bindResult = await reserveFounders3Slot(supabase, {
+        workspaceId: options.workspaceId,
+        invitationCode: options.invitationCode!,
+        checkoutAttemptId,
+        checkoutId: internalCheckoutId,
+        expiresInMinutes: 30,
+      });
+
+      if (!bindResult.success) {
+        console.error("[Checkout Binding Error] Failed to bind reservation to checkout record:", bindResult.error);
+        // Compensation for failure after payment_checkouts insertion:
+        // 1. Expire Stripe session
+        try {
+          await fetch(`https://api.stripe.com/v1/checkout/sessions/${stripeSession.id}/expire`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${secretKey}` },
+          });
+        } catch (expireErr) {
+          console.error("[Checkout Compensation Error] Failed to expire Stripe session on reservation binding failure:", expireErr);
+        }
+        // 2. Mark checkout record failed
+        try {
+          await supabase
+            .from("payment_checkouts")
+            .update({
+              status: "failed",
+              updated_at: new Date().toISOString(),
+              metadata: {
+                checkout_attempt_id: checkoutAttemptId,
+                checkout_type: "subscription_checkout",
+                plan_id: plan.id,
+                interval,
+                actor_user_id: options.actorUserId || null,
+                reservation_id: reservationId || null,
+                customer_id: customerId,
+                failure_reason: "reservation_binding_failed",
+                binding_error: bindResult.error,
+              },
+            })
+            .eq("id", internalCheckoutId);
+        } catch (recordErr) {
+          console.error("[Checkout Compensation Error] Failed to mark checkout record failed:", recordErr);
+        }
+        // 3. Release reservation
+        await releaseFounders3Reservation(supabase, options.workspaceId, "checkout_binding_failed");
+        throw new Error("Unable to complete reservation binding for checkout. Please try again.");
+      }
+
+      // Also bind Stripe session ID transactionally to reservation
+      try {
+        await supabase.rpc("bind_founders3_checkout_session_atomic", {
+          p_workspace_id: options.workspaceId,
+          p_checkout_attempt_id: checkoutAttemptId,
+          p_stripe_checkout_session_id: stripeSession.id,
+        });
+      } catch {
+        // Non-fatal if schema cache has not yet refreshed unapplied migration RPC
+      }
+    }
+
     return {
       checkoutUrl: stripeSession.url,
       sessionId: stripeSession.id,
@@ -496,18 +547,6 @@ export async function createWorkspaceSubscriptionCheckout(
   const sessionId = `cs_test_offline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const checkoutUrl = `https://checkout.stripe.com/c/pay/${sessionId}#j10_sub_${plan.id}`;
 
-  if (options.planId === "founders3") {
-    try {
-      await supabase.rpc("bind_founders3_checkout_session_atomic", {
-        p_workspace_id: options.workspaceId,
-        p_checkout_attempt_id: checkoutAttemptId,
-        p_stripe_checkout_session_id: sessionId,
-      });
-    } catch {
-      // Non-fatal in sandbox
-    }
-  }
-
   const { data: offlineCheckoutRecord, error: offlineCoErr } = await supabase
     .from("payment_checkouts")
     .insert({
@@ -518,7 +557,6 @@ export async function createWorkspaceSubscriptionCheckout(
       status: "pending",
       checkout_url: checkoutUrl,
       stripe_checkout_session_id: sessionId,
-      stripe_customer_id: customerId,
       provider_mode: "test",
       metadata: {
         checkout_attempt_id: checkoutAttemptId,
@@ -527,6 +565,8 @@ export async function createWorkspaceSubscriptionCheckout(
         interval,
         actor_user_id: options.actorUserId || null,
         reservation_id: reservationId || null,
+        customer_id: customerId,
+        stripe_customer_id: customerId,
       },
     })
     .select("id")
@@ -542,6 +582,30 @@ export async function createWorkspaceSubscriptionCheckout(
 
   if (offlineCheckoutRecord?.id) {
     internalCheckoutId = offlineCheckoutRecord.id;
+  }
+
+  if (options.planId === "founders3" && reservationId && options.invitationCode) {
+    try {
+      await reserveFounders3Slot(supabase, {
+        workspaceId: options.workspaceId,
+        invitationCode: options.invitationCode,
+        checkoutAttemptId,
+        checkoutId: internalCheckoutId,
+        expiresInMinutes: 30,
+      });
+    } catch {
+      // Non-fatal in sandbox
+    }
+
+    try {
+      await supabase.rpc("bind_founders3_checkout_session_atomic", {
+        p_workspace_id: options.workspaceId,
+        p_checkout_attempt_id: checkoutAttemptId,
+        p_stripe_checkout_session_id: sessionId,
+      });
+    } catch {
+      // Non-fatal in sandbox
+    }
   }
 
   return {

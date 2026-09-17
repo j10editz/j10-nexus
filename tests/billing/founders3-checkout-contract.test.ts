@@ -145,7 +145,10 @@ describe("Founder's 3 Checkout Contract & Resilience Tests", () => {
     expect(capturedInsertPayload.status).toBe("pending");
     expect(capturedInsertPayload.provider_mode).toBe("test");
     expect(capturedInsertPayload.stripe_checkout_session_id).toBe(sessionId);
-    expect(capturedInsertPayload.stripe_customer_id).toBe("cus_mock_f3_123");
+    // Verified 15-column production schema: no top-level stripe_customer_id
+    expect(capturedInsertPayload.stripe_customer_id).toBeUndefined();
+    expect(capturedInsertPayload.metadata.customer_id).toBe("cus_mock_f3_123");
+    expect(capturedInsertPayload.metadata.stripe_customer_id).toBe("cus_mock_f3_123");
   });
 
   it("3: Database persistence failure expires Stripe session and releases reservation", async () => {
@@ -573,5 +576,293 @@ describe("Founder's 3 Checkout Contract & Resilience Tests", () => {
     expect(jsonDbError.error).not.toContain("not-null constraint");
 
     spy.mockRestore();
+  });
+
+  it("8: Two-phase reservation binding: initial hold has null checkout_id, payment row exists before checkout_id is bound", async () => {
+    const reservationCalls: any[] = [];
+    let paymentInsertedBeforeBinding = false;
+    let paymentInserted = false;
+
+    const mockSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === "payment_checkouts") {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+            update: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }),
+            insert: vi.fn((payload: any) => {
+              paymentInserted = true;
+              return {
+                select: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue({
+                    data: { id: payload.id },
+                    error: null,
+                  }),
+                }),
+              };
+            }),
+          };
+        }
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+          update: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }),
+        };
+      }),
+      rpc: vi.fn((fn: string, params: any) => {
+        if (fn === "reserve_founders3_slot_atomic") {
+          reservationCalls.push({ ...params });
+          if (params.p_checkout_id && paymentInserted) {
+            paymentInsertedBeforeBinding = true;
+          }
+          return Promise.resolve({
+            data: { success: true, reservation_id: "res_two_phase_123", remaining_slots: 2 },
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: { success: true }, error: null });
+      }),
+    } as any;
+
+    const mockFetch = vi.fn(async (url: string | URL | Request) => {
+      const urlStr = url.toString();
+      if (urlStr.includes("/v1/prices/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "price_f3_monthly_99",
+            active: true,
+            currency: "usd",
+            unit_amount: 9900,
+            recurring: { interval: "month" },
+            livemode: false,
+          }),
+        } as any;
+      }
+      if (urlStr.includes("/v1/customers")) {
+        return { ok: true, status: 200, json: async () => ({ id: "cus_two_phase" }) } as any;
+      }
+      if (urlStr.includes("/v1/checkout/sessions")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "cs_test_two_phase_session",
+            url: "https://checkout.stripe.com/pay/cs_test_two_phase_session",
+            managed_payments: { enabled: false },
+          }),
+        } as any;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as any;
+    });
+
+    global.fetch = mockFetch;
+
+    const res = await createWorkspaceSubscriptionCheckout(mockSupabase, {
+      workspaceId: "ws_two_phase_test",
+      planId: "founders3",
+      invitationCode: "F3-TWO-PHASE",
+    });
+
+    expect(res.sessionId).toBe("cs_test_two_phase_session");
+    // Verify 2 calls were made to reserve_founders3_slot_atomic
+    expect(reservationCalls.length).toBe(2);
+    // Call 1: initial hold has null checkout_id to prevent FK violation
+    expect(reservationCalls[0].p_checkout_id).toBeNull();
+    // Call 2: binding after payment_checkouts insert binds internalCheckoutId
+    expect(reservationCalls[1].p_checkout_id).toBe(res.internalCheckoutId);
+    // Verified payment row was inserted BEFORE the binding call occurred
+    expect(paymentInsertedBeforeBinding).toBe(true);
+  });
+
+  it("9: Post-insert binding failure triggers 3-way compensation: expires Stripe session, marks payment_checkout failed, releases reservation", async () => {
+    let expiredSessionId: string | null = null;
+    let releasedWorkspaceId: string | null = null;
+    let markedCheckoutFailed = false;
+    let rpcCallCount = 0;
+
+    const mockSupabase = {
+      from: vi.fn((table: string) => {
+        if (table === "payment_checkouts") {
+          return {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+            update: vi.fn((updatePayload: any) => {
+              if (updatePayload.status === "failed") {
+                markedCheckoutFailed = true;
+              }
+              return { eq: vi.fn().mockResolvedValue({ error: null }) };
+            }),
+            insert: vi.fn((payload: any) => ({
+              select: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: { id: payload.id || "co_post_insert_fail" },
+                  error: null,
+                }),
+              }),
+            })),
+          };
+        }
+        return {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+          update: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }),
+        };
+      }),
+      rpc: vi.fn((fn: string, params: any) => {
+        if (fn === "reserve_founders3_slot_atomic") {
+          rpcCallCount++;
+          if (rpcCallCount === 1) {
+            // First call (initial hold) succeeds
+            return Promise.resolve({
+              data: { success: true, reservation_id: "res_bind_fail_123", remaining_slots: 2 },
+              error: null,
+            });
+          } else {
+            // Second call (binding) fails
+            return Promise.resolve({
+              data: { success: false, error: "Simulated binding constraint error" },
+              error: null,
+            });
+          }
+        }
+        if (fn === "release_founders3_reservation_atomic") {
+          releasedWorkspaceId = params.p_workspace_id;
+          return Promise.resolve({ data: { success: true, released: true }, error: null });
+        }
+        return Promise.resolve({ data: { success: true }, error: null });
+      }),
+    } as any;
+
+    const mockFetch = vi.fn(async (url: string | URL | Request) => {
+      const urlStr = url.toString();
+      if (urlStr.includes("/v1/prices/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "price_f3_monthly_99",
+            active: true,
+            currency: "usd",
+            unit_amount: 9900,
+            recurring: { interval: "month" },
+            livemode: false,
+          }),
+        } as any;
+      }
+      if (urlStr.includes("/v1/customers")) {
+        return { ok: true, status: 200, json: async () => ({ id: "cus_bind_fail" }) } as any;
+      }
+      if (urlStr.includes("/v1/checkout/sessions") && !urlStr.includes("/expire")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "cs_test_bind_fail_session",
+            url: "https://checkout.stripe.com/pay/cs_test_bind_fail_session",
+            managed_payments: { enabled: false },
+          }),
+        } as any;
+      }
+      if (urlStr.includes("/expire")) {
+        const match = urlStr.match(/\/checkout\/sessions\/(.+?)\/expire/);
+        if (match) expiredSessionId = match[1];
+        return { ok: true, status: 200, json: async () => ({ id: match?.[1], status: "expired" }) } as any;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as any;
+    });
+
+    global.fetch = mockFetch;
+
+    await expect(
+      createWorkspaceSubscriptionCheckout(mockSupabase, {
+        workspaceId: "ws_bind_fail_test",
+        planId: "founders3",
+        invitationCode: "F3-BIND-FAIL",
+      })
+    ).rejects.toThrow("Unable to complete reservation binding for checkout. Please try again.");
+
+    // 1. Stripe session expired
+    expect(expiredSessionId).toBe("cs_test_bind_fail_session");
+    // 2. Checkout record marked failed
+    expect(markedCheckoutFailed).toBe(true);
+    // 3. Reservation released
+    expect(releasedWorkspaceId).toBe("ws_bind_fail_test");
+  });
+
+  it("10: Pre-Stripe customer creation failure releases reservation without Stripe checkout call", async () => {
+    let releasedWorkspaceId: string | null = null;
+    let stripeCheckoutCalled = false;
+
+    const mockSupabase = {
+      from: vi.fn(() => ({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+        update: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }),
+      })),
+      rpc: vi.fn((fn: string, params: any) => {
+        if (fn === "reserve_founders3_slot_atomic") {
+          return Promise.resolve({
+            data: { success: true, reservation_id: "res_cust_fail_123", remaining_slots: 2 },
+            error: null,
+          });
+        }
+        if (fn === "release_founders3_reservation_atomic") {
+          releasedWorkspaceId = params.p_workspace_id;
+          return Promise.resolve({ data: { success: true, released: true }, error: null });
+        }
+        return Promise.resolve({ data: { success: true }, error: null });
+      }),
+    } as any;
+
+    const mockFetch = vi.fn(async (url: string | URL | Request) => {
+      const urlStr = url.toString();
+      if (urlStr.includes("/v1/prices/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            id: "price_f3_monthly_99",
+            active: true,
+            currency: "usd",
+            unit_amount: 9900,
+            recurring: { interval: "month" },
+            livemode: false,
+          }),
+        } as any;
+      }
+      if (urlStr.includes("/v1/customers")) {
+        return {
+          ok: false,
+          status: 400,
+          statusText: "Bad Request",
+          json: async () => ({ error: { message: "Invalid email" } }),
+        } as any;
+      }
+      if (urlStr.includes("/v1/checkout/sessions")) {
+        stripeCheckoutCalled = true;
+        return { ok: true, status: 200, json: async () => ({}) } as any;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as any;
+    });
+
+    global.fetch = mockFetch;
+
+    await expect(
+      createWorkspaceSubscriptionCheckout(mockSupabase, {
+        workspaceId: "ws_cust_fail_test",
+        planId: "founders3",
+        invitationCode: "F3-CUST-FAIL",
+      })
+    ).rejects.toThrow(/Stripe customer creation failed/);
+
+    expect(releasedWorkspaceId).toBe("ws_cust_fail_test");
+    expect(stripeCheckoutCalled).toBe(false);
   });
 });
