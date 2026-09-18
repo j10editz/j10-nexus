@@ -474,7 +474,7 @@ export async function upsertWhatsAppIntegration(
 
   if (existing) {
     integrationId = existing.id;
-    const { error: updateErr } = await supabase
+    const { data: updated, error: updateErr } = await supabase
       .from("integrations")
       .update({
         status: initialStatus,
@@ -488,10 +488,12 @@ export async function upsertWhatsAppIntegration(
         updated_at: nowIso,
       })
       .eq("id", integrationId)
-      .eq("workspace_id", workspaceId);
+      .eq("workspace_id", workspaceId)
+      .select("id, status")
+      .maybeSingle();
 
-    if (updateErr) {
-      console.error("[Upsert WhatsApp] update_failed stage: initial_upsert code:", updateErr.code || "DB_ERROR");
+    if (updateErr || !updated || updated.id !== integrationId || updated.status !== initialStatus) {
+      console.error("[Upsert WhatsApp] update_failed stage: initial_upsert code:", updateErr?.code || "DB_ERROR");
       throw new Error("Failed to update WhatsApp integration in database.");
     }
   } else {
@@ -541,8 +543,8 @@ export async function upsertWhatsAppIntegration(
     );
   } catch (credErr: any) {
     console.error("[Upsert WhatsApp] cred_store_failed stage: vault_store code:", credErr?.code || "CRED_ERROR");
-    // Compensation: revert status to error, never leave connected
-    const { error: compErr } = await supabase
+    // Compensation: revert status to degraded, never leave connected
+    const { data: compRow, error: compErr } = await supabase
       .from("integrations")
       .update({
         status: "degraded",
@@ -553,9 +555,11 @@ export async function upsertWhatsAppIntegration(
         updated_at: new Date().toISOString(),
       })
       .eq("id", integrationId)
-      .eq("workspace_id", workspaceId);
+      .eq("workspace_id", workspaceId)
+      .select("id, status")
+      .maybeSingle();
 
-    if (compErr) {
+    if (compErr || !compRow || compRow.id !== integrationId || compRow.status !== "degraded") {
       console.error("[Upsert WhatsApp] compensation_failed stage: cred_error_compensation code: COMPENSATION_REQUIRED");
       throw new Error("COMPENSATION_REQUIRED: Credential storage failed and compensation could not be recorded.");
     }
@@ -609,7 +613,7 @@ export async function upsertWhatsAppIntegration(
       console.error("[Upsert WhatsApp] endpoint_cleanup_failed stage: endpoint_cleanup code:", cleanupErr?.code || "CLEANUP_ERROR");
     }
 
-    const { error: compErr } = await supabase
+    const { data: compRow, error: compErr } = await supabase
       .from("integrations")
       .update({
         status: "degraded",
@@ -622,9 +626,11 @@ export async function upsertWhatsAppIntegration(
         updated_at: new Date().toISOString(),
       })
       .eq("id", integrationId)
-      .eq("workspace_id", workspaceId);
+      .eq("workspace_id", workspaceId)
+      .select("id, status")
+      .maybeSingle();
 
-    if (compErr || !cleanupConfirmed) {
+    if (compErr || !cleanupConfirmed || !compRow || compRow.id !== integrationId || compRow.status !== "degraded") {
       console.error("[Upsert WhatsApp] compensation_failed stage: endpoint_error_compensation code: COMPENSATION_REQUIRED");
       throw new Error("COMPENSATION_REQUIRED: Webhook endpoint configuration failed and cleanup could not be verified.");
     }
@@ -644,7 +650,7 @@ export async function upsertWhatsAppIntegration(
       console.error("[Upsert WhatsApp] endpoint_disable_failed stage: disable_endpoint code:", disableErr?.code || "CLEANUP_ERROR");
     }
 
-    const { error: compErr } = await supabase
+    const { data: compRow, error: compErr } = await supabase
       .from("integrations")
       .update({
         status: "degraded",
@@ -661,9 +667,11 @@ export async function upsertWhatsAppIntegration(
         updated_at: new Date().toISOString(),
       })
       .eq("id", integrationId)
-      .eq("workspace_id", workspaceId);
+      .eq("workspace_id", workspaceId)
+      .select("id, status")
+      .maybeSingle();
 
-    if (compErr || !cleanupConfirmed) {
+    if (compErr || !cleanupConfirmed || !compRow || compRow.id !== integrationId || compRow.status !== "degraded") {
       console.error("[Upsert WhatsApp] compensation_failed stage: subscription_error_compensation code: COMPENSATION_REQUIRED");
       throw new Error("COMPENSATION_REQUIRED: Meta webhook subscription failed and cleanup could not be verified.");
     }
@@ -682,7 +690,7 @@ export async function upsertWhatsAppIntegration(
   // Phase E: Only after B, C, and D succeed:
   // status = "connected", webhook_subscribed = true, connected_at = now()
   const activateIso = new Date().toISOString();
-  const { error: activateErr } = await supabase
+  const { data: activatedRow, error: activateErr } = await supabase
     .from("integrations")
     .update({
       status: "connected",
@@ -697,10 +705,12 @@ export async function upsertWhatsAppIntegration(
       updated_at: activateIso,
     })
     .eq("id", integrationId)
-    .eq("workspace_id", workspaceId);
+    .eq("workspace_id", workspaceId)
+    .select("id, status")
+    .maybeSingle();
 
-  if (activateErr) {
-    console.error("[Upsert WhatsApp] activation_failed stage: final_activate code:", activateErr.code || "DB_ERROR");
+  if (activateErr || !activatedRow || activatedRow.id !== integrationId || activatedRow.status !== "connected") {
+    console.error("[Upsert WhatsApp] activation_failed stage: final_activate code:", activateErr?.code || "DB_ERROR");
     let cleanupConfirmed = false;
     try {
       const disableRes = await disableIntegrationWebhookEndpoint(supabase, workspaceId, integrationId);
@@ -709,7 +719,7 @@ export async function upsertWhatsAppIntegration(
       console.error("[Upsert WhatsApp] endpoint_disable_failed stage: activation_revert code: CLEANUP_ERROR");
     }
 
-    const { error: compErr } = await supabase
+    const { data: compRow, error: compErr } = await supabase
       .from("integrations")
       .update({
         status: "degraded",
@@ -722,9 +732,11 @@ export async function upsertWhatsAppIntegration(
         updated_at: new Date().toISOString(),
       })
       .eq("id", integrationId)
-      .eq("workspace_id", workspaceId);
+      .eq("workspace_id", workspaceId)
+      .select("id, status")
+      .maybeSingle();
 
-    if (compErr || !cleanupConfirmed) {
+    if (compErr || !cleanupConfirmed || !compRow || compRow.id !== integrationId || compRow.status !== "degraded") {
       console.error("[Upsert WhatsApp] compensation_failed stage: activation_revert code: COMPENSATION_REQUIRED");
       throw new Error("COMPENSATION_REQUIRED: Integration activation failed and cleanup could not be verified.");
     }
@@ -802,7 +814,7 @@ export async function disconnectWhatsAppIntegration(
   }
 
   // C. Update the integration to disconnected
-  const { error: updateErr } = await supabase
+  const { data: disconnectedRow, error: updateErr } = await supabase
     .from("integrations")
     .update({
       status: "disconnected",
@@ -811,10 +823,17 @@ export async function disconnectWhatsAppIntegration(
       updated_at: nowIso,
     })
     .eq("id", integration.id)
-    .eq("workspace_id", workspaceId);
+    .eq("workspace_id", workspaceId)
+    .select("id, status")
+    .maybeSingle();
 
-  if (updateErr) {
-    console.error("[Disconnect WhatsApp] update_failed stage: update_disconnected code:", updateErr.code || "DB_ERROR");
+  if (
+    updateErr ||
+    !disconnectedRow ||
+    disconnectedRow.id !== integration.id ||
+    disconnectedRow.status !== "disconnected"
+  ) {
+    console.error("[Disconnect WhatsApp] update_failed stage: update_disconnected code:", updateErr?.code || "DB_ERROR");
     // Processing is safely disabled via endpoint, but DB update failed
     throw new Error("Webhook processing disabled, but failed to update status. Action required.");
   }

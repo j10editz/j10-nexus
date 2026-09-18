@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_connection_sessions (
 DO $$
 DECLARE
   v_null_initiators INT;
+  v_has_exact_fk BOOLEAN := false;
+  v_fk_rec RECORD;
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.tables
@@ -55,17 +57,40 @@ BEGIN
     ALTER TABLE public.whatsapp_connection_sessions
       ALTER COLUMN created_by_user_id SET NOT NULL;
 
-    -- Enforce foreign key with ON DELETE CASCADE
-    IF NOT EXISTS (
-      SELECT 1 FROM information_schema.table_constraints tc
-      JOIN information_schema.key_column_usage kcu
-        ON tc.constraint_name = kcu.constraint_name
-        AND tc.table_schema = kcu.table_schema
-      WHERE tc.table_name = 'whatsapp_connection_sessions'
-        AND tc.table_schema = 'public'
-        AND tc.constraint_type = 'FOREIGN KEY'
-        AND kcu.column_name = 'created_by_user_id'
-    ) THEN
+    -- Audit all foreign keys involving created_by_user_id:
+    -- Must specifically reference auth.users(id) with ON DELETE CASCADE (confdeltype = 'c')
+    FOR v_fk_rec IN (
+      SELECT
+        c.conname,
+        c.confdeltype,
+        fn.nspname AS ref_schema,
+        ft.relname AS ref_table,
+        fa.attname AS ref_column
+      FROM pg_constraint c
+      JOIN pg_class t ON c.conrelid = t.oid
+      JOIN pg_namespace n ON t.relnamespace = n.oid
+      JOIN pg_class ft ON c.confrelid = ft.oid
+      JOIN pg_namespace fn ON ft.relnamespace = fn.oid
+      JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(c.conkey)
+      JOIN pg_attribute fa ON fa.attrelid = ft.oid AND fa.attnum = ANY(c.confkey)
+      WHERE n.nspname = 'public'
+        AND t.relname = 'whatsapp_connection_sessions'
+        AND c.contype = 'f'
+        AND a.attname = 'created_by_user_id'
+    ) LOOP
+      IF v_fk_rec.ref_schema != 'auth'
+         OR v_fk_rec.ref_table != 'users'
+         OR v_fk_rec.ref_column != 'id'
+         OR v_fk_rec.confdeltype != 'c' THEN
+        -- Drop non-canonical or non-cascade legacy foreign key
+        EXECUTE 'ALTER TABLE public.whatsapp_connection_sessions DROP CONSTRAINT ' || quote_ident(v_fk_rec.conname);
+      ELSE
+        v_has_exact_fk := true;
+      END IF;
+    END LOOP;
+
+    -- If exact canonical foreign key is not present, add it
+    IF NOT v_has_exact_fk THEN
       ALTER TABLE public.whatsapp_connection_sessions
         ADD CONSTRAINT fk_whatsapp_connection_sessions_user
         FOREIGN KEY (created_by_user_id) REFERENCES auth.users(id) ON DELETE CASCADE;

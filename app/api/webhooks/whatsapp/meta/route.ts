@@ -149,18 +149,30 @@ export async function POST(request: Request) {
 
     const supabase = createWebhookServiceClient();
 
-    // 6. Resolve integration through canonical phone identifier:
+    // 6. Resolve integration through canonical connected phone identifier:
     // COALESCE(external_account_id, public_configuration->>'phone_number_id')
+    // Invariants:
+    // 1. Query only provider = 'whatsapp-business'
+    // 2. Query only status = 'connected'
+    // 3. First match external_account_id = phoneNumberId
+    // 4. Legacy JSON matching is allowed ONLY when external_account_id IS NULL
+    // 5. Deduplicate by integration ID
+    // 6. Require exactly one connected canonical match
+    // 7. Zero matches returns safe 404
+    // 8. More than one connected canonical match returns safe 409
     const { data: rows1, error: err1 } = await supabase
       .from("integrations")
       .select(INTEGRATION_DATABASE_SELECT)
       .eq("provider", "whatsapp-business")
+      .eq("status", "connected")
       .eq("external_account_id", phoneNumberId);
 
     const { data: rows2, error: err2 } = await supabase
       .from("integrations")
       .select(INTEGRATION_DATABASE_SELECT)
       .eq("provider", "whatsapp-business")
+      .eq("status", "connected")
+      .is("external_account_id", null)
       .eq("public_configuration->>phone_number_id", phoneNumberId);
 
     if (err1 || err2) {
@@ -172,29 +184,39 @@ export async function POST(request: Request) {
     }
 
     const combinedMap = new Map<string, IntegrationDatabaseRow>();
-    for (const r of (rows1 || [])) combinedMap.set(r.id, r);
-    for (const r of (rows2 || [])) combinedMap.set(r.id, r);
+    for (const r of (rows1 || [])) {
+      if (r.status === "connected" && r.provider === "whatsapp-business") {
+        combinedMap.set(r.id, r);
+      }
+    }
+    for (const r of (rows2 || [])) {
+      if (
+        r.status === "connected" &&
+        r.provider === "whatsapp-business" &&
+        (r.external_account_id === null || r.external_account_id === undefined)
+      ) {
+        combinedMap.set(r.id, r);
+      }
+    }
     const matchingRows = Array.from(combinedMap.values());
 
     if (matchingRows.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          error: "WhatsApp phone number is not registered to any integration.",
+          error: "WhatsApp phone number is not registered to any active connected integration.",
           code: "WHATSAPP_INTEGRATION_NOT_FOUND",
         },
         { status: 404, headers: { "Cache-Control": "no-store" } }
       );
     }
 
-    // Check for cross-workspace ambiguity
-    const distinctWorkspaces = new Set(matchingRows.map((r) => r.workspace_id));
-    if (distinctWorkspaces.size > 1) {
+    if (matchingRows.length > 1) {
       console.error("[WhatsApp Meta Webhook] ambiguous_binding stage: resolve_tenant code: WHATSAPP_BINDING_AMBIGUOUS");
       return NextResponse.json(
         {
           success: false,
-          error: "Ambiguous WhatsApp phone number binding across multiple workspaces.",
+          error: "Ambiguous WhatsApp phone number binding across multiple connected integrations.",
           code: "WHATSAPP_BINDING_AMBIGUOUS",
         },
         { status: 409, headers: { "Cache-Control": "no-store" } }
@@ -208,26 +230,6 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, error: "Invalid WhatsApp integration binding.", code: "WHATSAPP_INTEGRATION_INVALID" },
         { status: 500, headers: { "Cache-Control": "no-store" } }
-      );
-    }
-
-    // Require provider = whatsapp-business
-    if (connection.providerId !== "whatsapp-business") {
-      return NextResponse.json(
-        { success: false, error: "Integration provider mismatch.", code: "WHATSAPP_PROVIDER_MISMATCH" },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
-      );
-    }
-
-    // Require status = connected (reject degraded, disconnected, pending, error)
-    if (connection.status !== "connected") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "WhatsApp integration is not connected.",
-          code: "WHATSAPP_INTEGRATION_NOT_CONNECTED",
-        },
-        { status: 403, headers: { "Cache-Control": "no-store" } }
       );
     }
 
