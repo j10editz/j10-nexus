@@ -76,7 +76,7 @@ export function WhatsAppGroupOnboardingWizard({
   isOpen,
   onClose,
   integrationId,
-  botPhoneNumber = "+1 (555) 677-1423",
+  botPhoneNumber = "",
   botDisplayName = "J10 Nexus Bot",
   onSuccess,
 }: Props) {
@@ -238,7 +238,7 @@ export function WhatsAppGroupOnboardingWizard({
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-zinc-400">Number Type:</span>
                   <span className="rounded bg-violet-500/20 px-2 py-0.5 text-[10px] font-bold text-violet-300">
-                    {activeNumber.includes("555-677-1423") || activeNumber.includes("5556771423") ? "META CLOUD API TEST NUMBER" : "PRODUCTION DEDICATED NUMBER"}
+                    {activeNumber.startsWith("+1555") || activeNumber.includes("5550") ? "SANDBOX TEST NUMBER" : "PRODUCTION DEDICATED NUMBER"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
@@ -262,7 +262,7 @@ export function WhatsAppGroupOnboardingWizard({
                   Meta Number Requirements for Groups
                 </p>
                 <p className="text-[11px] leading-relaxed text-zinc-300">
-                  • <strong>Test Number (+1 555-677-1423):</strong> Meta Cloud API free sandbox numbers can send 1-on-1 messages to verified numbers. They do not have a public user profile to be added to consumer groups.<br />
+                  • <strong>Sandbox Numbers:</strong> Meta Cloud API free sandbox numbers can send 1-on-1 messages to verified numbers. They do not have a public user profile to be added to consumer groups.<br />
                   • <strong>Production Group Bot:</strong> To add your bot into any client group, register a real dedicated phone number (a $2/mo SIM, eSIM, or VoIP number) under Meta Developer Console (Step 2: <em>Register your WhatsApp phone number</em>).
                 </p>
               </div>
@@ -274,7 +274,7 @@ export function WhatsAppGroupOnboardingWizard({
                     type="text"
                     value={activeNumber}
                     onChange={(e) => setActiveNumber(e.target.value)}
-                    placeholder="+1 (555) 677-1423 or your registered SIM number"
+                    placeholder="Enter your registered WhatsApp phone number"
                     className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#111216] px-3 py-2 text-xs text-white font-mono outline-none focus:border-violet-500"
                   />
                 </label>

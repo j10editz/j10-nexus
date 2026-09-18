@@ -119,7 +119,7 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
                 status: "connected",
                 environment: "production",
                 user_id: "user-1",
-                public_configuration: { phone_number_id: "phone_123" },
+                public_configuration: { phone_number_id: "phone_123", webhook_subscribed: true },
                 ...overrides.integration,
               },
               error: null,

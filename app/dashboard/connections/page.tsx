@@ -25,17 +25,21 @@ import {
   Zap,
 } from "lucide-react";
 
+import { WhatsAppEmbeddedSignup } from "@/components/whatsapp/WhatsAppEmbeddedSignup";
+
 interface ConnectionItem {
   id: string;
   provider: string;
   name: string;
   identifier: string;
   type: string;
-  status: "active" | "pending" | "action_required" | "degraded" | "local_disabled" | "disconnected";
-  mode: "telegram_business" | "shared_bot" | "custom_bot";
+  status: "active" | "pending" | "action_required" | "degraded" | "local_disabled" | "disconnected" | "not_connected" | "connecting";
+  mode: "telegram_business" | "shared_bot" | "custom_bot" | "whatsapp_cloud";
   canReply?: boolean;
   isEnabled?: boolean;
   aiState?: string;
+  verificationState?: string;
+  webhookState?: string;
   lastVerifiedAt?: string;
   lastEventAt?: string;
   shareUrl?: string;
@@ -56,6 +60,7 @@ export default function ConnectionsDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [filterPlatform, setFilterPlatform] = useState("all");
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [connectTab, setConnectTab] = useState<"business" | "official" | "custom">("business");
 
   // Telegram Business Secretary Mode state
@@ -97,6 +102,10 @@ export default function ConnectionsDashboardPage() {
       // 2. Fetch active Telegram Business connection if any
       const bizRes = await fetch("/api/integrations/telegram/session");
       const bizData = bizRes.ok ? await bizRes.json() : { connected: false, connection: null };
+
+      // 3. Fetch real WhatsApp connection status
+      const waRes = await fetch("/api/integrations/whatsapp/status");
+      const waData = waRes.ok ? await waRes.json() : { success: false, data: null };
 
       const items: ConnectionItem[] = [];
 
@@ -162,20 +171,35 @@ export default function ConnectionsDashboardPage() {
         });
       }
 
-      // Check WhatsApp
-      const wa = (data.integrations || []).find((i: any) =>
-        ["whatsapp-business", "whatsapp"].includes(i.provider)
-      );
-      if (wa) {
+      // WhatsApp Cloud API Integration (Meta Embedded Signup)
+      if (waData?.data && waData.data.status !== "not_connected") {
+        const wa = waData.data;
         items.push({
-          id: wa.id,
+          id: wa.id || "whatsapp-business-cloud",
           provider: "whatsapp",
-          name: "WhatsApp Business Cloud",
-          identifier: wa.public_configuration?.phone_number_id || "+1 (555) 677-1423",
+          name: wa.wabaName || "WhatsApp Business Cloud",
+          identifier: wa.maskedPhone || (wa.phoneNumberId ? `ID: ${wa.phoneNumberId}` : "Not configured"),
+          type: "WhatsApp Business Cloud API (Official)",
+          status: wa.status,
+          mode: "whatsapp_cloud",
+          aiState: wa.aiReceptionistEnabled ? "Autopilot (Gemini 3.8 Flash)" : "AI Disabled",
+          verificationState: wa.verificationStatus || "VERIFIED",
+          webhookState: wa.webhookSubscribed ? "Subscribed" : "Pending Webhook",
+          lastVerifiedAt: wa.lastConnectedAt,
+        });
+      } else {
+        // Distinguish not-connected state from active; eliminate demo placeholder
+        items.push({
+          id: "whatsapp-not-connected",
+          provider: "whatsapp",
+          name: "WhatsApp Business Assistant",
+          identifier: "Embedded Signup Available",
           type: "WhatsApp Meta Cloud API",
-          status: wa.status === "connected" ? "active" : "pending",
-          mode: "custom_bot",
-          shareUrl: "https://wa.me/15556771423",
+          status: "not_connected",
+          mode: "whatsapp_cloud",
+          aiState: "Ready to Connect",
+          verificationState: "Unregistered",
+          webhookState: "Inactive",
         });
       }
 
@@ -306,10 +330,17 @@ export default function ConnectionsDashboardPage() {
     }
   }
 
-  // Fetch cryptographic single-use deletion intent when disconnect modal opens
+  // Fetch cryptographic single-use deletion intent when disconnect modal opens (for Telegram)
   useEffect(() => {
     if (!disconnectingConnection) {
       setDeletionIntentToken(null);
+      setDeletionPreview(null);
+      setDisconnectDoneMessage(null);
+      return;
+    }
+
+    if (disconnectingConnection.provider === "whatsapp") {
+      setDeletionIntentToken("whatsapp-disconnect-ready");
       setDeletionPreview(null);
       setDisconnectDoneMessage(null);
       return;
@@ -333,9 +364,40 @@ export default function ConnectionsDashboardPage() {
     void fetchPreviewAndIntent();
   }, [disconnectingConnection]);
 
-  // Disconnect handler with cryptographic token consumption
+  // Disconnect handler supporting both WhatsApp and Telegram
   async function handleConfirmDisconnect() {
-    if (!disconnectingConnection || !deletionIntentToken) return;
+    if (!disconnectingConnection) return;
+
+    if (disconnectingConnection.provider === "whatsapp") {
+      setDisconnectLoading(true);
+      try {
+        const res = await fetch("/api/integrations/whatsapp/disconnect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            integrationId: disconnectingConnection.id === "whatsapp-not-connected" ? undefined : disconnectingConnection.id,
+            reason: "User initiated disconnect from Connections Center",
+          }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setDisconnectDoneMessage(
+            "WhatsApp Business connection has been safely disconnected. Automated AI replies have stopped. All message history, Unified Inbox conversations, CRM contacts, and lead records are permanently preserved."
+          );
+          void loadConnections();
+        } else {
+          setStatusMessage(data.error || "Failed to disconnect WhatsApp.");
+        }
+      } catch (err: any) {
+        setStatusMessage(err.message || "WhatsApp disconnect error.");
+      } finally {
+        setDisconnectLoading(false);
+      }
+      return;
+    }
+
+    if (!deletionIntentToken) return;
     setDisconnectLoading(true);
 
     try {
@@ -407,6 +469,15 @@ export default function ConnectionsDashboardPage() {
 
           <button
             type="button"
+            onClick={() => setShowWhatsAppModal(true)}
+            className="flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-600/25 transition hover:from-emerald-500 hover:to-teal-500"
+          >
+            <Smartphone size={15} />
+            + Connect WhatsApp
+          </button>
+
+          <button
+            type="button"
             onClick={() => {
               setShowConnectModal(true);
               setConnectTab("business");
@@ -472,7 +543,15 @@ export default function ConnectionsDashboardPage() {
                   <tr key={conn.id} className="transition hover:bg-white/[0.02]">
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                        <div
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
+                            conn.provider === "whatsapp"
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                              : conn.provider === "telegram"
+                              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                              : "bg-purple-500/10 text-purple-400 border-purple-500/20"
+                          }`}
+                        >
                           {conn.provider === "telegram" ? (
                             <Send size={16} />
                           ) : conn.provider === "whatsapp" ? (
@@ -502,7 +581,22 @@ export default function ConnectionsDashboardPage() {
                     </td>
 
                     <td className="px-5 py-4">
-                      {conn.mode === "telegram_business" ? (
+                      {conn.provider === "whatsapp" ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`h-1.5 w-1.5 rounded-full ${conn.verificationState === "VERIFIED" ? "bg-emerald-400" : "bg-amber-400"}`} />
+                            <span className="text-[11px] text-white/80">
+                              Verification: {conn.verificationState || "Unregistered"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`h-1.5 w-1.5 rounded-full ${conn.webhookState === "Subscribed" ? "bg-emerald-400" : "bg-white/30"}`} />
+                            <span className="text-[10px] text-white/50">
+                              Webhook: {conn.webhookState || "Inactive"}
+                            </span>
+                          </div>
+                        </div>
+                      ) : conn.mode === "telegram_business" ? (
                         <div className="space-y-1">
                           <div className="flex items-center gap-1.5">
                             <span className={`h-1.5 w-1.5 rounded-full ${conn.canReply ? "bg-emerald-400" : "bg-rose-400"}`} />
@@ -523,7 +617,7 @@ export default function ConnectionsDashboardPage() {
 
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1.5 text-[11px]">
-                        <Sparkles size={13} className="text-blue-400" />
+                        <Sparkles size={13} className={conn.provider === "whatsapp" ? "text-emerald-400" : "text-blue-400"} />
                         <span className="text-white/80">{conn.aiState || "Active"}</span>
                       </div>
                     </td>
@@ -535,10 +629,12 @@ export default function ConnectionsDashboardPage() {
                             className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${
                               conn.status === "active"
                                 ? "bg-emerald-400"
-                                : conn.status === "degraded" || conn.status === "local_disabled"
-                                ? "bg-amber-400"
-                                : conn.status === "pending"
+                                : conn.status === "connecting" || conn.status === "pending"
                                 ? "bg-blue-400"
+                                : conn.status === "action_required" || conn.status === "degraded" || conn.status === "local_disabled"
+                                ? "bg-amber-400"
+                                : conn.status === "not_connected"
+                                ? "bg-zinc-500"
                                 : "bg-rose-400"
                             }`}
                           />
@@ -546,10 +642,12 @@ export default function ConnectionsDashboardPage() {
                             className={`relative inline-flex h-2 w-2 rounded-full ${
                               conn.status === "active"
                                 ? "bg-emerald-500"
-                                : conn.status === "degraded" || conn.status === "local_disabled"
-                                ? "bg-amber-500"
-                                : conn.status === "pending"
+                                : conn.status === "connecting" || conn.status === "pending"
                                 ? "bg-blue-500"
+                                : conn.status === "action_required" || conn.status === "degraded" || conn.status === "local_disabled"
+                                ? "bg-amber-500"
+                                : conn.status === "not_connected"
+                                ? "bg-zinc-500"
                                 : "bg-rose-500"
                             }`}
                           />
@@ -558,21 +656,74 @@ export default function ConnectionsDashboardPage() {
                           className={`font-semibold capitalize text-[11px] ${
                             conn.status === "active"
                               ? "text-emerald-400"
-                              : conn.status === "degraded" || conn.status === "local_disabled"
-                              ? "text-amber-400"
-                              : conn.status === "pending"
+                              : conn.status === "connecting" || conn.status === "pending"
                               ? "text-blue-400"
+                              : conn.status === "action_required" || conn.status === "degraded" || conn.status === "local_disabled"
+                              ? "text-amber-400"
+                              : conn.status === "not_connected"
+                              ? "text-zinc-400"
                               : "text-rose-400"
                           }`}
                         >
-                          {conn.status === "local_disabled" ? "Disabled Locally (Remove in Telegram)" : conn.status}
+                          {conn.status === "local_disabled"
+                            ? "Disabled Locally (Remove in Telegram)"
+                            : conn.status === "not_connected"
+                            ? "Not connected"
+                            : conn.status === "action_required"
+                            ? "Action required"
+                            : conn.status === "connecting"
+                            ? "Connecting"
+                            : conn.status}
                         </span>
                       </div>
                     </td>
 
                     <td className="px-5 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {conn.status === "pending" ? (
+                        {conn.provider === "whatsapp" ? (
+                          conn.status === "not_connected" ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowWhatsAppModal(true)}
+                              className="flex h-7 items-center gap-1 rounded-md bg-emerald-600 px-2.5 text-[11px] font-semibold text-white transition hover:bg-emerald-500 shadow-md shadow-emerald-600/20"
+                            >
+                              <Smartphone size={12} />
+                              Connect WhatsApp
+                            </button>
+                          ) : conn.status === "connecting" ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="flex h-7 items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 text-[11px] text-white/50 cursor-not-allowed"
+                            >
+                              <RefreshCw size={12} className="animate-spin text-blue-400" />
+                              Connecting...
+                            </button>
+                          ) : (
+                            <>
+                              <Link
+                                href="/dashboard/bot-setup"
+                                className="flex h-7 items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 text-[11px] font-medium text-white/80 transition hover:bg-white/[0.08] hover:text-white"
+                              >
+                                Configure
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => setShowWhatsAppModal(true)}
+                                className="flex h-7 items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 text-[11px] font-medium text-emerald-300 transition hover:bg-emerald-500/20"
+                              >
+                                Reconnect
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDisconnectingConnection(conn)}
+                                className="flex h-7 items-center gap-1 rounded-md border border-rose-500/20 bg-rose-500/10 px-2 text-[11px] font-medium text-rose-300 transition hover:bg-rose-500/20"
+                              >
+                                Disconnect
+                              </button>
+                            </>
+                          )
+                        ) : conn.status === "pending" ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -992,44 +1143,61 @@ export default function ConnectionsDashboardPage() {
               </div>
             ) : (
               <>
-                <div className="mt-4 space-y-3 text-xs text-white/70">
-                  <p>
-                    Disconnecting will immediately stop all automated AI Receptionist replies and revoke Telegram webhook permissions locally.
-                  </p>
-
-                  {deletionPreview && (
-                    <div className="rounded-xl border border-white/[0.08] bg-black/30 p-3 text-[11px] space-y-1">
-                      <div className="text-white/50">Deletion Scope Snapshot:</div>
-                      <div className="flex justify-between text-white/80">
-                        <span>Messages in connection:</span>
-                        <span className="font-mono">{deletionPreview.messagesCount}</span>
+                {disconnectingConnection.provider === "whatsapp" ? (
+                  <div className="mt-4 space-y-3 text-xs text-white/70">
+                    <p>
+                      Disconnecting will immediately deactivate the WhatsApp Cloud API integration and stop automated AI Receptionist replies.
+                    </p>
+                    <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/20 p-3.5 text-[11px] space-y-1.5 text-emerald-300">
+                      <div className="flex items-center gap-1.5 font-semibold text-emerald-400">
+                        <ShieldCheck size={14} />
+                        <span>Historical Records Preserved</span>
                       </div>
-                      <div className="flex justify-between text-emerald-400">
-                        <span>Shared CRM Contacts preserved:</span>
-                        <span className="font-mono">{deletionPreview.sharedContactsPreserved}</span>
-                      </div>
+                      <p className="text-white/70 leading-relaxed">
+                        All Unified Inbox conversations, customer message history, CRM contacts, leads, and automation jobs are permanently preserved and will not be deleted.
+                      </p>
                     </div>
-                  )}
-
-                  <div className="rounded-xl border border-white/[0.08] bg-black/40 p-3">
-                    <label className="flex items-start gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={deleteDataOnDisconnect}
-                        onChange={(e) => setDeleteDataOnDisconnect(e.target.checked)}
-                        className="mt-0.5 rounded border-rose-500/40 bg-black/60 text-rose-600 focus:ring-0"
-                      />
-                      <div>
-                        <span className="font-semibold text-rose-300">
-                          Permanently purge message history
-                        </span>
-                        <p className="text-[11px] text-white/40 mt-0.5">
-                          Check this box to delete stored Telegram messages for this connection. Shared CRM contacts and other channel histories are strictly preserved.
-                        </p>
-                      </div>
-                    </label>
                   </div>
-                </div>
+                ) : (
+                  <div className="mt-4 space-y-3 text-xs text-white/70">
+                    <p>
+                      Disconnecting will immediately stop all automated AI Receptionist replies and revoke Telegram webhook permissions locally.
+                    </p>
+
+                    {deletionPreview && (
+                      <div className="rounded-xl border border-white/[0.08] bg-black/30 p-3 text-[11px] space-y-1">
+                        <div className="text-white/50">Deletion Scope Snapshot:</div>
+                        <div className="flex justify-between text-white/80">
+                          <span>Messages in connection:</span>
+                          <span className="font-mono">{deletionPreview.messagesCount}</span>
+                        </div>
+                        <div className="flex justify-between text-emerald-400">
+                          <span>Shared CRM Contacts preserved:</span>
+                          <span className="font-mono">{deletionPreview.sharedContactsPreserved}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="rounded-xl border border-white/[0.08] bg-black/40 p-3">
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={deleteDataOnDisconnect}
+                          onChange={(e) => setDeleteDataOnDisconnect(e.target.checked)}
+                          className="mt-0.5 rounded border-rose-500/40 bg-black/60 text-rose-600 focus:ring-0"
+                        />
+                        <div>
+                          <span className="font-semibold text-rose-300">
+                            Permanently purge message history
+                          </span>
+                          <p className="text-[11px] text-white/40 mt-0.5">
+                            Check this box to delete stored Telegram messages for this connection. Shared CRM contacts and other channel histories are strictly preserved.
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-6 flex items-center justify-end gap-3 border-t border-white/[0.08] pt-4">
                   <button
@@ -1052,6 +1220,23 @@ export default function ConnectionsDashboardPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp Embedded Signup Modal */}
+      {showWhatsAppModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
+          <div className="w-full max-w-lg rounded-2xl border border-white/[0.12] bg-[#0E0F14] p-6 shadow-2xl">
+            <WhatsAppEmbeddedSignup
+              onSuccess={() => {
+                setShowWhatsAppModal(false);
+                void loadConnections();
+              }}
+              onCancel={() => {
+                setShowWhatsAppModal(false);
+              }}
+            />
           </div>
         </div>
       )}

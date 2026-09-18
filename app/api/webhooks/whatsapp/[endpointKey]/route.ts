@@ -1,5 +1,5 @@
-import { NextResponse, after } from "next/server";
-import { processWhatsAppAiJobsOnce } from "@/lib/whatsapp/ai-worker";
+import { NextResponse } from "next/server";
+import { processWhatsAppPayload } from "@/lib/whatsapp/webhook-handler";
 
 import {
   POST as processIntegrationWebhook,
@@ -32,10 +32,6 @@ import {
   normalizeSignatureHex,
   safeStringEqual,
 } from "@/lib/integrations/webhooks/crypto";
-
-import {
-  persistCanonicalWhatsAppInbound,
-} from "@/lib/omnichannel/provider-contract";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -140,6 +136,26 @@ export async function resolveExactTenantWhatsAppBinding(endpointKey: string) {
       "WHATSAPP_INTEGRATION_INVALID",
       500,
       false,
+    );
+  }
+
+  // Strictly require connected status and subscribed webhook
+  if (connection.status !== "connected") {
+    throw new IntegrationWebhookError(
+      "WhatsApp integration is not connected.",
+      "WHATSAPP_INTEGRATION_NOT_CONNECTED",
+      403,
+      true,
+    );
+  }
+
+  const pubConfig = (connection.publicConfiguration || {}) as Record<string, any>;
+  if (pubConfig.webhook_subscribed !== true) {
+    throw new IntegrationWebhookError(
+      "WhatsApp integration webhook is not subscribed.",
+      "WHATSAPP_WEBHOOK_NOT_SUBSCRIBED",
+      403,
+      true,
     );
   }
 
@@ -314,335 +330,14 @@ export async function POST(
       });
     }
 
-    // 5. Handle Meta Delivery / Status Callbacks
-    if (statuses.length > 0) {
-      for (const st of statuses) {
-        const statusWamid = typeof st.id === "string" ? st.id : null;
-        const deliveryStatus = typeof st.status === "string" ? st.status : null;
-
-        if (statusWamid && deliveryStatus) {
-          await supabase
-            .from("inbox_messages")
-            .update({
-              delivery_status: deliveryStatus,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("workspace_id", workspaceId)
-            .eq("external_message_id", statusWamid);
-        }
-      }
-
-      return NextResponse.json(
-        { success: true, accepted: true, event: "status_callback" },
-        { status: 200 },
-      );
-    }
-
-    // 6. Handle Inbound WhatsApp Messages
-    if (messages.length > 0) {
-      const message = messages[0];
-      const wamid = typeof message.id === "string" ? message.id.trim() : null;
-      const fromPhone = typeof message.from === "string" ? message.from.trim() : null;
-      const messageType = typeof message.type === "string" ? message.type : "unknown";
-      const contactName =
-        (contacts[0]?.profile?.name as string | undefined) ||
-        "WhatsApp User";
-
-      if (!wamid || !fromPhone) {
-        return NextResponse.json(
-          { success: true, accepted: true, ignored: true, reason: "missing_wamid_or_sender" },
-          { status: 200 },
-        );
-      }
-
-      // Handle unsupported message types (e.g. image, video, audio, sticker) safely
-      if (messageType !== "text") {
-        const fallbackContent = `[${messageType} message]`;
-
-        const { data: existingUnsupported } = await supabase
-          .from("inbox_messages")
-          .select("id")
-          .eq("workspace_id", workspaceId)
-          .eq("external_message_id", wamid)
-          .maybeSingle();
-
-        if (!existingUnsupported) {
-          const { data: existingThread } = await supabase
-            .from("inbox_threads")
-            .select("id, unread_count")
-            .eq("workspace_id", workspaceId)
-            .eq("channel", "whatsapp")
-            .eq("external_thread_id", fromPhone)
-            .maybeSingle();
-
-          let threadId: string;
-          if (existingThread) {
-            threadId = existingThread.id;
-            await supabase
-              .from("inbox_threads")
-              .update({
-                last_message_at: new Date().toISOString(),
-                unread_count: (existingThread.unread_count || 0) + 1,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", threadId)
-              .eq("workspace_id", workspaceId);
-          } else {
-            const { data: newTh } = await supabase
-              .from("inbox_threads")
-              .insert({
-                workspace_id: workspaceId,
-                channel: "whatsapp",
-                external_thread_id: fromPhone,
-                status: "active",
-                priority: "medium",
-                unread_count: 1,
-                last_message_at: new Date().toISOString(),
-                metadata: {
-                  senderName: contactName,
-                  integrationId: endpoint.integrationId,
-                },
-              })
-              .select("id")
-              .single();
-            threadId = newTh?.id || "";
-          }
-
-          if (threadId) {
-            await supabase.from("inbox_messages").insert({
-              workspace_id: workspaceId,
-              thread_id: threadId,
-              direction: "inbound",
-              provider: "whatsapp",
-              external_message_id: wamid,
-              content: fallbackContent,
-              delivery_status: "delivered",
-              idempotency_key: `wamid_${wamid}`,
-              created_at: new Date().toISOString(),
-            });
-          }
-        }
-
-        // Return HTTP 200 without triggering AI
-        return NextResponse.json(
-          {
-            success: true,
-            accepted: true,
-            event: "unsupported_message_type_ignored",
-            messageType,
-          },
-          { status: 200 },
-        );
-      }
-
-      const textBody =
-        typeof message.text?.body === "string" ? message.text.body.trim() : "";
-
-      // 7. Idempotency Check on provider message ID (wamid)
-      const { data: existingMsg } = await supabase
-        .from("inbox_messages")
-        .select("id, content")
-        .eq("workspace_id", workspaceId)
-        .eq("external_message_id", wamid)
-        .maybeSingle();
-
-      if (existingMsg) {
-        // Detect payload conflicts for a reused provider message ID
-        if (existingMsg.content !== textBody) {
-          return NextResponse.json(
-            {
-              success: true,
-              accepted: true,
-              quarantined: true,
-              reason: "wamid_payload_conflict",
-            },
-            { status: 200 },
-          );
-        }
-
-        // Replay of identical message: return HTTP 200 idempotently
-        return NextResponse.json(
-          {
-            success: true,
-            accepted: true,
-            duplicate: true,
-          },
-          { status: 200 },
-        );
-      }
-
-      // 8. Stage 1 Lead Intake & Contact Persistence (canonical path)
-      let contactId: string | null = null;
-      const origin = new URL(request.url).origin;
-      try {
-        const intakeResult = await persistCanonicalWhatsAppInbound(supabase, {
-          workspaceId,
-          payload,
-          origin,
-        });
-        contactId =
-          typeof intakeResult?.contact_id === "string"
-            ? intakeResult.contact_id
-            : null;
-      } catch (intakeErr) {
-        console.warn("[WhatsApp Webhook] Canonical lead intake notice:", intakeErr);
-      }
-
-      // 9. Unified Inbox Thread & Message Persistence
-      let threadId: string;
-      const { data: existingThread } = await supabase
-        .from("inbox_threads")
-        .select("id, unread_count, metadata")
-        .eq("workspace_id", workspaceId)
-        .eq("channel", "whatsapp")
-        .eq("external_thread_id", fromPhone)
-        .maybeSingle();
-
-      if (existingThread) {
-        threadId = existingThread.id;
-        await supabase
-          .from("inbox_threads")
-          .update({
-            last_message_at: new Date().toISOString(),
-            unread_count: (existingThread.unread_count || 0) + 1,
-            metadata: {
-              ...(existingThread.metadata || {}),
-              lastMessageSnippet: textBody.slice(0, 100),
-              senderName: contactName,
-            },
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", threadId)
-          .eq("workspace_id", workspaceId);
-      } else {
-        const { data: newThread, error: thError } = await supabase
-          .from("inbox_threads")
-          .insert({
-            workspace_id: workspaceId,
-            contact_id: contactId,
-            channel: "whatsapp",
-            external_thread_id: fromPhone,
-            status: "active",
-            priority: "medium",
-            unread_count: 1,
-            last_message_at: new Date().toISOString(),
-            metadata: {
-              senderName: contactName,
-              lastMessageSnippet: textBody.slice(0, 100),
-              integrationId: endpoint.integrationId,
-            },
-          })
-          .select("id")
-          .single();
-
-        if (thError || !newThread) {
-          throw new Error(`Failed to create WhatsApp inbox thread: ${thError?.message}`);
-        }
-        threadId = newThread.id;
-      }
-
-      await supabase.from("inbox_messages").insert({
-        workspace_id: workspaceId,
-        thread_id: threadId,
-        direction: "inbound",
-        provider: "whatsapp",
-        external_message_id: wamid,
-        content: textBody,
-        delivery_status: "delivered",
-        idempotency_key: `wamid_${wamid}`,
-        created_at: new Date().toISOString(),
-      });
-
-      // 10. Durable Outbox Enqueue: whatsapp_ai_jobs
-      const aiJobIdempotencyKey = `whatsapp-ai:${workspaceId}:${wamid}`;
-      const { data: jobData, error: jobError } = await supabase
-        .from("whatsapp_ai_jobs")
-        .insert({
-          workspace_id: workspaceId,
-          integration_id: endpoint.integrationId || null,
-          thread_id: threadId,
-          recipient_phone: fromPhone,
-          inbound_text: textBody,
-          sender_name: contactName,
-          inbound_wamid: wamid,
-          idempotency_key: aiJobIdempotencyKey,
-          status: "pending",
-          next_attempt_at: new Date().toISOString(),
-        })
-        .select("id")
-        .maybeSingle();
-
-      if (jobError) {
-        // If unique constraint violation (duplicate wamid), treat as idempotent duplicate replay
-        if (
-          jobError.code === "23505" ||
-          jobError.message?.includes("unique") ||
-          jobError.message?.includes("duplicate")
-        ) {
-          return NextResponse.json(
-            {
-              success: true,
-              accepted: true,
-              duplicate: true,
-              wamid,
-            },
-            { status: 200 }
-          );
-        }
-
-        // Hard failure on enqueue: Return HTTP 500 so Meta will retry!
-        // INVARIANT: Never acknowledge an unqueued message!
-        console.error("[WhatsApp Webhook] Durable AI job enqueue failed:", jobError);
-        return NextResponse.json(
-          { error: "Internal enqueue failure: message could not be durably queued" },
-          { status: 500 }
-        );
-      }
-
-      // 11. Low-latency accelerator using Next.js after()
-      // NOTE: after() is used only as an accelerator; the database outbox is the source of truth.
-      try {
-        after(async () => {
-          try {
-            const workerSecret =
-              process.env.WHATSAPP_WORKER_SECRET?.trim() ||
-              process.env.TELEGRAM_WORKER_SECRET?.trim();
-
-            if (workerSecret) {
-              await fetch(`${origin}/api/workers/whatsapp-ai`, {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${workerSecret}`,
-                  "Content-Type": "application/json",
-                },
-              });
-            } else {
-              await processWhatsAppAiJobsOnce(supabase, { limit: 1, leaseSeconds: 120 });
-            }
-          } catch (accelErr) {
-            console.warn("[WhatsApp Webhook] Low-latency after() worker notice:", accelErr);
-          }
-        });
-      } catch {
-        // If after() is not supported in the execution context, the job is already safe in the outbox
-      }
-
-      return NextResponse.json(
-        {
-          success: true,
-          accepted: true,
-          wamid,
-          threadId,
-          jobId: jobData?.id,
-        },
-        { status: 200 },
-      );
-    }
-
-    return NextResponse.json(
-      { success: true, accepted: true, event: "whatsapp_generic_event" },
-      { status: 200 },
-    );
+    // 5. Reuse shared durable Inbox -> CRM -> AI pipeline
+    return await processWhatsAppPayload({
+      supabase,
+      connection,
+      endpoint,
+      payload,
+      requestUrl: request.url,
+    });
   } catch (error) {
     return responseFromError(error);
   }

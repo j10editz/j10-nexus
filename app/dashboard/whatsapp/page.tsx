@@ -231,6 +231,13 @@ const commands = [
 export default function WhatsAppPage() {
   const [integration, setIntegration] =
     useState<Integration | null>(null);
+  const [waStatus, setWaStatus] = useState<{
+    connected?: boolean;
+    status?: string;
+    maskedPhone?: string | null;
+    phoneNumberId?: string | null;
+    wabaName?: string | null;
+  } | null>(null);
 
   const [loading, setLoading] =
     useState(true);
@@ -366,6 +373,18 @@ export default function WhatsAppPage() {
           ) ?? null;
 
         setIntegration(whatsapp);
+
+        try {
+          const statusRes = await fetch("/api/integrations/whatsapp/status", { cache: "no-store" });
+          if (statusRes.ok) {
+            const statusJson = await statusRes.json();
+            if (statusJson.success && statusJson.data) {
+              setWaStatus(statusJson.data);
+            }
+          }
+        } catch {
+          // Status load failure handled gracefully
+        }
       } catch (error) {
         console.error(
           "WhatsApp connection load error:",
@@ -1241,12 +1260,12 @@ export default function WhatsAppPage() {
           <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               label="WhatsApp Line"
-              value={connected ? "+1 (555) 677-1423" : "Offline"}
+              value={connected ? (waStatus?.maskedPhone || integration?.accountLabel || "Connected") : "Not connected"}
               icon={Zap}
             />
             <StatCard
               label="Managed Groups"
-              value={connected ? "1 Active" : "0"}
+              value={connected ? "0 Active" : "Not connected"}
               icon={Users}
             />
             <StatCard
@@ -1349,7 +1368,7 @@ export default function WhatsAppPage() {
                           </h3>
                         </div>
                         <p className="mt-1 text-xs leading-5 text-zinc-400">
-                          Connected to Meta Cloud API test number <strong className="text-white font-mono">+1 (555) 677-1423</strong>. Send controlled test deliveries below, or switch to the Group Guardian tab to deploy into WhatsApp groups.
+                          Connected to WhatsApp Business Account ({waStatus?.maskedPhone || "Verified"}). Send controlled test deliveries below, or switch to the Group Guardian tab to deploy into WhatsApp groups.
                         </p>
                       </div>
 
@@ -1366,9 +1385,9 @@ export default function WhatsAppPage() {
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 pt-4 border-t border-white/[0.06] text-xs">
                       <div className="rounded-xl border border-white/[0.06] bg-black/30 p-3">
-                        <p className="font-medium text-zinc-200">Testing with Free Test Number (+1 555-677-1423)</p>
+                        <p className="font-medium text-zinc-200">Testing with Verified Business Number</p>
                         <p className="mt-1 text-[11px] leading-4 text-zinc-400">
-                          Meta delivers to verified test numbers. In Meta Console under <strong>Step 1</strong>, ensure your personal number is added to <strong>Manage phone number list</strong>.
+                          Meta delivers to registered recipient numbers. In Meta Console under <strong>API Setup</strong>, ensure your personal recipient number is added.
                         </p>
                       </div>
 
@@ -1614,7 +1633,7 @@ export default function WhatsAppPage() {
                           Listening for Meta inbound webhook sample...
                         </div>
                         <p className="mt-2 text-xs text-zinc-400">
-                          Send a message from WhatsApp to +1 (555) 677-1423, or in Meta&apos;s messages field choose Incoming Message and click Send to server v26.0.
+                          Send a message from WhatsApp to your connected business number, or in Meta&apos;s messages field choose Incoming Message and click Send to server v26.0.
                         </p>
                       </div>
                     )}
@@ -1648,7 +1667,7 @@ export default function WhatsAppPage() {
                 <WhatsAppGroupGuardian
                   integrationId={integration?.id ?? null}
                   connected={connected}
-                  botPhoneNumber="+1 (555) 677-1423"
+                  botPhoneNumber={waStatus?.maskedPhone || ""}
                 />
               </div>
             )}
