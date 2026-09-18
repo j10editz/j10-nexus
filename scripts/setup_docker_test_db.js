@@ -1,9 +1,10 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 const postgres = require("postgres");
 const fs = require("fs");
 const path = require("path");
 
 async function run() {
-  const sql = postgres("postgresql://supabase_admin:postgres@localhost:54322/postgres", { max: 1 });
+  const sql = postgres(requireDatabaseUrl(), { max: 1 });
   console.log("Connected to Docker Supabase PostgreSQL on port 54322 as supabase_admin");
 
   // 1. Base schema setup

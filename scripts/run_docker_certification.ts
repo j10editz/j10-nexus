@@ -1,3 +1,4 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 import { createClient } from "@supabase/supabase-js";
 import postgres from "postgres";
 import crypto from "crypto";
@@ -13,7 +14,7 @@ try {
 } catch (e) {}
 
 const JWT_SECRET = "37c304f85e132065da818625621445c5b5f029e768373b5224e2a08c071a610f";
-const DB_URL = "postgresql://supabase_admin:postgres@localhost:54322/postgres";
+const DB_URL = requireDatabaseUrl();
 const GATEWAY_URL = "http://localhost:54320";
 const REALTIME_WS_URL = "ws://localhost:54323/socket";
 

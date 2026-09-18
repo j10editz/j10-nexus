@@ -26,7 +26,7 @@ jobs:
     env:
       # Explicitly override any repository/environment secret of this name.
       J10_PRODUCTION_DATABASE_URL: ""
-      J10_STAGE1_CERT_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      J10_STAGE1_CERT_DATABASE_URL: ""
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-node@v4.4.0
@@ -53,6 +53,7 @@ jobs:
           psql "$DB_URL" --set ON_ERROR_STOP=1 --file supabase/migrations/20260925_stage1_lead_intake_foundation.sql
           {
             echo "STAGE1_SUPABASE_DIR=$stage1_supabase_dir"
+            echo "J10_STAGE1_CERT_DATABASE_URL=$DB_URL"
             echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
             echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$ANON_KEY"
             echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"

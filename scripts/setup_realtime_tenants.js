@@ -1,7 +1,8 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 const postgres = require("postgres");
 
 async function run() {
-  const sql = postgres("postgresql://supabase_admin:postgres@localhost:54322/postgres");
+  const sql = postgres(requireDatabaseUrl());
   const encryptedSecret = "yapprWC2gX1BzbxhFC2oIGpIW/e9885I8xFyL4ViTHfCU6DNZl7419EN12SzJDDQXwEJnL89v/pYRAtURUpBTE82uuGZrojyd3by3+a2jj8=";
 
   await sql.unsafe(`

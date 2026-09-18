@@ -1,3 +1,4 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 const fs = require('fs');
 const postgres = require('postgres');
 const crypto = require('crypto');
@@ -12,20 +13,22 @@ const envVars = Object.fromEntries(
     })
 );
 
-const url = 'postgresql://postgres.qtzhcnyxbjocfgimtvvm:IDESSINMEMENE@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require';
+const url = requireDatabaseUrl();
 const sql = postgres(url, { ssl: 'require' });
 
 process.env.J10_INTEGRATION_ENCRYPTION_KEY = envVars.J10_INTEGRATION_ENCRYPTION_KEY;
 
 function getSigningKey() {
   const encKey = process.env.J10_INTEGRATION_ENCRYPTION_KEY?.trim();
-  if (encKey) {
-    try {
-      const buf = Buffer.from(encKey, "base64");
-      if (buf.length === 32) return buf;
-    } catch {}
+  if (!encKey) {
+    throw new Error("J10_INTEGRATION_ENCRYPTION_KEY must be configured.");
   }
-  return crypto.createHash("sha256").update(encKey || "j10-default-binding-secret-key").digest();
+
+  const buf = Buffer.from(encKey, "base64");
+  if (buf.length !== 32) {
+    throw new Error("J10_INTEGRATION_ENCRYPTION_KEY must decode to 32 bytes.");
+  }
+  return buf;
 }
 
 function uuidToBuffer(uuid) {

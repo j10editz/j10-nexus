@@ -1,6 +1,7 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 import postgres from "postgres";
 
-const poolerUrl = "postgresql://postgres.qtzhcnyxbjocfgimtvvm:IDESSINMEMENE@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require";
+const poolerUrl = requireDatabaseUrl();
 const sql = postgres(poolerUrl, { ssl: "require", max: 1 });
 
 async function main() {
