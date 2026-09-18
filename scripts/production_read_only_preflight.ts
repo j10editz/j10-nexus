@@ -1,3 +1,4 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 import postgres from "postgres";
 import crypto from "crypto";
 
@@ -22,7 +23,6 @@ async function main() {
   const encKeyVer = process.env.J10_INTEGRATION_ENCRYPTION_KEY_VERSION?.trim() || "1";
   const signingKey = process.env.J10_TELEGRAM_BINDING_SIGNING_KEY?.trim();
   const tgWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
-  const prodDbUrl = process.env.DATABASE_URL?.trim() || process.env.SUPABASE_DB_URL?.trim();
 
   if (!encKeyRaw) {
     console.error("  ❌ J10_INTEGRATION_ENCRYPTION_KEY is missing from environment!");
@@ -38,11 +38,9 @@ async function main() {
   console.log(`  ✓ Key Version configured: v${encKeyVer}`);
   console.log(`  ✓ J10_TELEGRAM_BINDING_SIGNING_KEY present: ${Boolean(signingKey)}`);
   console.log(`  ✓ TELEGRAM_WEBHOOK_SECRET present: ${Boolean(tgWebhookSecret)}`);
-  console.log(`  ✓ Production Database URL configured: ${Boolean(prodDbUrl)}`);
+  console.log("  ✓ Production Database URL will be validated before use");
 
-  // Hard assertion on prodDbUrl
-  const poolerUrl = "postgresql://postgres.qtzhcnyxbjocfgimtvvm:IDESSINMEMENE@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require";
-  const targetDb = prodDbUrl || poolerUrl;
+  const targetDb = requireDatabaseUrl();
 
   console.log("\n[2] Connecting to Production Database in READ-ONLY mode...");
   const sql = postgres(targetDb, {

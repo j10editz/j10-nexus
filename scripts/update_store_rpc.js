@@ -1,5 +1,6 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 const postgres = require('postgres');
-const url = 'postgresql://postgres.qtzhcnyxbjocfgimtvvm:IDESSINMEMENE@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require';
+const url = requireDatabaseUrl();
 const sql = postgres(url, { ssl: 'require' });
 
 async function updateStoreFn() {

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import https from "node:https";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getWorkspaceBotConfig, redactPii } from "@/lib/ai/telegram-assistant";
@@ -8,6 +8,19 @@ import { assertWorkspaceEntitlement, recordVerifiedWorkspaceUsage } from "@/lib/
 import { WHATSAPP_RUNTIME_ADAPTER } from "@/lib/integrations/providers/whatsapp/adapter";
 import { WHATSAPP_ACTION_CAPABILITY_IDS } from "@/types/integration-whatsapp";
 import { getIntegrationCredentials } from "@/lib/integrations/credentials";
+import {
+  defaultPlaybook,
+  getPlaybook,
+  resolveAuthoritativePlaybookKey,
+  resolvePlaybookForWorkspace,
+} from "@/lib/service-business/playbooks/registry";
+import type { ServicePlaybook } from "@/lib/service-business/types";
+import {
+  extractConfiguredPrice,
+  extractServiceIntent,
+  isValidHttpsUrl,
+  updateServiceJourneyLifecycleState,
+} from "@/lib/service-business/conversion-service";
 
 export interface WhatsAppAIMessageInput {
   supabase: SupabaseClient;
@@ -123,6 +136,61 @@ async function callGeminiAPI(
 }
 
 /**
+ * Records thread handoff notice delivery state atomically without overwriting concurrent metadata.
+ */
+export async function recordThreadHandoffNoticeDelivery(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  threadId: string,
+  handoffEpisodeId: string,
+  status: "pending" | "sent",
+  outboundWamid?: string,
+  error?: string
+): Promise<{ success: boolean; threadId: string; handoffEpisodeId: string; status: string; wamid?: string | null }> {
+  const { data, error: rpcErr } = await supabase.rpc("record_thread_handoff_notice_atomic", {
+    p_workspace_id: workspaceId,
+    p_thread_id: threadId,
+    p_handoff_episode_id: handoffEpisodeId,
+    p_status: status,
+    p_wamid: outboundWamid || null,
+    p_error: error || null,
+  });
+
+  if (rpcErr) {
+    throw new Error(`Failed to record handoff notice delivery state via atomic RPC: ${rpcErr.message}`);
+  }
+
+  const result = typeof data === "string" ? JSON.parse(data) : data;
+  if (!result || result.success !== true) {
+    throw new Error(`Atomic handoff notice recording failed: ${result?.error || "Unknown RPC failure"}`);
+  }
+
+  if (result.thread_id !== threadId) {
+    throw new Error(`Thread ID mismatch in handoff notice recording: expected ${threadId}, got ${result.thread_id}`);
+  }
+
+  if (result.handoff_episode_id !== handoffEpisodeId) {
+    throw new Error(`Handoff episode mismatch: expected ${handoffEpisodeId}, got ${result.handoff_episode_id}`);
+  }
+
+  if (result.status !== status) {
+    throw new Error(`Status mismatch in handoff notice recording: expected ${status}, got ${result.status}`);
+  }
+
+  if (status === "sent" && outboundWamid && result.wamid !== outboundWamid) {
+    throw new Error(`WAMID mismatch in handoff notice recording: expected ${outboundWamid}, got ${result.wamid}`);
+  }
+
+  return {
+    success: true,
+    threadId: result.thread_id,
+    handoffEpisodeId: result.handoff_episode_id,
+    status: result.status,
+    wamid: result.wamid,
+  };
+}
+
+/**
  * Intelligent 24/7 AI conversational receptionist engine for WhatsApp.
  * Respects entitlements, human handoff, bot grounding, and sends reply via WhatsApp Graph API.
  */
@@ -140,20 +208,75 @@ export async function generateAndSendWhatsAppAIResponse(
     inboundWamid,
   } = input;
 
-  // 1. Thread-level AI-off and Human Handoff Enforcement
-  const { data: thread } = await supabase
+  // 1. Thread-level AI-off and Human Handoff Enforcement (Fail-closed on lookup error or missing thread)
+  const { data: thread, error: threadError } = await supabase
     .from("inbox_threads")
     .select("id, contact_id, metadata, priority")
     .eq("id", threadId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
 
+  if (threadError) {
+    throw new Error(`Failed to query thread ${threadId} in workspace ${workspaceId}: ${threadError.message}`);
+  }
+
+  if (!thread) {
+    throw new Error(`Thread ${threadId} not found in workspace ${workspaceId}`);
+  }
+
   const threadMeta = (thread?.metadata || {}) as Record<string, any>;
-  if (threadMeta.aiBotEnabled === false || threadMeta.humanHandoff === true) {
+  const isHandoffActive = threadMeta.humanHandoff === true;
+  const isThreadAiDisabled = threadMeta.aiBotEnabled === false && !isHandoffActive;
+  const rawNoticeStatus = threadMeta.humanHandoffNoticeStatus || (threadMeta.humanHandoffNoticeSent ? "sent" : null);
+  const activeHandoffEpisodeId = typeof threadMeta.humanHandoffEpisodeId === "string"
+    ? threadMeta.humanHandoffEpisodeId
+    : undefined;
+
+  // If handoff is active and notice has already been delivered, suppress AI response without duplicating notice
+  if (isHandoffActive && rawNoticeStatus === "sent") {
     return {
       replyText: "",
       deliveryStatus: "failed",
       skippedReason: "human_handoff_active",
+    };
+  }
+
+  // If handoff is active but notice delivery is pending (or not yet recorded as sent),
+  // do NOT suppress the job! Deliver / retry delivering the handoff notice.
+  if (isHandoffActive && (rawNoticeStatus === "pending" || !rawNoticeStatus)) {
+    if (!activeHandoffEpisodeId) {
+      throw new Error(`Active human handoff on thread ${threadId} is missing its episode ID`);
+    }
+    const { config: botConfig, brandName } = await getWorkspaceBotConfig(supabase, workspaceId);
+    const businessName = botConfig.business_name || brandName;
+    const handoffNotice = `Our team at ${businessName} has been alerted. A specialist will respond to you directly here shortly.`;
+    const handoffNoticeKey = `handoff_notice_${threadId}_${activeHandoffEpisodeId}`;
+
+    const sendResult = await sendWhatsAppOutbound({
+      supabase,
+      workspaceId,
+      integrationId,
+      threadId,
+      recipientPhone,
+      text: handoffNotice,
+      inboundWamid,
+      idempotencyKey: handoffNoticeKey,
+    });
+
+    if (sendResult.deliveryStatus === "sent") {
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, activeHandoffEpisodeId, "sent", sendResult.outboundWamid);
+      return { replyText: handoffNotice, ...sendResult };
+    } else {
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, activeHandoffEpisodeId, "pending", undefined, sendResult.error || "delivery_failed");
+      throw new Error(`Handoff notice delivery failed: ${sendResult.error || "delivery_failed"}`);
+    }
+  }
+
+  if (isThreadAiDisabled) {
+    return {
+      replyText: "",
+      deliveryStatus: "failed",
+      skippedReason: "thread_ai_disabled",
     };
   }
 
@@ -180,21 +303,39 @@ export async function generateAndSendWhatsAppAIResponse(
     lower.includes("speak to a person") ||
     lower.includes("real person")
   ) {
-    await supabase
-      .from("inbox_threads")
-      .update({
-        priority: "urgent",
-        metadata: {
-          ...threadMeta,
-          aiBotEnabled: false,
-          humanHandoff: true,
-          humanRequestedAt: new Date().toISOString(),
-        },
-      })
-      .eq("id", threadId)
-      .eq("workspace_id", workspaceId);
+    const { data: handoffData, error: handoffError } = await supabase.rpc(
+      "handoff_service_thread_atomic",
+      {
+        p_workspace_id: workspaceId,
+        p_thread_id: threadId,
+        p_reason: "Customer requested human representative",
+        p_actor_type: "ai_assistant",
+        p_actor_id: null,
+      }
+    );
 
-    const handoffNotice = `Our team at ${businessName} has been alerted. An executive specialist will respond to you directly here shortly.`;
+    if (handoffError) {
+      throw new Error(`Handoff transaction failed: ${handoffError.message}`);
+    }
+
+    const handoffRes = typeof handoffData === "string" ? JSON.parse(handoffData) : handoffData;
+    const handoffEpisodeId = typeof handoffRes?.handoff_episode_id === "string"
+      ? handoffRes.handoff_episode_id
+      : undefined;
+    if (!handoffEpisodeId) {
+      throw new Error("Handoff transaction did not return an episode ID");
+    }
+    const alreadySentNotice = handoffRes?.already_sent_notice === true || handoffRes?.notice_status === "sent";
+    if (alreadySentNotice) {
+      return {
+        replyText: "",
+        deliveryStatus: "failed",
+        skippedReason: "human_handoff_active",
+      };
+    }
+
+    const handoffNotice = `Our team at ${businessName} has been alerted. A specialist will respond to you directly here shortly.`;
+    const handoffNoticeKey = `handoff_notice_${threadId}_${handoffEpisodeId}`;
     const sendResult = await sendWhatsAppOutbound({
       supabase,
       workspaceId,
@@ -203,8 +344,16 @@ export async function generateAndSendWhatsAppAIResponse(
       recipientPhone,
       text: handoffNotice,
       inboundWamid,
+      idempotencyKey: handoffNoticeKey,
     });
-    return { replyText: handoffNotice, ...sendResult };
+
+    if (sendResult.deliveryStatus === "sent") {
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, handoffEpisodeId, "sent", sendResult.outboundWamid);
+      return { replyText: handoffNotice, ...sendResult };
+    } else {
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, handoffEpisodeId, "pending", undefined, sendResult.error || "delivery_failed");
+      throw new Error(`Handoff notice delivery failed: ${sendResult.error || "delivery_failed"}`);
+    }
   }
 
   // 4. Entitlement & Quota Verification
@@ -269,42 +418,72 @@ export async function generateAndSendWhatsAppAIResponse(
   }
 
   // 7. Grounded System Prompt
-  const formattedServices = (botConfig.services || [])
-    .map((s, idx) => `${idx + 1}. ${s.name}: ${s.description} (Price: ${s.price}${s.duration ? `, Duration: ${s.duration}` : ""})`)
-    .join("\n");
+  let resolvedKey: string | null = null;
+  const { data: journeyRow, error: journeyErr } = await supabase
+    .from("service_conversion_journeys")
+    .select("playbook_key")
+    .eq("workspace_id", workspaceId)
+    .eq("thread_id", threadId)
+    .maybeSingle();
+
+  if (journeyErr) {
+    throw new Error(`Database error querying service journey playbook: ${journeyErr.message}`);
+  }
+  resolvedKey = journeyRow?.playbook_key || null;
+
+  if (!resolvedKey) {
+    const { data: wsRow, error: wsErr } = await supabase
+      .from("workspaces")
+      .select("metadata")
+      .eq("id", workspaceId)
+      .maybeSingle();
+
+    if (wsErr) {
+      throw new Error(`Database error querying workspace metadata for playbook: ${wsErr.message}`);
+    }
+    resolvedKey = resolveAuthoritativePlaybookKey({
+      workspaceMetadata: wsRow?.metadata as Record<string, unknown>,
+    });
+  }
+
+  const activePlaybook = getPlaybook(resolvedKey);
+  const serviceLabel = activePlaybook.terminology.serviceLabel;
+  const bookingLabel = activePlaybook.terminology.bookingLabel;
+
+  // Workspace-configured services are authoritative.
+  // Never present invented or starter services for unconfigured workspaces.
+  const effectiveServicesList: any[] = Array.isArray(botConfig.services) ? botConfig.services : [];
+
+  const formattedServices = effectiveServicesList.length > 0
+    ? effectiveServicesList
+        .map((s, idx) => `${idx + 1}. ${s.name}: ${s.description || "No description"} (Price: ${s.price || "Custom Quote"}${s.duration ? `, Duration: ${s.duration}` : ""})`)
+        .join("\n")
+    : "";
 
   const formattedFaqs = (botConfig.faqs || [])
     .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
     .join("\n\n");
 
-  const systemInstruction = `You are the official 24/7 AI Receptionist & Business Assistant representing "${businessName}" on WhatsApp.
+  const businessDescription =
+    (botConfig as any).company_description?.trim() || botConfig.description?.trim() || undefined;
+  const businessHours =
+    botConfig.business_hours?.trim() || undefined;
+  const policies =
+    (botConfig as any).policies?.trim() || botConfig.pricing_details?.trim() || undefined;
+  const rawBookingLink = botConfig.booking_link?.trim();
+  const bookingLink = isValidHttpsUrl(rawBookingLink) ? rawBookingLink : undefined;
 
-CRITICAL IDENTITY RULES:
-1. You represent "${businessName}". You MUST NOT mention J10 NEXUS unless "${businessName}" is explicitly J10 NEXUS.
-2. Answer questions accurately and exclusively about "${businessName}", its services, pricing, business hours, and policies.
-3. If a question is in Spanish, answer in natural fluent Spanish. If in French, answer in French. Match the user's language automatically.
-4. Tone: ${botConfig.tone.toUpperCase()} (professional, helpful, concise).
-5. Never invent or hallucinate prices, availability, or policies not provided in the knowledge base below.
-6. If you are uncertain or the user asks for something outside your knowledge, politely offer to connect them with a human specialist.
-
-BUSINESS PROFILE:
-- Business Name: ${businessName}
-- Overview: ${botConfig.description || "Premium business services and solutions."}
-- Business Hours: ${botConfig.business_hours || "Monday - Friday 9:00 AM - 6:00 PM"}
-- Booking Link: ${botConfig.booking_link || "Available upon request"}
-- Escalation: ${botConfig.escalation_instructions}
-
-SERVICES & PRICING:
-${formattedServices || "Custom services available on request."}
-${botConfig.pricing_details ? `Additional Pricing Notes: ${botConfig.pricing_details}` : ""}
-
-FREQUENTLY ASKED QUESTIONS (FAQS):
-${formattedFaqs || "No specific FAQs provided."}
-
-RESPONSE GUIDELINES:
-- Keep WhatsApp messages concise (2 to 4 punchy sentences or clear bullet points).
-- Do not use markdown headers (###). Simple bolding (*word*) is acceptable on WhatsApp.
-- Proactively guide the customer to book an appointment or speak with a specialist when relevant.`;
+  const systemInstruction = buildAssistantSystemInstruction({
+    businessName,
+    businessDescription,
+    businessHours,
+    policies,
+    bookingLink,
+    formattedServices,
+    formattedFaqs,
+    activePlaybook,
+    tone: botConfig.tone,
+  });
 
   let replyText = "";
   if (geminiKey) {
@@ -354,10 +533,171 @@ RESPONSE GUIDELINES:
     }
   }
 
+  // 10. Update service conversion journey state with effective services
+  try {
+    const effectiveCatalog = effectiveServicesList.map((s, idx) => ({
+      key: (s as any).id || s.name || `svc_${idx}`,
+      name: s.name,
+      price: extractConfiguredPrice(s.price),
+      priceDisplay: typeof s.price === "string" ? s.price : (s.price !== null && s.price !== undefined ? `$${s.price}` : undefined),
+      durationMinutes: s.duration ? parseInt(s.duration, 10) || undefined : undefined,
+      description: s.description,
+      requiresQuote: !s.price || String(s.price).toLowerCase().includes("quote"),
+    }));
+
+    const extracted = extractServiceIntent({
+      text: inboundText,
+      playbook: activePlaybook,
+      effectiveServices: effectiveCatalog,
+      bookingLink: bookingLink || null,
+      replyText,
+    });
+
+    await updateServiceJourneyLifecycleState(supabase, {
+      workspaceId,
+      threadId,
+      status: extracted.suggestedStatus,
+      requestedService: extracted.requestedService,
+      preferredDate: extracted.preferredDate,
+      preferredTime: extracted.preferredTime,
+      estimatedServiceValue: extracted.estimatedServiceValue,
+      qualificationCompleteness: extracted.qualificationCompleteness,
+      bookingOfferedAt: extracted.offeredBookingLink ? new Date().toISOString() : undefined,
+      actorType: "ai_assistant",
+      reason: "Automated service qualification and response",
+    });
+  } catch (lifecycleErr) {
+    console.warn("[WhatsApp Assistant] Journey update notice:", lifecycleErr);
+  }
+
   return {
     replyText,
     ...sendResult,
   };
+}
+
+/**
+ * Builds the fully grounded system instruction incorporating workspace services, hours, faqs, policies, and booking link.
+ * Strictly adheres to truthfulness: missing fields are marked "Not configured" and model is forbidden from inventing facts.
+ */
+export function buildAssistantSystemInstruction(params: {
+  workspaceMetadata?: any;
+  playbookKey?: string;
+  businessName?: string;
+  businessDescription?: string;
+  businessHours?: string;
+  policies?: string;
+  bookingLink?: string;
+  formattedServices?: string;
+  formattedFaqs?: string;
+  services?: any[];
+  faqs?: any[];
+  pricingNotes?: string;
+  escalationInstructions?: string;
+  activePlaybook?: ServicePlaybook;
+  playbook?: ServicePlaybook;
+  tone?: string;
+}): string {
+  const meta = params.workspaceMetadata || {};
+  const activePlaybook =
+    params.activePlaybook ||
+    params.playbook ||
+    (params.playbookKey ? getPlaybook(params.playbookKey) : defaultPlaybook);
+  const businessName =
+    params.businessName || meta.business_name || meta.name || "Our Business";
+  const businessDescription =
+    params.businessDescription?.trim() ||
+    meta.business_description?.trim() ||
+    meta.description?.trim() ||
+    "Not configured. (Do NOT invent business descriptions, background, or marketing claims.)";
+  const businessHours =
+    params.businessHours?.trim() ||
+    meta.business_hours?.trim() ||
+    "Not configured. (Do NOT state specific operating days or hours as fact. If asked, state that hours are not configured or offer to have a team member follow up.)";
+  const policies =
+    params.policies?.trim() ||
+    meta.policies?.trim() ||
+    meta.cancellation_policy?.trim() ||
+    "Not configured. (Do NOT invent cancellation, deposit, or rescheduling policies.)";
+
+  const rawBookingLink = params.bookingLink?.trim() || meta.booking_url?.trim() || meta.booking_link?.trim();
+  const validatedBookingLink = isValidHttpsUrl(rawBookingLink) ? rawBookingLink : undefined;
+  const tone = params.tone || meta.tone || "professional, warm, helpful, and concise";
+
+  let formattedServices = params.formattedServices || "";
+  const servicesList = params.services || meta.services;
+  if (!formattedServices && Array.isArray(servicesList) && servicesList.length > 0) {
+    formattedServices = servicesList
+      .map((s: any) => {
+        const price = s.price !== undefined && s.price !== null ? ` - $${s.price}` : "";
+        const dur = s.durationMinutes || s.duration ? ` (${s.durationMinutes || s.duration})` : "";
+        const desc = s.description ? `: ${s.description}` : "";
+        return `• ${s.name}${price}${dur}${desc}`;
+      })
+      .join("\n");
+  }
+
+  let formattedFaqs = params.formattedFaqs || "";
+  const faqsList = params.faqs || meta.faqs;
+  if (!formattedFaqs && Array.isArray(faqsList) && faqsList.length > 0) {
+    formattedFaqs = faqsList
+      .map((f: any) => `Q: ${f.question}\nA: ${f.answer}`)
+      .join("\n\n");
+  }
+
+  const serviceLabel = activePlaybook.terminology?.serviceLabel || "service";
+  const bookingLabel = activePlaybook.terminology?.bookingLabel || "appointment";
+
+  const pricingNotesBlock = params.pricingNotes ? `\nPRICING NOTES:\n${params.pricingNotes}\n` : "";
+  const escalationBlock = params.escalationInstructions ? `\nESCALATION INSTRUCTIONS:\n${params.escalationInstructions}\n` : "";
+
+  const bookingLinkBlock = validatedBookingLink
+    ? `OFFICIAL BOOKING LINK:\n${validatedBookingLink}`
+    : `OFFICIAL BOOKING LINK:\nNot configured.\n(CRITICAL: No online booking link is configured for this workspace. You MUST NOT state or claim an online booking link exists, and you MUST NOT provide placeholder or synthetic URLs. Collect the client's preferred ${serviceLabel}, date, and time, and offer to have a human specialist follow up to confirm.)`;
+
+  const servicesBlock = formattedServices
+    ? `AVAILABLE ${serviceLabel.toUpperCase()}S & PRICING:\n${formattedServices}`
+    : `AVAILABLE ${serviceLabel.toUpperCase()}S & PRICING:\nNot configured.\n(CRITICAL: No specific services or prices are configured. Do NOT invent prices, packages, or availability. Ask the client what they need and offer human assistance.)`;
+
+  return `You are the official 24/7 AI Receptionist & Service Booking Assistant representing "${businessName}" on WhatsApp.
+Your role is to help clients with inquiries, consultations, and ${bookingLabel} scheduling.
+
+ABOUT ${businessName.toUpperCase()}:
+${businessDescription}
+
+OPERATING HOURS:
+${businessHours}
+
+POLICIES:
+${policies}
+
+${servicesBlock}
+${pricingNotesBlock}
+FREQUENTLY ASKED QUESTIONS:
+${formattedFaqs || "No specific FAQs listed."}
+
+${bookingLinkBlock}
+${escalationBlock}
+INDUSTRY GUIDANCE:
+${activePlaybook.systemPromptInstructions || ""}
+
+CRITICAL SAFETY & GROUNDING RULES:
+1. You represent "${businessName}". You MUST NOT mention J10 NEXUS unless "${businessName}" is explicitly J10 NEXUS.
+2. Answer questions accurately and exclusively about "${businessName}", its configured services, pricing, business hours, and policies. Missing configuration must never be assumed, invented, or stated as fact.
+3. If a question is in Spanish, answer in natural fluent Spanish. If in French, answer in French. Match the user's language automatically.
+4. Tone: ${tone.toUpperCase()} (warm, professional, helpful, concise).
+5. NEVER invent or hallucinate ${serviceLabel} prices, packages, discounts, operating hours, cancellation policies, or availability not provided in the knowledge base above.
+6. NEVER claim an appointment or reservation is booked or confirmed unless explicitly confirmed by external calendar/system. ${validatedBookingLink ? `If the customer wants to book, provide the official booking link: ${validatedBookingLink}.` : `Since no booking link is configured, collect their preferred ${serviceLabel}, date, and time, and offer to connect them with a human specialist.`}
+7. NEVER invent synthetic meeting or calendar URLs (e.g. meet.j10nexus.com, booking.j10nexus.com). Only provide the configured official HTTPS booking link if one exists: ${validatedBookingLink || "NONE CONFIGURED"}.
+8. NEVER provide regulated medical, legal, or financial advice. Advise clients to consult a licensed professional for regulated questions.
+9. NEVER claim a deposit was paid or charge cards over text.
+10. If you are uncertain or the client asks for custom requests outside your knowledge, politely offer to connect them with a human specialist.
+
+CONVERSION WORKFLOW:
+- Inquire which ${serviceLabel} the client is looking for if not already specified.
+- Ask for their preferred date and time or time window (e.g., morning/afternoon).
+- When ${serviceLabel} and preference are discussed:
+  ${validatedBookingLink ? `Offer the official booking link: ${validatedBookingLink}.` : `Offer to connect them with a human specialist to confirm scheduling. Do NOT claim an online booking link exists.`}`;
 }
 
 /**
@@ -372,6 +712,7 @@ async function sendWhatsAppOutbound(args: {
   recipientPhone: string;
   text: string;
   inboundWamid: string;
+  idempotencyKey?: string;
 }): Promise<{ deliveryStatus: "sent" | "failed"; outboundWamid?: string; error?: string }> {
   const {
     supabase,
@@ -381,32 +722,25 @@ async function sendWhatsAppOutbound(args: {
     recipientPhone,
     text,
     inboundWamid,
+    idempotencyKey,
   } = args;
 
-  const outboundIdempotencyKey = `reply_${inboundWamid}`;
+  const outboundIdempotencyKey = idempotencyKey || `reply_${inboundWamid}`;
+  const payloadHash = createHash("sha256")
+    .update(JSON.stringify({ workspaceId, integrationId, threadId, recipientPhone, text, outboundIdempotencyKey }))
+    .digest("hex");
 
-  // Check if outbound reply already recorded for this inbound wamid
-  const { data: existingOutbound } = await supabase
-    .from("inbox_messages")
-    .select("id, external_message_id, delivery_status")
-    .eq("workspace_id", workspaceId)
-    .eq("idempotency_key", outboundIdempotencyKey)
-    .maybeSingle();
-
-  if (existingOutbound?.external_message_id) {
-    return {
-      deliveryStatus: existingOutbound.delivery_status === "sent" ? "sent" : "failed",
-      outboundWamid: existingOutbound.external_message_id,
-    };
-  }
-
-  // Resolve integration credentials & config
-  const { data: integrationRow } = await supabase
+  // Resolve integration credentials and configuration before reserving a delivery.
+  const { data: integrationRow, error: integrationError } = await supabase
     .from("integrations")
     .select("id, workspace_id, public_configuration, environment")
     .eq("id", integrationId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
+
+  if (integrationError) {
+    throw new Error(`Failed to resolve WhatsApp integration: ${integrationError.message}`);
+  }
 
   if (!integrationRow) {
     return { deliveryStatus: "failed", error: "integration_not_found" };
@@ -434,6 +768,72 @@ async function sendWhatsAppOutbound(args: {
   }
 
   const digits = recipientPhone.replace(/\D/g, "");
+  const claimToken = randomUUID();
+  const { data: claimData, error: claimError } = await supabase.rpc(
+    "claim_whatsapp_outbound_delivery_atomic",
+    {
+      p_workspace_id: workspaceId,
+      p_thread_id: threadId,
+      p_integration_id: integrationId,
+      p_idempotency_key: outboundIdempotencyKey,
+      p_payload_hash: payloadHash,
+      p_content: text,
+      p_recipient_phone: digits,
+      p_inbound_wamid: inboundWamid,
+      p_claim_token: claimToken,
+      p_lease_seconds: 120,
+    }
+  );
+
+  if (claimError) {
+    throw new Error(`Failed to claim WhatsApp outbound delivery: ${claimError.message}`);
+  }
+
+  const claim = typeof claimData === "string" ? JSON.parse(claimData) : claimData;
+  if (!claim || claim.success !== true) {
+    throw new Error(`WhatsApp outbound claim failed: ${claim?.error || "unknown_claim_failure"}`);
+  }
+
+  if (claim.action === "already_sent") {
+    if (!claim.external_message_id) {
+      throw new Error("WhatsApp outbound ledger reported sent without an external message ID");
+    }
+    return { deliveryStatus: "sent", outboundWamid: claim.external_message_id };
+  }
+
+  if (claim.action === "ambiguous") {
+    return { deliveryStatus: "failed", error: `ambiguous_delivery:${claim.error || "delivery_unknown"}` };
+  }
+
+  if (claim.action === "busy") {
+    return { deliveryStatus: "failed", error: "outbound_delivery_claim_busy" };
+  }
+
+  if (claim.action !== "claimed" || claim.claim_token !== claimToken) {
+    throw new Error("WhatsApp outbound claim returned an invalid action or claim token");
+  }
+
+  // Persist the dispatch boundary before the external HTTP request. An expired
+  // dispatching lease becomes ambiguous and is never automatically resent.
+  const { data: dispatchData, error: dispatchError } = await supabase.rpc(
+    "begin_whatsapp_outbound_dispatch_atomic",
+    {
+      p_workspace_id: workspaceId,
+      p_idempotency_key: outboundIdempotencyKey,
+      p_claim_token: claimToken,
+      p_lease_seconds: 300,
+    }
+  );
+
+  if (dispatchError) {
+    throw new Error(`Failed to begin WhatsApp outbound dispatch: ${dispatchError.message}`);
+  }
+
+  const dispatch = typeof dispatchData === "string" ? JSON.parse(dispatchData) : dispatchData;
+  if (!dispatch || dispatch.success !== true || dispatch.status !== "dispatching" || dispatch.claim_token !== claimToken) {
+    throw new Error("WhatsApp outbound dispatch reservation could not be verified");
+  }
+
   const version = publicConfig.graph_api_version || process.env.META_WHATSAPP_GRAPH_API_VERSION || "v26.0";
   const url = `https://graph.facebook.com/${version}/${phoneNumberId}/messages`;
 
@@ -450,7 +850,7 @@ async function sendWhatsAppOutbound(args: {
 
   let outboundWamid: string | undefined = undefined;
   let deliveryError: string | null = null;
-  let isDelivered = false;
+  let completionStatus: "sent" | "failed" | "ambiguous" = "failed";
 
   try {
     const res = await fetch(url, {
@@ -465,50 +865,62 @@ async function sendWhatsAppOutbound(args: {
     const data = await res.json().catch(() => null);
 
     if (res.ok && data?.messages?.[0]?.id) {
-      isDelivered = true;
+      completionStatus = "sent";
       outboundWamid = String(data.messages[0].id);
+    } else if (res.ok) {
+      completionStatus = "ambiguous";
+      deliveryError = "meta_success_response_missing_wamid";
     } else {
+      completionStatus = "failed";
       deliveryError = data?.error?.message || `HTTP ${res.status}`;
     }
   } catch (networkErr: any) {
+    completionStatus = "ambiguous";
     deliveryError = networkErr?.message || "network_send_failure";
   }
 
-  // Insert outbound message into inbox_messages
-  try {
-    await supabase.from("inbox_messages").insert({
-      workspace_id: workspaceId,
-      thread_id: threadId,
-      direction: "outbound",
-      provider: "whatsapp",
-      external_message_id: outboundWamid || null,
-      idempotency_key: outboundIdempotencyKey,
-      content: text,
-      delivery_status: isDelivered ? "sent" : "failed",
-      last_delivery_error: deliveryError,
-      message_type: "text",
-      metadata: {
-        inbound_wamid: inboundWamid,
-        recipient_phone: digits,
-        is_ai_generated: true,
-      },
-    });
+  const { data: completionData, error: completionError } = await supabase.rpc(
+    "complete_whatsapp_outbound_delivery_atomic",
+    {
+      p_workspace_id: workspaceId,
+      p_idempotency_key: outboundIdempotencyKey,
+      p_claim_token: claimToken,
+      p_status: completionStatus,
+      p_external_message_id: outboundWamid || null,
+      p_error: deliveryError,
+    }
+  );
 
-    // Update thread last_message_at
-    await supabase
-      .from("inbox_threads")
-      .update({
-        last_message_at: new Date().toISOString(),
-      })
-      .eq("id", threadId)
-      .eq("workspace_id", workspaceId);
-  } catch (dbErr) {
-    // Database record notice
+  if (completionError) {
+    const prefix = completionStatus === "sent" || completionStatus === "ambiguous"
+      ? "AMBIGUOUS_DELIVERY_PERSISTENCE_FAILED"
+      : "DELIVERY_COMPLETION_PERSISTENCE_FAILED";
+    throw new Error(`${prefix}: ${completionError.message}`);
   }
 
-  if (isDelivered && outboundWamid) {
+  const completion = typeof completionData === "string" ? JSON.parse(completionData) : completionData;
+  if (!completion || completion.success !== true || completion.status !== completionStatus) {
+    throw new Error("WhatsApp outbound completion could not be verified");
+  }
+
+  const { error: threadUpdateError } = await supabase
+    .from("inbox_threads")
+    .update({ last_message_at: new Date().toISOString() })
+    .eq("id", threadId)
+    .eq("workspace_id", workspaceId);
+
+  if (threadUpdateError) {
+    throw new Error(`WhatsApp delivery was durably recorded but thread timestamp update failed: ${threadUpdateError.message}`);
+  }
+
+  if (completionStatus === "sent" && outboundWamid) {
     return { deliveryStatus: "sent", outboundWamid };
   }
 
-  return { deliveryStatus: "failed", error: deliveryError || "send_failed" };
+  return {
+    deliveryStatus: "failed",
+    error: completionStatus === "ambiguous"
+      ? `ambiguous_delivery:${deliveryError || "delivery_unknown"}`
+      : deliveryError || "send_failed",
+  };
 }

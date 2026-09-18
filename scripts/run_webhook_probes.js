@@ -1,3 +1,4 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 const postgres = require('postgres');
 const fs = require('fs');
 const path = require('path');
@@ -21,7 +22,7 @@ function loadEnvFile(envPath) {
 
 loadEnvFile(path.resolve('.env.local'));
 
-const poolerUrl = process.env.SUPABASE_POOLER_URL || process.env.DATABASE_URL || "postgresql://postgres.qtzhcnyxbjocfgimtvvm:IDESSINMEMENE@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require";
+const poolerUrl = requireDatabaseUrl();
 const sql = postgres(poolerUrl, { ssl: "require", max: 1 });
 
 async function getCounts() {
@@ -35,7 +36,10 @@ async function getCounts() {
 async function run() {
   console.log("=== WAITING FOR VERCEL DEPLOYMENT WITH STRICT SECRET VALIDATION ===");
   
-  const expectedSecret = "j10_nexus_telegram_secret"; // Default or environment secret
+  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
+  if (!expectedSecret) {
+    throw new Error("TELEGRAM_WEBHOOK_SECRET must be configured before running webhook probes.");
+  }
   let deploymentId = "";
 
   // Poll until Probe 1 returns 401

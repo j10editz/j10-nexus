@@ -28,7 +28,16 @@ type CRMContactInfo = {
   estimatedValue?: number;
 };
 
+type ServiceLifecycleInfo = {
+  status: string;
+  requestedService?: string | null;
+  preferredDate?: string | null;
+  preferredTime?: string | null;
+  qualificationCompleteness?: number;
+};
+
 type Conversation = {
+  threadId?: string;
   sender: string;
   name: string;
   lastMessage: string;
@@ -39,6 +48,7 @@ type Conversation = {
   escalated?: boolean;
   escalationReason?: string;
   crmContact?: CRMContactInfo | null;
+  lifecycle?: ServiceLifecycleInfo | null;
 };
 
 type ThreadMessage = {
@@ -107,6 +117,27 @@ export function WhatsAppInbox({
   // CRM lead qualification
   const [qualifying, setQualifying] = useState(false);
   const [qualifyNotice, setQualifyNotice] = useState("");
+  const [resuming, setResuming] = useState(false);
+
+  const handleResumeAi = async () => {
+    if (!selected) return;
+    setResuming(true);
+    try {
+      const res = await fetch("/api/service-business/operator-resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId: selected.threadId || selected.sender }),
+      });
+      if (res.ok) {
+        setSelected((prev) => (prev ? { ...prev, escalated: false } : null));
+        void load();
+      }
+    } catch (e) {
+      console.warn("Resume failed:", e);
+    } finally {
+      setResuming(false);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!integrationId || !connected) return;
@@ -474,6 +505,12 @@ export function WhatsAppInbox({
 
                           {/* Tags & Badges */}
                           <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            {item.lifecycle?.status && (
+                              <span className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-cyan-300 uppercase">
+                                {item.lifecycle.status.replace("_", " ")}
+                              </span>
+                            )}
+
                             {item.crmContact ? (
                               <span className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-300">
                                 CRM {item.crmContact.status}
@@ -557,14 +594,25 @@ export function WhatsAppInbox({
 
                   {/* Escalation Alert */}
                   {selected.escalated && (
-                    <div className="flex items-start gap-2.5 border-b border-amber-500/20 bg-amber-500/[0.06] p-3 text-xs text-amber-300">
-                      <ShieldAlert size={15} className="mt-0.5 shrink-0 text-amber-400" />
-                      <div>
-                        <p className="font-semibold text-amber-200">Attention Required: Human Operator Review</p>
-                        <p className="mt-0.5 text-[11px] text-amber-300/80">
-                          {selected.escalationReason || "Customer message flagged for review."}
-                        </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 border-b border-amber-500/20 bg-amber-500/[0.06] p-3 text-xs text-amber-300">
+                      <div className="flex items-start gap-2.5">
+                        <ShieldAlert size={15} className="mt-0.5 shrink-0 text-amber-400" />
+                        <div>
+                          <p className="font-semibold text-amber-200">Attention Required: Human Operator Review</p>
+                          <p className="mt-0.5 text-[11px] text-amber-300/80">
+                            {selected.escalationReason || "Customer message flagged for review."}
+                          </p>
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleResumeAi()}
+                        disabled={resuming}
+                        className="flex items-center gap-1.5 self-start sm:self-auto rounded-lg border border-amber-500/30 bg-amber-500/20 px-3 py-1.5 text-[11px] font-semibold text-amber-200 transition hover:bg-amber-500/30 disabled:opacity-40"
+                      >
+                        {resuming ? <LoaderCircle size={12} className="animate-spin" /> : <Bot size={12} />}
+                        <span>Resume AI Assistant</span>
+                      </button>
                     </div>
                   )}
 

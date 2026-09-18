@@ -1,3 +1,4 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 import postgres from "postgres";
 import * as fs from "fs";
 import * as path from "path";
@@ -21,17 +22,7 @@ function loadEnvFile(envPath: string) {
 
 loadEnvFile(path.resolve(".env.local"));
 
-let rawUrl = 
-  process.env.SUPABASE_PRODUCTION_DATABASE_URL || 
-  process.env.SUPABASE_DATABASE_URL || 
-  process.env.DATABASE_URL || "";
-
-if (rawUrl.includes("postgresql://")) {
-  rawUrl = "postgresql://" + rawUrl.split("postgresql://")[1];
-}
-
-const poolerUrl = "postgresql://postgres.qtzhcnyxbjocfgimtvvm:IDESSINMEMENE@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require";
-const dbUrl = rawUrl || poolerUrl;
+const dbUrl = requireDatabaseUrl();
 
 const sql = postgres(dbUrl, {
   ssl: "require",

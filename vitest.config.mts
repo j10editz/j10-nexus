@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    setupFiles: [resolve(process.cwd(), "tests/helpers/deny-external-network.ts")],
     passWithNoTests: false,
     restoreMocks: true,
     testTimeout: 15000,

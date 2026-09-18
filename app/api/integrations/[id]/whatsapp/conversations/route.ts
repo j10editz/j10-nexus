@@ -9,35 +9,7 @@ import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-type EventRow = {
-  id: string;
-  normalized_event: unknown;
-  received_at: string;
-  processing_status: string;
-};
 
-function record(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-function text(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function messagePreview(message: Record<string, unknown>) {
-  const type = text(message.type) ?? "unknown";
-  const body = text(record(message.text)?.body);
-  const button = text(record(message.button)?.text);
-  const interactive = record(message.interactive);
-  const reply = record(interactive?.button_reply) ?? record(interactive?.list_reply);
-  const caption =
-    text(record(message.image)?.caption) ??
-    text(record(message.video)?.caption) ??
-    text(record(message.document)?.caption);
-
-  return body ?? button ?? text(reply?.title) ?? caption ?? `[${type} message]`;
-}
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
@@ -57,103 +29,108 @@ export async function GET(_request: Request, context: RouteContext) {
       );
     }
 
-    const { data, error } = await supabase
-      .from("integration_webhook_events")
-      .select("id,normalized_event,received_at,processing_status")
-      .eq("integration_id", id)
-      .order("received_at", { ascending: false })
+    // Query canonical inbox_threads for this workspace and integration
+    const { data: canonicalThreads, error: threadsError } = await supabase
+      .from("inbox_threads")
+      .select(`
+        id,
+        workspace_id,
+        contact_id,
+        integration_id,
+        channel,
+        external_thread_id,
+        status,
+        priority,
+        unread_count,
+        last_message_at,
+        created_at,
+        metadata,
+        contact:contacts(
+          id,
+          name,
+          first_name,
+          phone,
+          company,
+          type,
+          status,
+          estimated_value
+        )
+      `)
+      .eq("workspace_id", wsContext.workspace.id)
+      .eq("channel", "whatsapp")
+      .or(`integration_id.eq.${id},and(integration_id.is.null,metadata->>integrationId.eq.${id})`)
+      .order("last_message_at", { ascending: false })
       .limit(100);
 
-    if (error) throw error;
+    if (threadsError) {
+      console.error("[WhatsApp Conversations] Canonical threads error:", threadsError);
+      return NextResponse.json(
+        { success: false, error: "Failed to load conversations." },
+        { status: 500 },
+      );
+    }
 
-    // Look up recent workspace contacts for linking
-    const { data: crmRows } = await supabase
-      .from("contacts")
-      .select("id,phone,type,status,company,estimated_value")
-      .eq("workspace_id", wsContext.workspace.id)
-      .limit(200);
+    // Query service conversion journeys for these threads
+    const { data: journeys } = await supabase
+      .from("service_conversion_journeys")
+      .select("*")
+      .eq("workspace_id", wsContext.workspace.id);
 
-    const contactMap = new Map<string, {
-      id: string;
-      status: string;
-      type: string;
-      company?: string | null;
-      estimatedValue?: number;
-    }>();
-
-    for (const c of crmRows ?? []) {
-      if (c.phone) {
-        const clean = c.phone.replace(/[\s()+.-]/g, "");
-        if (clean.length >= 7) {
-          contactMap.set(clean.slice(-8), {
-            id: c.id,
-            status: c.status,
-            type: c.type,
-            company: c.company,
-            estimatedValue: c.estimated_value,
-          });
-        }
+    const lifecycleMap = new Map<string, any>();
+    for (const j of journeys || []) {
+      if (j.thread_id) {
+        lifecycleMap.set(j.thread_id, j);
       }
     }
 
-    const { detectEscalationIntent } = await import("@/lib/whatsapp/inbox-service");
+    const conversations: Array<any> = [];
 
-    const conversations = new Map<string, {
-      sender: string;
-      name: string;
-      lastMessage: string;
-      messageType: string;
-      lastReceivedAt: string;
-      messageCount: number;
-      status: string;
-      escalated: boolean;
-      escalationReason?: string;
-      crmContact?: {
-        id: string;
-        status: string;
-        type: string;
-        company?: string | null;
-        estimatedValue?: number;
-      } | null;
-    }>();
+    if (canonicalThreads && canonicalThreads.length > 0) {
+      for (const th of canonicalThreads) {
+        const meta = (th.metadata || {}) as Record<string, any>;
+        const contact = (th.contact || {}) as Record<string, any>;
+        const lc = lifecycleMap.get(th.id);
 
-    for (const event of (data ?? []) as EventRow[]) {
-      const normalized = record(event.normalized_event);
-      if (normalized?.capabilityId !== "whatsapp.message.received") continue;
+        const senderPhone = th.external_thread_id;
+        const displayName = contact.first_name || contact.name || meta.senderName || `WhatsApp User (${senderPhone})`;
+        const isEscalated = Boolean(meta.humanHandoff || lc?.status === "human_takeover");
+        const escalationReason = meta.humanTakeoverReason || lc?.human_takeover_reason || (isEscalated ? "Customer requested human representative" : undefined);
 
-      const actor = record(normalized.actor);
-      const payload = record(normalized.data);
-      const message = record(payload?.message);
-      const sender = text(actor?.externalId) ?? text(message?.from);
-      if (!sender || !message) continue;
-
-      const existing = conversations.get(sender);
-      if (existing) {
-        existing.messageCount += 1;
-        continue;
+        conversations.push({
+          threadId: th.id,
+          sender: senderPhone,
+          name: displayName,
+          lastMessage: meta.lastMessageSnippet || "Message received.",
+          messageType: "text",
+          lastReceivedAt: th.last_message_at || th.created_at,
+          messageCount: Math.max(1, th.unread_count || 1),
+          status: lc?.status || th.status || "active",
+          escalated: isEscalated,
+          escalationReason,
+          crmContact: contact.id
+            ? {
+                id: contact.id,
+                status: contact.status || "New",
+                type: contact.type || "Lead",
+                company: contact.company || null,
+                estimatedValue: lc?.estimated_service_value || contact.estimated_value || undefined,
+              }
+            : null,
+          lifecycle: lc
+            ? {
+                status: lc.status,
+                requestedService: lc.requested_service,
+                preferredDate: lc.preferred_date,
+                preferredTime: lc.preferred_time,
+                qualificationCompleteness: lc.qualification_completeness,
+              }
+            : null,
+        });
       }
-
-      const preview = messagePreview(message);
-      const clean = sender.replace(/[\s()+.-]/g, "");
-      const matchedContact = clean.length >= 8 ? contactMap.get(clean.slice(-8)) : null;
-      const escalation = detectEscalationIntent(preview);
-
-      conversations.set(sender, {
-        sender,
-        name: text(actor?.displayName) ?? `WhatsApp ••••${sender.slice(-4)}`,
-        lastMessage: preview,
-        messageType: text(message.type) ?? "unknown",
-        lastReceivedAt: event.received_at,
-        messageCount: 1,
-        status: event.processing_status,
-        escalated: escalation.escalated,
-        escalationReason: escalation.reason,
-        crmContact: matchedContact ?? null,
-      });
     }
 
     return NextResponse.json(
-      { success: true, conversations: Array.from(conversations.values()) },
+      { success: true, conversations },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

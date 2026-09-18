@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     const adminClient = createAdminSupabaseClient();
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://j10-nexus.vercel.app";
-    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "j10_nexus_telegram_secret";
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
 
     // Option 1: 1-Click Activate Official J10 Nexus Bot (Internal / VIP group only)
     if (action === "activate_official" || !token) {
@@ -44,6 +44,12 @@ export async function POST(req: Request) {
         return NextResponse.json(
           { success: false, error: "Official Telegram Bot token is not configured on the server environment." },
           { status: 500 }
+        );
+      }
+      if (!webhookSecret) {
+        return NextResponse.json(
+          { success: false, error: "Telegram webhook secret is not configured on the server environment." },
+          { status: 500 },
         );
       }
       const botUsername = "j10_nexus_leads_bot";

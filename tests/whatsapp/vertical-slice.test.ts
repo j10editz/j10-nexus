@@ -74,6 +74,7 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
   const TEST_VERIFY_TOKEN = "nexus_verify_token_12345";
 
   function createMockSupabase(overrides: Record<string, any> = {}) {
+    const outboundDeliveries = new Map<string, any>();
     const createQueryBuilder = (table: string) => {
       const builder: any = {
         select: () => builder,
@@ -141,7 +142,10 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
           }
           if (table === "inbox_threads") {
             return {
-              data: overrides.thread !== undefined ? overrides.thread : null,
+              data:
+                overrides.thread !== undefined
+                  ? overrides.thread
+                  : { id: "th-1", workspace_id: TEST_WORKSPACE_ID, metadata: { aiBotEnabled: true } },
               error: null,
             };
           }
@@ -184,10 +188,152 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
           },
         };
       },
-      rpc: async (fn: string) => {
+      rpc: async (fn: string, args?: any) => {
         if (fn === "claim_lead_event_outbox") return { data: { claimed: false, deduplicated: true }, error: null };
         if (fn === "assert_workspace_entitlement") return { data: { allowed: true }, error: null };
         if (fn === "record_verified_workspace_usage") return { data: { success: true }, error: null };
+        if (fn === "claim_whatsapp_outbound_delivery_atomic") {
+          const existing = outboundDeliveries.get(args.p_idempotency_key);
+          if (existing?.status === "sent") {
+            return {
+              data: {
+                success: true,
+                action: "already_sent",
+                delivery_id: existing.id,
+                external_message_id: existing.external_message_id,
+                attempts: existing.attempts,
+              },
+              error: null,
+            };
+          }
+          const delivery = existing || {
+            id: "outbound-delivery-1",
+            attempts: 1,
+            content: args.p_content,
+            inbound_wamid: args.p_inbound_wamid,
+            recipient_phone: args.p_recipient_phone,
+          };
+          delivery.status = "processing";
+          delivery.claim_token = args.p_claim_token;
+          outboundDeliveries.set(args.p_idempotency_key, delivery);
+          return {
+            data: {
+              success: true,
+              action: "claimed",
+              delivery_id: delivery.id,
+              claim_token: args.p_claim_token,
+              attempts: delivery.attempts,
+            },
+            error: null,
+          };
+        }
+        if (fn === "begin_whatsapp_outbound_dispatch_atomic") {
+          const delivery = outboundDeliveries.get(args.p_idempotency_key);
+          if (!delivery || delivery.claim_token !== args.p_claim_token) {
+            return { data: null, error: { message: "stale delivery claim" } };
+          }
+          delivery.status = "dispatching";
+          return {
+            data: {
+              success: true,
+              delivery_id: delivery.id,
+              status: "dispatching",
+              claim_token: args.p_claim_token,
+            },
+            error: null,
+          };
+        }
+        if (fn === "complete_whatsapp_outbound_delivery_atomic") {
+          const delivery = outboundDeliveries.get(args.p_idempotency_key);
+          if (!delivery || delivery.claim_token !== args.p_claim_token) {
+            return { data: null, error: { message: "stale delivery completion" } };
+          }
+          delivery.status = args.p_status;
+          delivery.external_message_id = args.p_external_message_id;
+          delivery.last_error = args.p_error;
+          if (overrides.onInsert) {
+            overrides.onInsert("inbox_messages", {
+              workspace_id: TEST_WORKSPACE_ID,
+              thread_id: "th-1",
+              direction: "outbound",
+              provider: "whatsapp",
+              external_message_id: args.p_external_message_id,
+              idempotency_key: args.p_idempotency_key,
+              content: delivery.content,
+              delivery_status: args.p_status === "sent" ? "sent" : "failed",
+            });
+          }
+          return {
+            data: {
+              success: true,
+              delivery_id: delivery.id,
+              status: args.p_status,
+              external_message_id: args.p_external_message_id,
+              attempts: delivery.attempts,
+            },
+            error: null,
+          };
+        }
+        if (fn === "record_canonical_whatsapp_inbound_atomic") {
+          if (overrides.rpc) {
+            const custom = await overrides.rpc(fn, args);
+            if (custom) return custom;
+          }
+          if (overrides.insertError) {
+            const err = overrides.insertError("whatsapp_ai_jobs");
+            if (err?.code === "23505" || err?.message?.includes("duplicate")) {
+              return {
+                data: {
+                  success: true,
+                  duplicate: true,
+                  thread_id: "thread-1",
+                  job_id: "job-1",
+                },
+                error: null,
+              };
+            }
+            if (err) {
+              return {
+                data: {
+                  success: true,
+                  contact_id: "contact-1",
+                  thread_id: "thread-1",
+                  message_id: "msg-1",
+                  intake_id: "intake-1",
+                  journey_id: "journey-1",
+                  ai_job_required: true,
+                  job_id: null,
+                },
+                error: null,
+              };
+            }
+          }
+          if (overrides.onInsert) {
+            overrides.onInsert("inbox_messages", {
+              content: args?.p_content || args?.p_text_body || "",
+              external_message_id: args?.p_wamid,
+            });
+            overrides.onInsert("whatsapp_ai_jobs", {
+              idempotency_key: `whatsapp-ai:${TEST_WORKSPACE_ID}:${args?.p_wamid}`,
+              status: "pending",
+              inbound_wamid: args?.p_wamid,
+            });
+          }
+          return {
+            data: {
+              success: true,
+              contact_id: "contact-1",
+              thread_id: "thread-1",
+              message_id: "msg-1",
+              intake_id: "intake-1",
+              journey_id: "journey-1",
+              job_id: "job-1",
+              ai_job_required: true,
+              ai_job_enqueued: true,
+            },
+            error: null,
+          };
+        }
         return { data: { success: true, contact_id: "contact-1", intake_id: "intake-1" }, error: null };
       },
     };
@@ -571,7 +717,7 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
     }) as any;
 
     const { serviceClient } = mockEndpointAndService({
-      thread: { id: "th-1", metadata: { humanHandoff: true } },
+      thread: { id: "th-1", metadata: { humanHandoff: true, humanHandoffNoticeStatus: "sent" } },
     });
 
     const result = await generateAndSendWhatsAppAIResponse({
@@ -1064,6 +1210,37 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
     });
     const res2 = await workerPOST(req2);
     expect(res2.status).toBe(401);
+  });
+
+  it("24b. Worker authorization fails closed when no worker secret is configured", async () => {
+    const { POST: workerPOST } = await import("@/app/api/workers/whatsapp-ai/route");
+    const previousWhatsAppSecret = process.env.WHATSAPP_WORKER_SECRET;
+    const previousTelegramSecret = process.env.TELEGRAM_WORKER_SECRET;
+
+    try {
+      delete process.env.WHATSAPP_WORKER_SECRET;
+      delete process.env.TELEGRAM_WORKER_SECRET;
+
+      const response = await workerPOST(
+        new Request("https://j10nexus.com/api/workers/whatsapp-ai", {
+          method: "POST",
+          headers: { Authorization: "Bearer legacy_source_fallback" },
+        })
+      );
+
+      expect(response.status).toBe(401);
+    } finally {
+      if (previousWhatsAppSecret === undefined) {
+        delete process.env.WHATSAPP_WORKER_SECRET;
+      } else {
+        process.env.WHATSAPP_WORKER_SECRET = previousWhatsAppSecret;
+      }
+      if (previousTelegramSecret === undefined) {
+        delete process.env.TELEGRAM_WORKER_SECRET;
+      } else {
+        process.env.TELEGRAM_WORKER_SECRET = previousTelegramSecret;
+      }
+    }
   });
 
   // 25. Outbound Meta retry cannot create duplicate inbox messages

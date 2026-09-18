@@ -1,3 +1,4 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 const postgres = require('postgres');
 const fs = require('fs');
 const path = require('path');
@@ -27,7 +28,7 @@ const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 
-const poolerUrl = process.env.SUPABASE_POOLER_URL || process.env.DATABASE_URL || "postgresql://postgres.qtzhcnyxbjocfgimtvvm:IDESSINMEMENE@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require";
+const poolerUrl = requireDatabaseUrl();
 const sql = postgres(poolerUrl, { ssl: 'require', max: 1 });
 
 function encryptPayload(providerId, values, key, keyVersion) {

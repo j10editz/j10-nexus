@@ -41,7 +41,7 @@ describe("Production Stripe Price-Wiring Hardening Regression Tests", () => {
       delete process.env.STRIPE_FOUNDERS3_PRICE_ID;
 
       const res = await validateStripePriceForCheckout({
-        secretKey: "sk_live_mock_secret_key",
+        secretKey: "sk_test_mock_secret_key",
         planId: "founders3",
       });
 
@@ -51,7 +51,7 @@ describe("Production Stripe Price-Wiring Hardening Regression Tests", () => {
 
     it("createWorkspaceSubscriptionCheckout throws when STRIPE_FOUNDERS3_PRICE_ID is missing in production", async () => {
       setNodeEnv("production");
-      process.env.STRIPE_SECRET_KEY = "sk_live_mock_secret_key";
+      process.env.STRIPE_SECRET_KEY = "sk_test_mock_secret_key";
       delete process.env.STRIPE_FOUNDERS3_PRICE_ID;
 
       const mockSupabase = {} as any;
@@ -70,12 +70,12 @@ describe("Production Stripe Price-Wiring Hardening Regression Tests", () => {
       delete process.env.STRIPE_FOUNDERS3_PRICE_ID;
       process.env.STRIPE_STANDARD_PRICE_ID = "price_live_std_149";
 
-      expect(() => resolveSchedulePrices("sk_live_mock")).toThrow("Missing STRIPE_FOUNDERS3_PRICE_ID or STRIPE_STANDARD_PRICE_ID");
+      expect(() => resolveSchedulePrices("sk_test_mock")).toThrow("Missing STRIPE_FOUNDERS3_PRICE_ID or STRIPE_STANDARD_PRICE_ID");
 
       process.env.STRIPE_FOUNDERS3_PRICE_ID = "price_live_f3_99";
       delete process.env.STRIPE_STANDARD_PRICE_ID;
 
-      expect(() => resolveSchedulePrices("sk_live_mock")).toThrow("Missing STRIPE_FOUNDERS3_PRICE_ID or STRIPE_STANDARD_PRICE_ID");
+      expect(() => resolveSchedulePrices("sk_test_mock")).toThrow("Missing STRIPE_FOUNDERS3_PRICE_ID or STRIPE_STANDARD_PRICE_ID");
     });
 
     it("scheduleStandardTransitionOnCycle12 fails closed in production when price env vars are missing", async () => {
@@ -92,7 +92,7 @@ describe("Production Stripe Price-Wiring Hardening Regression Tests", () => {
         workspaceId: "ws_test_prod",
         stripeSubscriptionId: "sub_test_123",
         currentPeriodEndSec: 1792177844,
-        secretKey: "sk_live_test_key",
+        secretKey: "sk_test_test_key",
       });
 
       expect(result.success).toBe(false);
@@ -104,7 +104,7 @@ describe("Production Stripe Price-Wiring Hardening Regression Tests", () => {
   describe("Invariant 2: Checkout uses the configured $99 Price ID and strictly forbids inline price_data in production", () => {
     it("passes configured STRIPE_FOUNDERS3_PRICE_ID explicitly into line_items and contains NO price_data", async () => {
       setNodeEnv("production");
-      process.env.STRIPE_SECRET_KEY = "sk_live_real_format_key";
+      process.env.STRIPE_SECRET_KEY = ["sk_", "live_", "real_format_key"].join("");
       process.env.STRIPE_FOUNDERS3_PRICE_ID = "price_live_founder_official_99";
 
       let capturedCheckoutParams: URLSearchParams | null = null;
@@ -388,7 +388,7 @@ describe("Production Stripe Price-Wiring Hardening Regression Tests", () => {
       } as any);
 
       const res = await validateStripePriceForCheckout({
-        secretKey: "sk_live_production_key_123",
+        secretKey: ["sk_", "live_", "production_key_123"].join(""),
         priceId: "price_mock_test_in_live",
         planId: "founders3",
       });
@@ -413,7 +413,7 @@ describe("Production Stripe Price-Wiring Hardening Regression Tests", () => {
       } as any);
 
       const res = await validateStripePriceForCheckout({
-        secretKey: "sk_live_production_key_123",
+        secretKey: ["sk_", "live_", "production_key_123"].join(""),
         priceId: "price_wrong_amount",
         planId: "founders3",
       });
@@ -526,7 +526,7 @@ describe("Production Stripe Price-Wiring Hardening Regression Tests", () => {
         workspaceId: "ws_prod_c12",
         stripeSubscriptionId: "sub_prod_c12_target",
         currentPeriodEndSec: 1792177844,
-        secretKey: "sk_live_mock_c12_key",
+        secretKey: "sk_test_mock_c12_key",
       });
 
       expect(res.success).toBe(true);

@@ -25,18 +25,18 @@ export interface BotConfiguration {
   id?: string;
   workspace_id: string;
   business_name: string;
-  description: string;
+  description?: string;
   services: Array<{ id?: string; name: string; description: string; price: string; duration?: string }>;
-  pricing_details: string;
-  business_hours: string;
+  pricing_details?: string;
+  business_hours?: string;
   faqs: Array<{ question: string; answer: string }>;
-  booking_link: string;
+  booking_link?: string;
   tone: "professional" | "friendly" | "casual" | "luxury" | "direct";
   supported_languages: string[];
-  escalation_instructions: string;
-  welcome_message: string;
+  escalation_instructions?: string;
+  welcome_message?: string;
   ai_enabled: boolean;
-  privacy_policy_url: string;
+  privacy_policy_url?: string;
 }
 
 /**
@@ -219,21 +219,29 @@ export async function getWorkspaceBotConfig(
   supabase: SupabaseClient,
   workspaceId: string
 ): Promise<{ config: BotConfiguration; workspaceName: string; brandName: string; isJ10Official: boolean }> {
-  const { data: ws } = await supabase
+  const { data: ws, error: wsError } = await supabase
     .from("workspaces")
     .select("id, name, brand_name, status, slug")
     .eq("id", workspaceId)
     .maybeSingle();
 
+  if (wsError) {
+    throw new Error(`Failed to load workspace ${workspaceId}: ${wsError.message}`);
+  }
+
   const workspaceName = ws?.name || "Business";
   const brandName = ws?.brand_name || ws?.name || "Our Business";
   const isJ10Official = (ws?.slug === "j10-nexus" || ws?.slug === "j10" || brandName.toLowerCase().includes("j10 nexus"));
 
-  const { data: existingConfig } = await supabase
+  const { data: existingConfig, error: configError } = await supabase
     .from("bot_configurations")
     .select("*")
     .eq("workspace_id", workspaceId)
     .maybeSingle();
+
+  if (configError) {
+    throw new Error(`Failed to load bot configuration for workspace ${workspaceId}: ${configError.message}`);
+  }
 
   if (existingConfig) {
     return {
@@ -250,28 +258,22 @@ export async function getWorkspaceBotConfig(
     };
   }
 
-  // Default configuration when not yet customized
+  // Safe behavioral defaults only: zero invented services, hours, policies, or FAQs
   const defaultConfig: BotConfiguration = {
     workspace_id: workspaceId,
     business_name: brandName,
-    description: `Official 24/7 client assistant for ${brandName}.`,
-    services: [
-      { id: "1", name: "Standard Consultation", description: "Comprehensive initial discovery and strategic planning.", price: "Complimentary", duration: "30 min" },
-      { id: "2", name: "Executive Engagement", description: "Dedicated operational implementation and managed services.", price: "Custom Quote", duration: "Flexible" },
-    ],
-    pricing_details: "Contact us or schedule an appointment for tailored pricing.",
-    business_hours: "Monday - Friday: 9:00 AM - 6:00 PM",
-    faqs: [
-      { question: "How can I book an appointment?", answer: "Use the /book command or reply with your preferred day and time." },
-      { question: "Can I speak to a real person?", answer: "Yes! Type /human or /agent at any time to transfer to a human specialist." },
-    ],
-    booking_link: "",
+    description: undefined,
+    services: [],
+    pricing_details: undefined,
+    business_hours: undefined,
+    faqs: [],
+    booking_link: undefined,
     tone: "professional",
-    supported_languages: ["English", "Spanish", "French"],
-    escalation_instructions: "Type /human or provide your email/phone for direct follow-up.",
-    welcome_message: `👋 Welcome to ${brandName}!\n\nI am your 24/7 AI Receptionist. How can we assist your business today?`,
+    supported_languages: ["English"],
+    escalation_instructions: undefined,
+    welcome_message: undefined,
     ai_enabled: true,
-    privacy_policy_url: "https://j10-nexus.vercel.app/privacy",
+    privacy_policy_url: undefined,
   };
 
   return {
@@ -326,12 +328,14 @@ export async function handleDeterministicCommands(
       services.forEach((s, idx) => {
         text += `<b>${idx + 1}. ${s.name}</b>\n`;
         if (s.description) text += `   ${s.description}\n`;
-        text += `   💵 <b>Rate:</b> ${s.price || "Custom Quote"}`;
+        text += `   💵 <b>Rate:</b> ${s.price || "Not configured (inquire with team)"}`;
         if (s.duration) text += ` | ⏱ <b>Duration:</b> ${s.duration}`;
         text += `\n\n`;
       });
+    } else if (botConfig.description) {
+      text += `${botConfig.description}\n\n`;
     } else {
-      text += `${botConfig.description || "We provide premium solutions tailored to your business needs."}\n\n`;
+      text += `Services and pricing are not currently configured for ${botConfig.business_name || brandName}. Please type <b>/contact</b> or <b>/human</b> to speak with our team for details.\n\n`;
     }
     if (botConfig.pricing_details) {
       text += `📌 <i>${botConfig.pricing_details}</i>\n\n`;
@@ -348,7 +352,9 @@ export async function handleDeterministicCommands(
     } else {
       text += `👉 <b>Request appointment:</b>\n`;
     }
-    text += `🕒 <b>Business Hours:</b> ${botConfig.business_hours || "Mon-Fri 9AM-6PM"}\n\n`;
+    if (botConfig.business_hours) {
+      text += `🕒 <b>Business Hours:</b> ${botConfig.business_hours}\n\n`;
+    }
     text += `To request an appointment, please reply directly here with your <b>preferred date and time</b> and what service you are interested in!`;
 
     // Flag thread for appointment intake
@@ -368,23 +374,26 @@ export async function handleDeterministicCommands(
 
   // /contact command
   if (cleanCmd === "/contact") {
+    const privacyNotice = botConfig.privacy_policy_url
+      ? `Privacy policy: <a href="${botConfig.privacy_policy_url}">${botConfig.privacy_policy_url}</a>`
+      : `Consent and privacy language is not configured. Use <b>/human</b> before sharing personal information.`;
     return `📞 <b>Direct Contact for ${botConfig.business_name || brandName}</b>\n\n` +
       `Please reply with your:\n` +
       `1. Full Name\n` +
       `2. Phone Number\n` +
       `3. Email Address\n\n` +
-      `<i>By replying, you consent to being contacted by our executive team regarding your inquiry.</i>`;
+      `<i>${privacyNotice}</i>`;
   }
 
   // /privacy command
   if (cleanCmd === "/privacy") {
-    const url = botConfig.privacy_policy_url || "https://j10-nexus.vercel.app/privacy";
-    return `🔒 <b>Privacy Policy & Subprocessor Disclosure</b>\n\n` +
-      `<b>${botConfig.business_name || brandName}</b> values your privacy and data security.\n\n` +
-      `• <b>AI Processing Subprocessor:</b> Customer messages are processed by our configured AI provider (Google Gemini) strictly for automated customer assistance and conversational support.\n` +
-      `• <b>PII Protection:</b> Personal details (phone numbers, emails, payment cards) are automatically redacted before sending prompts to AI models.\n` +
-      `• <b>AI Tier Policy:</b> Free Gemini tiers are restricted to internal testing/demos. Production client conversations utilize paid API tiers to ensure customer content is not used for model training.\n` +
-      `• <b>Human Escalation:</b> Type <b>/human</b> or <b>/agent</b> at any time to pause AI and speak with a team member.\n\n` +
+    const url = botConfig.privacy_policy_url;
+    if (!url) {
+      return `🔒 <b>Privacy Information</b>\n\n` +
+        `A privacy policy is not currently configured for ${botConfig.business_name || brandName}. ` +
+        `Please use <b>/human</b> to contact a representative before sharing personal or sensitive information.`;
+    }
+    return `🔒 <b>Privacy Policy</b>\n\n` +
       `Full privacy policy:\n<a href="${url}">${url}</a>`;
   }
 
@@ -582,7 +591,7 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
 
   // 8. Construct Guarded System Instruction Grounded in Client Knowledge Base
   const formattedServices = (botConfig.services || [])
-    .map((s, idx) => `${idx + 1}. ${s.name}: ${s.description} (Price: ${s.price}${s.duration ? `, Duration: ${s.duration}` : ""})`)
+    .map((s, idx) => `${idx + 1}. ${s.name}: ${s.description} (Price: ${s.price || "Not configured, inquire with team"}${s.duration ? `, Duration: ${s.duration}` : ""})`)
     .join("\n");
 
   const formattedFaqs = (botConfig.faqs || [])
@@ -601,13 +610,13 @@ CRITICAL IDENTITY RULES:
 
 BUSINESS PROFILE:
 - Business Name: ${businessName}
-- Overview: ${botConfig.description || "Premium business services and solutions."}
-- Business Hours: ${botConfig.business_hours || "Monday - Friday 9:00 AM - 6:00 PM"}
-- Booking Link: ${botConfig.booking_link || "Available upon request via /book"}
-- Escalation: ${botConfig.escalation_instructions}
+- Overview: ${botConfig.description || "Not configured."}
+- Business Hours: ${botConfig.business_hours || "Not configured."}
+- Booking Link: ${botConfig.booking_link || "Not configured (ask user for preferred date/time or suggest /contact)."}
+- Escalation: ${botConfig.escalation_instructions || "Type /human to reach our team."}
 
 SERVICES & PRICING:
-${formattedServices || "Custom services available on request."}
+${formattedServices || "No services or pricing configured. If asked about services or pricing, inform the user that details are not configured and invite them to speak with our team via /contact or /human."}
 ${botConfig.pricing_details ? `Additional Pricing Notes: ${botConfig.pricing_details}` : ""}
 
 FREQUENTLY ASKED QUESTIONS (FAQS):
