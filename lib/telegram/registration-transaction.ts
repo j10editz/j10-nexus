@@ -100,12 +100,17 @@ export async function registerExistingTelegramIntegration(
     if (remoteChanged) {
       try {
         await compensate(deps);
+        // The callback was changed and then removed.  Do not restore an old
+        // "connected" state: it would claim a working webhook that no longer
+        // exists.  Keep the exact integration retryable and visibly pending.
+        await deps.markDegraded();
       } catch {
         await deps.markDegraded().catch(() => undefined);
         throw new TelegramRegistrationError("COMPENSATION_REQUIRED", "Webhook compensation could not be verified.");
       }
+    } else if (staged) {
+      await deps.restorePreviousState().catch(() => undefined);
     }
-    if (staged) await deps.restorePreviousState().catch(() => undefined);
     if (error instanceof TelegramRegistrationError) throw error;
     throw new TelegramRegistrationError("REGISTRATION_FAILED", "Telegram registration did not complete.");
   }

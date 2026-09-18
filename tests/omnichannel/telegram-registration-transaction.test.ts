@@ -46,7 +46,8 @@ describe("Telegram registration transaction", () => {
     const d = deps({ activate: vi.fn().mockRejectedValue(new Error("zero rows")) });
     await expect(registerExistingTelegramIntegration(expected, url, d)).rejects.toMatchObject({ code: "REGISTRATION_FAILED" });
     expect(d.compensateWebhook).toHaveBeenCalledOnce();
-    expect(d.restorePreviousState).toHaveBeenCalledOnce();
+    expect(d.restorePreviousState).not.toHaveBeenCalled();
+    expect(d.markDegraded).toHaveBeenCalledOnce();
   });
 
   it("surfaces COMPENSATION_REQUIRED when compensation cannot be verified", async () => {

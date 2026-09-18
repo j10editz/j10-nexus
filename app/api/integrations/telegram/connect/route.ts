@@ -385,7 +385,7 @@ export async function POST(req: Request) {
           .eq("integration_id", integrationId!)
           .eq("workspace_id", wsId)
           .eq("endpoint_key", endpointKey)
-          .eq("status", "active")
+          .in("status", ["active", "pending"])
           .select("integration_id, workspace_id, status")
           .maybeSingle();
         if (endpointError || !endpoint || endpoint.integration_id !== integrationId || endpoint.workspace_id !== wsId || endpoint.status !== "pending") {
