@@ -184,10 +184,70 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
           },
         };
       },
-      rpc: async (fn: string) => {
+      rpc: async (fn: string, args?: any) => {
         if (fn === "claim_lead_event_outbox") return { data: { claimed: false, deduplicated: true }, error: null };
         if (fn === "assert_workspace_entitlement") return { data: { allowed: true }, error: null };
         if (fn === "record_verified_workspace_usage") return { data: { success: true }, error: null };
+        if (fn === "record_canonical_whatsapp_inbound_atomic") {
+          if (overrides.rpc) {
+            const custom = await overrides.rpc(fn, args);
+            if (custom) return custom;
+          }
+          if (overrides.insertError) {
+            const err = overrides.insertError("whatsapp_ai_jobs");
+            if (err?.code === "23505" || err?.message?.includes("duplicate")) {
+              return {
+                data: {
+                  success: true,
+                  duplicate: true,
+                  thread_id: "thread-1",
+                  job_id: "job-1",
+                },
+                error: null,
+              };
+            }
+            if (err) {
+              return {
+                data: {
+                  success: true,
+                  contact_id: "contact-1",
+                  thread_id: "thread-1",
+                  message_id: "msg-1",
+                  intake_id: "intake-1",
+                  journey_id: "journey-1",
+                  ai_job_required: true,
+                  job_id: null,
+                },
+                error: null,
+              };
+            }
+          }
+          if (overrides.onInsert) {
+            overrides.onInsert("inbox_messages", {
+              content: args?.p_content || args?.p_text_body || "",
+              external_message_id: args?.p_wamid,
+            });
+            overrides.onInsert("whatsapp_ai_jobs", {
+              idempotency_key: `whatsapp-ai:${TEST_WORKSPACE_ID}:${args?.p_wamid}`,
+              status: "pending",
+              inbound_wamid: args?.p_wamid,
+            });
+          }
+          return {
+            data: {
+              success: true,
+              contact_id: "contact-1",
+              thread_id: "thread-1",
+              message_id: "msg-1",
+              intake_id: "intake-1",
+              journey_id: "journey-1",
+              job_id: "job-1",
+              ai_job_required: true,
+              ai_job_enqueued: true,
+            },
+            error: null,
+          };
+        }
         return { data: { success: true, contact_id: "contact-1", intake_id: "intake-1" }, error: null };
       },
     };

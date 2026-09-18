@@ -197,6 +197,26 @@ describe("Tier 1: Complete Revenue Loop — Unit & Integration Engine", () => {
 
           return queryBuilder;
         }),
+        rpc: vi.fn((fnName: string, args: any) => {
+          if (fnName === "confirm_workspace_booking_atomic") {
+            const b = state.crm_bookings.find((x: any) => x.id === args.p_booking_id);
+            if (b) {
+              b.status = "scheduled";
+              b.metadata = {
+                ...(b.metadata || {}),
+                external_reservation_status: "confirmed_external_calendar",
+                external_calendar_provider: args.p_provider,
+                external_calendar_event_id: args.p_provider_event_id,
+                is_external_calendar_confirmed: true,
+              };
+            }
+            return Promise.resolve({
+              data: { success: true, bookingId: args.p_booking_id, status: "scheduled" },
+              error: null,
+            });
+          }
+          return Promise.resolve({ data: null, error: null });
+        }),
       };
 
       return { mockClient, state };
@@ -222,7 +242,7 @@ describe("Tier 1: Complete Revenue Loop — Unit & Integration Engine", () => {
       expect(leadResult.proposal?.status).toBe("sent");
       expect(leadResult.proposal?.checkout_url).toContain("/checkout/");
       expect(leadResult.booking).toBeDefined();
-      expect(leadResult.booking?.status).toBe("scheduled");
+      expect(leadResult.booking?.status).toBe("requested");
       expect(leadResult.outboundMessageId).toBeDefined();
 
       // Verify contact and thread states in database
@@ -285,7 +305,8 @@ describe("Tier 1: Complete Revenue Loop — Unit & Integration Engine", () => {
       expect(report.proposals.total).toBe(1);
       expect(report.proposals.paid).toBe(1);
       expect(report.bookings.total).toBe(1);
-      expect(report.bookings.scheduled).toBe(1);
+      expect(report.bookings.scheduled).toBe(0);
+      expect(report.bookings.requested).toBe(1);
       expect(report.recentLedger.length).toBe(1);
       expect(report.recentLedger[0].amount).toBe(2500);
       expect(report.attribution.length).toBeGreaterThan(0);

@@ -92,76 +92,53 @@ export async function getWhatsAppMessageThread(
 
   const cleanSender = senderPhone.replace(/[\s()+.-]/g, "");
 
-  // 1. Resolve canonical thread
-  const { data: thread } = await supabase
+  // 1. Resolve canonical thread scoped to workspace, integration, channel, and sender
+  const { data: thread, error: threadError } = await supabase
     .from("inbox_threads")
     .select("id, external_thread_id")
     .eq("workspace_id", workspaceId)
     .eq("channel", "whatsapp")
+    .or(`integration_id.eq.${integrationId},metadata->>integrationId.eq.${integrationId}`)
     .or(`external_thread_id.eq.${senderPhone},external_thread_id.eq.${cleanSender}`)
     .order("last_message_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (thread?.id) {
-    const { data: canonicalMsgs } = await supabase
-      .from("inbox_messages")
-      .select("id, direction, content, metadata, delivery_status, created_at")
-      .eq("workspace_id", workspaceId)
-      .eq("thread_id", thread.id)
-      .order("created_at", { ascending: true })
-      .limit(100);
-
-    if (canonicalMsgs && canonicalMsgs.length > 0) {
-      return canonicalMsgs.map((m) => {
-        const meta = (m.metadata || {}) as Record<string, any>;
-        const isOutbound = m.direction === "outbound";
-        return {
-          id: m.id,
-          direction: isOutbound ? "outbound" : "inbound",
-          sender: isOutbound ? "business" : senderPhone,
-          recipient: isOutbound ? senderPhone : undefined,
-          body: m.content || "",
-          messageType: meta.messageType || "text",
-          timestamp: m.created_at,
-          status: (m.delivery_status as any) || (isOutbound ? "sent" : "delivered"),
-          actorName: isOutbound ? "AI Receptionist" : undefined,
-        };
-      });
-    }
+  if (threadError) {
+    console.error("[getWhatsAppMessageThread] Thread lookup error:", threadError);
+    throw new Error("Failed to load canonical thread.");
   }
 
-  // Fallback to webhook events if migration transition is in flight
-  const { data: inboundRows } = await supabase
-    .from("integration_webhook_events")
-    .select("id,normalized_event,received_at,processing_status")
-    .eq("integration_id", integrationId)
-    .order("received_at", { ascending: true })
-    .limit(50);
-
-  const fallbackMessages: WhatsAppMessageThreadItem[] = [];
-  for (const row of inboundRows ?? []) {
-    const normalized = record(row.normalized_event);
-    if (normalized?.capabilityId !== "whatsapp.message.received") continue;
-    const actor = record(normalized.actor);
-    const payload = record(normalized.data);
-    const message = record(payload?.message);
-    const from = text(actor?.externalId) ?? text(message?.from);
-    if (!from) continue;
-    if (from.replace(/[\s()+.-]/g, "") !== cleanSender) continue;
-    if (!message) continue;
-    const { body, type } = extractMessageContent(message);
-    fallbackMessages.push({
-      id: row.id,
-      direction: "inbound",
-      sender: from,
-      body,
-      messageType: type,
-      timestamp: row.received_at,
-      status: "received",
-      actorName: text(actor?.displayName) ?? undefined,
-    });
+  if (!thread?.id) {
+    return [];
   }
 
-  return fallbackMessages;
+  const { data: canonicalMsgs, error: msgsError } = await supabase
+    .from("inbox_messages")
+    .select("id, direction, content, metadata, delivery_status, created_at")
+    .eq("workspace_id", workspaceId)
+    .eq("thread_id", thread.id)
+    .order("created_at", { ascending: true })
+    .limit(100);
+
+  if (msgsError) {
+    console.error("[getWhatsAppMessageThread] Messages lookup error:", msgsError);
+    throw new Error("Failed to load canonical inbox messages.");
+  }
+
+  return (canonicalMsgs || []).map((m) => {
+    const meta = (m.metadata || {}) as Record<string, any>;
+    const isOutbound = m.direction === "outbound";
+    return {
+      id: m.id,
+      direction: isOutbound ? "outbound" : "inbound",
+      sender: isOutbound ? "business" : senderPhone,
+      recipient: isOutbound ? senderPhone : undefined,
+      body: m.content || "",
+      messageType: meta.messageType || "text",
+      timestamp: m.created_at,
+      status: (m.delivery_status as any) || (isOutbound ? "sent" : "delivered"),
+      actorName: isOutbound ? "AI Receptionist" : undefined,
+    };
+  });
 }

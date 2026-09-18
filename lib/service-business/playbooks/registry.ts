@@ -36,14 +36,23 @@ export const defaultPlaybook: ServicePlaybook = {
 
 const playbooks: Record<string, ServicePlaybook> = {
   beauty_grooming: beautyGroomingPlaybook,
-  beauty: beautyGroomingPlaybook, // alias for backwards compatibility
+  beauty: beautyGroomingPlaybook,
   auto_detailing: autoDetailingPlaybook,
-  detailing: autoDetailingPlaybook, // alias
+  detailing: autoDetailingPlaybook,
   general_service: defaultPlaybook,
 };
 
 /**
- * Retrieves a playbook by key, falling back to defaultPlaybook.
+ * Checks if a key maps to a registered playbook.
+ */
+export function isValidPlaybookKey(key?: string | null): boolean {
+  if (!key) return false;
+  const normalized = key.trim().toLowerCase().replace(/-/g, "_");
+  return Object.prototype.hasOwnProperty.call(playbooks, normalized);
+}
+
+/**
+ * Retrieves a playbook by key, falling back to defaultPlaybook safely.
  */
 export function getPlaybook(key?: string | null): ServicePlaybook {
   if (!key) return defaultPlaybook;
@@ -59,14 +68,48 @@ export function listPlaybooks(): ServicePlaybook[] {
 }
 
 /**
- * Resolves the active playbook for a workspace based on its metadata or configuration.
+ * Authoritatively resolves the validated canonical playbook key from workspace and integration configuration.
+ * Safe fallback to 'general_service' for missing or invalid keys.
  */
-export function resolvePlaybookForWorkspace(metadata?: Record<string, unknown> | null): ServicePlaybook {
-  if (!metadata) return defaultPlaybook;
-  const key =
-    (typeof metadata.playbook_key === "string" && metadata.playbook_key) ||
-    (typeof metadata.playbookKey === "string" && metadata.playbookKey) ||
-    (typeof metadata.industry === "string" && metadata.industry) ||
-    null;
-  return getPlaybook(key);
+export function resolveAuthoritativePlaybookKey(sources?: {
+  workspaceMetadata?: Record<string, unknown> | null;
+  integrationConfig?: Record<string, unknown> | null;
+  requestedKey?: string | null;
+} | null): string {
+  if (!sources) return "general_service";
+
+  const candidates: Array<unknown> = [
+    sources.requestedKey,
+    sources.workspaceMetadata?.playbook_key,
+    sources.workspaceMetadata?.playbookKey,
+    sources.workspaceMetadata?.industry,
+    sources.integrationConfig?.playbook_key,
+    sources.integrationConfig?.playbookKey,
+    sources.integrationConfig?.industry,
+  ];
+
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) {
+      const normalized = c.trim().toLowerCase().replace(/-/g, "_");
+      if (playbooks[normalized]) {
+        return playbooks[normalized].playbookKey;
+      }
+    }
+  }
+
+  return "general_service";
+}
+
+/**
+ * Resolves the active playbook for a workspace authoritatively.
+ */
+export function resolvePlaybookForWorkspace(
+  metadata?: Record<string, unknown> | null,
+  integrationConfig?: Record<string, unknown> | null
+): ServicePlaybook {
+  const canonicalKey = resolveAuthoritativePlaybookKey({
+    workspaceMetadata: metadata,
+    integrationConfig,
+  });
+  return getPlaybook(canonicalKey);
 }

@@ -8,8 +8,15 @@ import { assertWorkspaceEntitlement, recordVerifiedWorkspaceUsage } from "@/lib/
 import { WHATSAPP_RUNTIME_ADAPTER } from "@/lib/integrations/providers/whatsapp/adapter";
 import { WHATSAPP_ACTION_CAPABILITY_IDS } from "@/types/integration-whatsapp";
 import { getIntegrationCredentials } from "@/lib/integrations/credentials";
-import { resolvePlaybookForWorkspace } from "@/lib/service-business/playbooks/registry";
 import {
+  defaultPlaybook,
+  getPlaybook,
+  resolveAuthoritativePlaybookKey,
+  resolvePlaybookForWorkspace,
+} from "@/lib/service-business/playbooks/registry";
+import type { ServicePlaybook } from "@/lib/service-business/types";
+import {
+  extractConfiguredPrice,
   extractServiceIntent,
   updateServiceJourneyLifecycleState,
 } from "@/lib/service-business/conversion-service";
@@ -310,7 +317,31 @@ export async function generateAndSendWhatsAppAIResponse(
   }
 
   // 7. Grounded System Prompt
-  const activePlaybook = resolvePlaybookForWorkspace(threadMeta);
+  let resolvedKey: string | null = null;
+  try {
+    const { data: journeyRow } = await supabase
+      .from("service_conversion_journeys")
+      .select("playbook_key")
+      .eq("workspace_id", workspaceId)
+      .eq("thread_id", threadId)
+      .maybeSingle();
+    resolvedKey = journeyRow?.playbook_key || null;
+  } catch {}
+
+  if (!resolvedKey) {
+    try {
+      const { data: wsRow } = await supabase
+        .from("workspaces")
+        .select("metadata")
+        .eq("id", workspaceId)
+        .maybeSingle();
+      resolvedKey = resolveAuthoritativePlaybookKey({
+        workspaceMetadata: wsRow?.metadata as Record<string, unknown>,
+      });
+    } catch {}
+  }
+
+  const activePlaybook = getPlaybook(resolvedKey);
   const serviceLabel = activePlaybook.terminology.serviceLabel;
   const bookingLabel = activePlaybook.terminology.bookingLabel;
 
@@ -320,6 +351,7 @@ export async function generateAndSendWhatsAppAIResponse(
     price: s.priceDisplay || (s.price !== null && s.price !== undefined ? `$${s.price}` : "Custom Quote"),
     duration: s.durationMinutes ? `${s.durationMinutes} mins` : undefined,
   }));
+
   const mergedServices =
     botConfig.services && botConfig.services.length > 0
       ? botConfig.services
@@ -333,27 +365,26 @@ export async function generateAndSendWhatsAppAIResponse(
     .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
     .join("\n\n");
 
-  const systemInstruction = `You are the official 24/7 AI Receptionist & Service Booking Assistant representing "${businessName}" on WhatsApp.
-Your role is to help clients with inquiries, consultations, and ${bookingLabel} scheduling.
+  const businessDescription =
+    (botConfig as any).company_description?.trim() || botConfig.description?.trim() || `${businessName} provides premium appointment-based professional services.`;
+  const businessHours =
+    botConfig.business_hours?.trim() || "Monday - Saturday: 9:00 AM - 6:00 PM";
+  const policies =
+    (botConfig as any).policies?.trim() || botConfig.pricing_details?.trim() || "Cancellations and rescheduling require 24 hours advance notice.";
+  const bookingLink =
+    botConfig.booking_link?.trim() || "Please contact our team directly for booking confirmation.";
 
-${activePlaybook.systemPromptInstructions || ""}
-
-CRITICAL SAFETY & GROUNDING RULES:
-1. You represent "${businessName}". You MUST NOT mention J10 NEXUS unless "${businessName}" is explicitly J10 NEXUS.
-2. Answer questions accurately and exclusively about "${businessName}", its services, pricing, business hours, and policies.
-3. If a question is in Spanish, answer in natural fluent Spanish. If in French, answer in French. Match the user's language automatically.
-4. Tone: ${botConfig.tone.toUpperCase()} (warm, professional, helpful, concise).
-5. NEVER invent or hallucinate ${serviceLabel} prices, discounts, or availability not provided in the knowledge base below.
-6. NEVER claim an appointment is booked or confirmed unless explicitly confirmed by external calendar/system. If the customer wants to book, provide the booking link or take their preferred service, date, and time.
-7. NEVER invent synthetic meeting or calendar URLs (e.g. meet.j10nexus.com). Only provide the configured booking link.
-8. NEVER provide regulated medical, legal, or financial advice. Advise clients to consult a licensed professional for regulated questions.
-9. NEVER claim a deposit was paid or charge cards over text.
-10. If you are uncertain or the client asks for custom requests outside your knowledge, politely offer to connect them with a human specialist.
-
-CONVERSION WORKFLOW:
-- Inquire which ${serviceLabel} the client is looking for if not already specified.
-- Ask for their preferred date and time or time window (e.g., morning/afternoon).
-- When ${serviceLabel} and preference are discussed, offer the official booking link: ${botConfig.booking_link || "Please let us know your preferred time and our team will lock it in."}`;
+  const systemInstruction = buildAssistantSystemInstruction({
+    businessName,
+    businessDescription,
+    businessHours,
+    policies,
+    bookingLink,
+    formattedServices,
+    formattedFaqs,
+    activePlaybook,
+    tone: botConfig.tone,
+  });
 
   let replyText = "";
   if (geminiKey) {
@@ -403,11 +434,22 @@ CONVERSION WORKFLOW:
     }
   }
 
-  // 10. Update service conversion journey state
+  // 10. Update service conversion journey state with effective services
   try {
+    const effectiveCatalog = mergedServices.map((s, idx) => ({
+      key: (s as any).id || s.name || `svc_${idx}`,
+      name: s.name,
+      price: extractConfiguredPrice(s.price),
+      priceDisplay: typeof s.price === "string" ? s.price : (s.price !== null && s.price !== undefined ? `$${s.price}` : undefined),
+      durationMinutes: s.duration ? parseInt(s.duration, 10) || undefined : undefined,
+      description: s.description,
+      requiresQuote: !s.price || String(s.price).toLowerCase().includes("quote"),
+    }));
+
     const extracted = extractServiceIntent({
       text: inboundText,
       playbook: activePlaybook,
+      effectiveServices: effectiveCatalog,
       bookingLink: botConfig.booking_link,
       replyText,
     });
@@ -433,6 +475,100 @@ CONVERSION WORKFLOW:
     replyText,
     ...sendResult,
   };
+}
+
+/**
+ * Builds the fully grounded system instruction incorporating workspace services, hours, faqs, policies, and booking link.
+ */
+export function buildAssistantSystemInstruction(params: {
+  businessName?: string;
+  businessDescription?: string;
+  businessHours?: string;
+  policies?: string;
+  bookingLink?: string;
+  formattedServices?: string;
+  formattedFaqs?: string;
+  services?: any[];
+  faqs?: any[];
+  pricingNotes?: string;
+  escalationInstructions?: string;
+  activePlaybook?: ServicePlaybook;
+  playbook?: ServicePlaybook;
+  tone?: string;
+}): string {
+  const activePlaybook = params.activePlaybook || params.playbook || defaultPlaybook;
+  const businessName = params.businessName || "Our Business";
+  const businessDescription = params.businessDescription || "Professional appointment-based service provider.";
+  const businessHours = params.businessHours || "Monday - Friday: 9:00 AM - 5:00 PM";
+  const policies = params.policies || "Standard cancellation and reservation policies apply.";
+  const bookingLink = params.bookingLink || "https://booking.j10nexus.com";
+  const tone = params.tone || "professional, warm, helpful, and concise";
+
+  let formattedServices = params.formattedServices || "";
+  if (!formattedServices && Array.isArray(params.services) && params.services.length > 0) {
+    formattedServices = params.services
+      .map((s: any) => {
+        const price = s.price !== undefined ? ` - $${s.price}` : "";
+        const dur = s.durationMinutes ? ` (${s.durationMinutes} min)` : "";
+        const desc = s.description ? `: ${s.description}` : "";
+        return `• ${s.name}${price}${dur}${desc}`;
+      })
+      .join("\n");
+  }
+
+  let formattedFaqs = params.formattedFaqs || "";
+  if (!formattedFaqs && Array.isArray(params.faqs) && params.faqs.length > 0) {
+    formattedFaqs = params.faqs
+      .map((f: any) => `Q: ${f.question}\nA: ${f.answer}`)
+      .join("\n\n");
+  }
+
+  const serviceLabel = activePlaybook.terminology?.serviceLabel || "service";
+  const bookingLabel = activePlaybook.terminology?.bookingLabel || "appointment";
+
+  const pricingNotesBlock = params.pricingNotes ? `\nPRICING NOTES:\n${params.pricingNotes}\n` : "";
+  const escalationBlock = params.escalationInstructions ? `\nESCALATION INSTRUCTIONS:\n${params.escalationInstructions}\n` : "";
+
+  return `You are the official 24/7 AI Receptionist & Service Booking Assistant representing "${businessName}" on WhatsApp.
+Your role is to help clients with inquiries, consultations, and ${bookingLabel} scheduling.
+
+ABOUT ${businessName.toUpperCase()}:
+${businessDescription}
+
+OPERATING HOURS:
+${businessHours}
+
+POLICIES:
+${policies}
+
+AVAILABLE ${serviceLabel.toUpperCase()}S & PRICING:
+${formattedServices || "Standard consultations available upon inquiry."}
+${pricingNotesBlock}
+FREQUENTLY ASKED QUESTIONS:
+${formattedFaqs || "No specific FAQs listed."}
+
+OFFICIAL BOOKING LINK:
+${bookingLink}
+${escalationBlock}
+INDUSTRY GUIDANCE:
+${activePlaybook.systemPromptInstructions || ""}
+
+CRITICAL SAFETY & GROUNDING RULES:
+1. You represent "${businessName}". You MUST NOT mention J10 NEXUS unless "${businessName}" is explicitly J10 NEXUS.
+2. Answer questions accurately and exclusively about "${businessName}", its services, pricing, business hours, and policies.
+3. If a question is in Spanish, answer in natural fluent Spanish. If in French, answer in French. Match the user's language automatically.
+4. Tone: ${tone.toUpperCase()} (warm, professional, helpful, concise).
+5. NEVER invent or hallucinate ${serviceLabel} prices, discounts, or availability not provided in the knowledge base above.
+6. NEVER claim an appointment or reservation is booked or confirmed unless explicitly confirmed by external calendar/system. If the customer wants to book, provide the official booking link: ${bookingLink} or take their preferred ${serviceLabel}, date, and time.
+7. NEVER invent synthetic meeting or calendar URLs (e.g. meet.j10nexus.com). Only provide the configured official booking link: ${bookingLink}.
+8. NEVER provide regulated medical, legal, or financial advice. Advise clients to consult a licensed professional for regulated questions.
+9. NEVER claim a deposit was paid or charge cards over text.
+10. If you are uncertain or the client asks for custom requests outside your knowledge, politely offer to connect them with a human specialist.
+
+CONVERSION WORKFLOW:
+- Inquire which ${serviceLabel} the client is looking for if not already specified.
+- Ask for their preferred date and time or time window (e.g., morning/afternoon).
+- When ${serviceLabel} and preference are discussed, offer the official booking link: ${bookingLink}.`;
 }
 
 /**

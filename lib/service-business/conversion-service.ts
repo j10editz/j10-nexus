@@ -4,12 +4,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   ServiceLifecycleStatus,
   ServicePlaybook,
+  ServiceCatalogItem,
   ExtractedServiceIntent,
   ServiceConversionJourneyRecord,
   ServiceConversionMetrics,
 } from "./types";
 
-export type { ServiceLifecycleStatus, ServiceConversionMetrics, ExtractedServiceIntent, ServiceConversionJourneyRecord };
+export type {
+  ServiceLifecycleStatus,
+  ServiceConversionMetrics,
+  ExtractedServiceIntent,
+  ServiceConversionJourneyRecord,
+};
 import { defaultPlaybook } from "./playbooks/registry";
 
 /**
@@ -36,29 +42,44 @@ export function extractConfiguredPrice(price?: string | number | null): number |
 }
 
 /**
- * Deterministically extracts service intent based on the active playbook.
+ * Deterministically extracts service intent.
+ * Prioritizes effective workspace services/pricing over static playbook templates.
  * Never invents service pricing or external meeting URLs.
  */
 export function extractServiceIntent(args: {
   text: string;
   playbook?: ServicePlaybook;
+  effectiveServices?: ServiceCatalogItem[] | Array<{ name: string; price?: any; durationMinutes?: number; description?: string }>;
+  workspaceServices?: ServiceCatalogItem[] | Array<{ name: string; price?: any; durationMinutes?: number; description?: string }>;
   bookingLink?: string | null;
   replyText?: string | null;
 }): ExtractedServiceIntent {
   const { text, replyText, bookingLink } = args;
   const playbook = args.playbook || defaultPlaybook;
   const lower = text.toLowerCase();
+  const configuredServices = args.workspaceServices || args.effectiveServices;
 
-  // 1. Identify Service from Playbook Catalog
+  // Evaluate against workspace's effective services if configured; otherwise use playbook template
+  const rawServices: ServiceCatalogItem[] =
+    configuredServices && configuredServices.length > 0
+      ? (configuredServices as any)
+      : playbook.services;
+
+  // Sort services by name length descending so that more specific names (e.g. "Balayage Deluxe") match before shorter substrings ("Balayage")
+  const servicesToEvaluate = [...rawServices].sort(
+    (a, b) => (b.name?.length || 0) - (a.name?.length || 0)
+  );
+
+  // 1. Identify Service from Catalog
   let requestedService: string | null = null;
   let serviceKey: string | null = null;
   let estimatedServiceValue: number | null = null;
   let isQuoteRequired = false;
 
-  for (const s of playbook.services) {
+  for (const s of servicesToEvaluate) {
     if (s.name && lower.includes(s.name.toLowerCase())) {
       requestedService = s.name;
-      serviceKey = s.key;
+      serviceKey = s.key || s.name.toLowerCase().replace(/\s+/g, "_");
       estimatedServiceValue = extractConfiguredPrice(s.price);
       isQuoteRequired = Boolean(s.requiresQuote || estimatedServiceValue === null);
       break;
@@ -139,10 +160,11 @@ export function extractServiceIntent(args: {
     missingFields.push("time");
   }
 
-  // 6. Booking link offered check
+  // 6. Booking link offered check:
+  // Strict truthfulness: ONLY true when outbound replyText actually contains the official bookingLink.
+  // Inbound customer queries containing "book" are NOT booking offers!
   const offeredBookingLink = Boolean(
-    (bookingLink && replyText?.includes(bookingLink)) ||
-    (bookingLink && lower.includes("book"))
+    bookingLink && replyText && replyText.includes(bookingLink)
   );
 
   // 7. Suggested status
@@ -159,30 +181,32 @@ export function extractServiceIntent(args: {
     playbookKey: playbook.playbookKey,
     requestedService,
     serviceKey,
-    preferredDate,
-    preferredTime,
     estimatedServiceValue,
     isQuoteRequired,
-    qualificationCompleteness: Math.min(1.0, parseFloat(completeness.toFixed(2))),
+    preferredDate,
+    preferredTime,
+    qualificationCompleteness: parseFloat(completeness.toFixed(2)),
     missingRequiredFields: missingFields,
-    offeredBookingLink,
-    suggestedStatus,
     humanHandoffRequested,
     humanHandoffReason,
+    offeredBookingLink,
+    suggestedStatus,
   };
 }
 
 /**
- * Updates service conversion journey and records auditable transition events idempotently.
+ * Updates service conversion journey atomically via transition_service_journey_atomic RPC.
  * Fails closed and is strictly workspace-scoped.
  */
 export async function updateServiceJourneyLifecycleState(
   supabase: SupabaseClient,
   args: {
     workspaceId: string;
-    threadId: string;
+    threadId?: string | null;
+    journeyId?: string | null;
     contactId?: string | null;
     status?: ServiceLifecycleStatus;
+    toStatus?: ServiceLifecycleStatus;
     requestedService?: string | null;
     preferredDate?: string | null;
     preferredTime?: string | null;
@@ -194,88 +218,73 @@ export async function updateServiceJourneyLifecycleState(
     actorType: "system" | "ai_assistant" | "operator";
     actorId?: string | null;
     reason?: string;
+    metadata?: Record<string, unknown>;
   }
-): Promise<ServiceConversionJourneyRecord | null> {
-  const { workspaceId, threadId, actorType, actorId, reason } = args;
+): Promise<ServiceConversionJourneyRecord> {
+  const { workspaceId, threadId, journeyId, actorType, actorId, reason } = args;
 
-  // 1. Fetch current journey state
-  const { data: current } = await supabase
+  // 1. Fetch current journey ID and status
+  let query = supabase
+    .from("service_conversion_journeys")
+    .select("id, status")
+    .eq("workspace_id", workspaceId);
+
+  if (journeyId) {
+    query = query.eq("id", journeyId);
+  } else if (threadId) {
+    query = query.eq("thread_id", threadId);
+  } else {
+    throw new Error("Either journeyId or threadId must be provided to update journey lifecycle");
+  }
+
+  const { data: current, error: findError } = await query.maybeSingle();
+
+  if (findError || !current) {
+    throw new Error(`Journey not found in workspace ${workspaceId} (journeyId: ${journeyId}, threadId: ${threadId})`);
+  }
+
+  const toStatus = args.toStatus || args.status || current.status;
+
+  // 2. Call atomic transition RPC
+  const { data: transitionResult, error: transitionError } = await supabase.rpc(
+    "transition_service_journey_atomic",
+    {
+      p_workspace_id: workspaceId,
+      p_journey_id: current.id,
+      p_to_status: toStatus,
+      p_actor_type: actorType,
+      p_actor_id: actorId || null,
+      p_reason: reason || null,
+      p_metadata: args.metadata || {},
+      p_requested_service: args.requestedService !== undefined ? args.requestedService : null,
+      p_preferred_date: args.preferredDate !== undefined ? args.preferredDate : null,
+      p_preferred_time: args.preferredTime !== undefined ? args.preferredTime : null,
+      p_estimated_value: args.estimatedServiceValue !== undefined ? args.estimatedServiceValue : null,
+      p_qualification_completeness: args.qualificationCompleteness !== undefined ? args.qualificationCompleteness : null,
+      p_booking_confirmation_source: args.bookingConfirmationSource || null,
+      p_attributed_revenue: null,
+    }
+  );
+
+  if (transitionError) {
+    console.error("[Service Journey RPC] Transition failed:", transitionError);
+    throw new Error(transitionError.message || "Failed to transition journey");
+  }
+
+  if (!transitionResult?.success) {
+    throw new Error("Journey transition was not successful");
+  }
+
+  // 3. Fetch verified updated journey record
+  const { data: updated, error: fetchErr } = await supabase
     .from("service_conversion_journeys")
     .select("*")
-    .eq("workspace_id", workspaceId)
-    .eq("thread_id", threadId)
-    .maybeSingle();
-
-  if (!current) return null;
-
-  const newStatus = args.status || current.status;
-  const statusChanged = newStatus !== current.status;
-
-  const updateFields: Record<string, unknown> = {
-    updated_at: new Date().toISOString(),
-  };
-
-  if (args.status) updateFields.status = args.status;
-  if (args.requestedService) updateFields.requested_service = args.requestedService;
-  if (args.preferredDate) updateFields.preferred_date = args.preferredDate;
-  if (args.preferredTime) updateFields.preferred_time = args.preferredTime;
-  if (args.estimatedServiceValue !== undefined) {
-    updateFields.estimated_service_value = args.estimatedServiceValue;
-  }
-  if (args.qualificationCompleteness !== undefined) {
-    updateFields.qualification_completeness = args.qualificationCompleteness;
-  }
-  if (args.bookingOfferedAt) updateFields.booking_offered_at = args.bookingOfferedAt;
-  if (args.bookingConfirmationSource) {
-    updateFields.booking_confirmation_source = args.bookingConfirmationSource;
-  }
-  if (args.humanTakeoverReason) {
-    updateFields.human_takeover_reason = args.humanTakeoverReason;
-  }
-
-  // 2. Commit journey update
-  const { data: updated, error: updateError } = await supabase
-    .from("service_conversion_journeys")
-    .update(updateFields)
     .eq("id", current.id)
     .eq("workspace_id", workspaceId)
-    .select()
     .single();
 
-  if (updateError) {
-    console.error("[Service Journey] Update failed:", updateError);
-    return null;
-  }
-
-  // 3. If status changed, record auditable transition
-  if (statusChanged) {
-    await supabase.from("service_conversion_events").insert({
-      workspace_id: workspaceId,
-      journey_id: current.id,
-      from_status: current.status,
-      to_status: newStatus,
-      reason: reason || `Transitioned to ${newStatus}`,
-      actor_type: actorType,
-      actor_id: actorId || null,
-      metadata: {
-        requested_service: updated.requested_service,
-        estimated_service_value: updated.estimated_service_value,
-      },
-    });
-
-    // 4. Cancel pending followups if journey enters a terminal state (booked, lost, or human_takeover)
-    if (newStatus === "booked" || newStatus === "lost" || newStatus === "human_takeover") {
-      await supabase
-        .from("service_followups")
-        .update({
-          status: "cancelled",
-          cancel_reason: `lifecycle_transition_to_${newStatus}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("workspace_id", workspaceId)
-        .eq("journey_id", current.id)
-        .eq("status", "scheduled");
-    }
+  if (fetchErr || !updated) {
+    throw new Error("Failed to fetch updated journey record after transition");
   }
 
   return updated as ServiceConversionJourneyRecord;
@@ -283,34 +292,58 @@ export async function updateServiceJourneyLifecycleState(
 
 /**
  * Allows an authorized operator to resume AI assistance on a service thread.
+ * Performs authorized state transition back to contacted or qualified.
  */
 export async function operatorResumeJourneyAi(
   supabase: SupabaseClient,
   args: {
     workspaceId: string;
-    threadId: string;
-    operatorUserId: string;
+    threadId?: string | null;
+    journeyId?: string | null;
+    operatorUserId?: string | null;
+    operatorId?: string | null;
+    notes?: string;
   }
 ) {
-  const { workspaceId, threadId, operatorUserId } = args;
+  const { workspaceId } = args;
+  const operatorUserId = args.operatorUserId || args.operatorId;
+
+  if (!operatorUserId) {
+    throw new Error("operatorUserId is required to resume AI assistance");
+  }
 
   // 1. Verify operator membership
   const { data: member } = await supabase
     .from("workspace_memberships")
-    .select("role")
+    .select("role, status")
     .eq("workspace_id", workspaceId)
     .eq("user_id", operatorUserId)
     .maybeSingle();
 
-  if (!member || member.role === "suspended" || member.role === "removed") {
-    throw new Error("Unauthorized: operator lacks active workspace membership");
+  if (!member || member.status !== "active" || member.role === "viewer" || member.role === "suspended" || member.role === "removed") {
+    throw new Error("Unauthorized: operator lacks active modifier role in workspace");
   }
 
-  // 2. Fetch thread
+  // 2. Resolve thread ID
+  let resolvedThreadId = args.threadId;
+  if (!resolvedThreadId && args.journeyId) {
+    const { data: jRow } = await supabase
+      .from("service_conversion_journeys")
+      .select("thread_id")
+      .eq("id", args.journeyId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    resolvedThreadId = jRow?.thread_id;
+  }
+
+  if (!resolvedThreadId) {
+    throw new Error("Thread not found for journey in workspace");
+  }
+
   const { data: thread } = await supabase
     .from("inbox_threads")
     .select("id, metadata")
-    .eq("id", threadId)
+    .eq("id", resolvedThreadId)
     .eq("workspace_id", workspaceId)
     .single();
 
@@ -331,14 +364,14 @@ export async function operatorResumeJourneyAi(
       },
       updated_at: new Date().toISOString(),
     })
-    .eq("id", threadId)
+    .eq("id", resolvedThreadId)
     .eq("workspace_id", workspaceId);
 
-  // 4. Update journey state back to contacted or qualified
+  // 4. Update journey state back to contacted or qualified via operator transition
   const { data: journey } = await supabase
     .from("service_conversion_journeys")
     .select("*")
-    .eq("thread_id", threadId)
+    .eq("thread_id", resolvedThreadId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
 
@@ -346,17 +379,17 @@ export async function operatorResumeJourneyAi(
     const resumeStatus: ServiceLifecycleStatus =
       journey.qualification_completeness >= 0.7 ? "qualified" : "contacted";
 
-    await updateServiceJourneyLifecycleState(supabase, {
+    return await updateServiceJourneyLifecycleState(supabase, {
       workspaceId,
-      threadId,
+      threadId: resolvedThreadId,
       status: resumeStatus,
       actorType: "operator",
       actorId: operatorUserId,
-      reason: "Operator manually resumed AI assistance",
+      reason: args.notes || "Operator manually resumed AI assistance",
     });
   }
 
-  return { success: true, resumed: true };
+  return journey as ServiceConversionJourneyRecord;
 }
 
 /**

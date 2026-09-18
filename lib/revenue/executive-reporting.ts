@@ -53,6 +53,7 @@ export interface ExecutiveRevenueReport {
   bookings: {
     total: number;
     scheduled: number;
+    requested: number;
     completed: number;
     canceled: number;
   };
@@ -240,6 +241,7 @@ export async function getWorkspaceExecutiveRevenueReport(
   const bookingSummary = {
     total: bookingList.length,
     scheduled: bookingList.filter((b) => b.status === "scheduled").length,
+    requested: bookingList.filter((b) => b.status === "requested").length,
     completed: bookingList.filter((b) => b.status === "completed").length,
     canceled: bookingList.filter((b) => b.status === "canceled" || b.status === "no_show").length,
   };

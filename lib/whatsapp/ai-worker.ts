@@ -172,23 +172,20 @@ export async function processWhatsAppAiJobsOnce(
         const errorMessage = aiResult.error || aiResult.skippedReason || "Unknown execution failure";
 
         if (isSuppressed) {
-          try {
-            await supabase.rpc("suppress_whatsapp_ai_job", {
-              p_job_id: jobId,
-              p_claim_token: workerId,
-              p_reason: errorMessage,
-            });
-          } catch {
-            await supabase
-              .from("whatsapp_ai_jobs")
-              .update({
-                status: "suppressed",
-                last_error: errorMessage,
-                claim_token: null,
-                lease_expires_at: null,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", jobId);
+          const { data: suppressData, error: suppressErr } = await supabase.rpc("suppress_whatsapp_ai_job", {
+            p_job_id: jobId,
+            p_claim_token: workerId,
+            p_reason: errorMessage,
+          });
+
+          const suppressRes = typeof suppressData === "string" ? JSON.parse(suppressData) : suppressData;
+
+          if (suppressErr || !suppressRes?.success || suppressRes?.status !== "suppressed") {
+            const failReason = suppressErr?.message || suppressRes?.error || "Database suppression verification failed";
+            console.error(`[WhatsApp AI Worker] Failed to verify suppression for job ${jobId} (worker ${workerId}): ${failReason}`);
+            result.failureCount++;
+            result.jobDetails.push({ jobId, success: false, error: `Suppression verification failed: ${failReason}` });
+            continue;
           }
 
           result.successCount++;

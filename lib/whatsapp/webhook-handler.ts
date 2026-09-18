@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { IntegrationConnection } from "@/types/integration";
 import { processWhatsAppAiJobsOnce } from "@/lib/whatsapp/ai-worker";
+import { resolveAuthoritativePlaybookKey } from "@/lib/service-business/playbooks/registry";
 
 export interface ProcessWhatsAppPayloadOptions {
   supabase: SupabaseClient;
@@ -18,12 +19,13 @@ export interface ProcessWhatsAppPayloadOptions {
  * Pipeline:
  * 1. Status Callbacks -> Update delivery_status in inbox_messages.
  * 2. Inbound Messages ->
- *    a. Extract wamid, fromPhone, textBody, contactName, and normalized media metadata.
- *    b. Atomically commit lead intake, CRM contact, inbox thread, inbox message,
+ *    a. Authoritatively resolve workspace/integration playbook.
+ *    b. Atomically commit lead intake, CRM contact, integration-scoped thread, inbox message,
  *       service conversion journey, and AI job via record_canonical_whatsapp_inbound_atomic.
- *    c. Enforce strict idempotency and payload conflict detection.
- *    d. Low-latency accelerator using Next.js after().
- *    e. Fast 200 acknowledgement with { success: true, accepted: true, wamid, threadId, jobId }.
+ *    c. Enforce strict idempotency (200 on identical duplicate, 409 on payload conflict).
+ *    d. Validate atomic RPC return (zero non-atomic fallback inserts).
+ *    e. Low-latency accelerator using Next.js after().
+ *    f. Return structured acknowledgement.
  */
 export async function processWhatsAppPayload({
   supabase,
@@ -118,10 +120,9 @@ export async function processWhatsAppPayload({
     }
 
     const payloadHash = createHash("sha256").update(JSON.stringify({
-      wamid,
       from: fromPhone,
+      text: textBody,
       type: messageType,
-      body: textBody,
       media: mediaMetadata,
     })).digest("hex");
 
@@ -130,7 +131,41 @@ export async function processWhatsAppPayload({
       origin = new URL(requestUrl).origin;
     } catch {}
 
-    // Atomic Canonical Ingestion via PostgreSQL RPC
+    // Step A: Authoritatively resolve the workspace & integration playbook
+    let workspaceMetadata: Record<string, unknown> | null = null;
+    let integrationConfig: Record<string, unknown> | null = null;
+
+    try {
+      const { data: wsRow } = await supabase
+        .from("workspaces")
+        .select("metadata")
+        .eq("id", workspaceId)
+        .maybeSingle();
+      if (wsRow?.metadata) {
+        workspaceMetadata = wsRow.metadata as Record<string, unknown>;
+      }
+    } catch {}
+
+    if (endpoint.integrationId) {
+      try {
+        const { data: integRow } = await supabase
+          .from("integrations")
+          .select("public_configuration")
+          .eq("id", endpoint.integrationId)
+          .eq("workspace_id", workspaceId)
+          .maybeSingle();
+        if (integRow?.public_configuration) {
+          integrationConfig = integRow.public_configuration as Record<string, unknown>;
+        }
+      } catch {}
+    }
+
+    const canonicalPlaybookKey = resolveAuthoritativePlaybookKey({
+      workspaceMetadata,
+      integrationConfig,
+    });
+
+    // Step B: Atomic Canonical Ingestion via PostgreSQL RPC
     const { data: intakeData, error: intakeError } = await supabase.rpc(
       "record_canonical_whatsapp_inbound_atomic",
       {
@@ -143,26 +178,11 @@ export async function processWhatsAppPayload({
         p_media_metadata: mediaMetadata,
         p_payload_hash: payloadHash,
         p_integration_id: endpoint.integrationId || null,
+        p_playbook_key: canonicalPlaybookKey,
       }
     );
 
     if (intakeError) {
-      if (
-        intakeError.code === "23505" ||
-        intakeError.message?.includes("wamid payload conflict") ||
-        intakeError.message?.includes("conflict")
-      ) {
-        return NextResponse.json(
-          {
-            success: true,
-            accepted: true,
-            quarantined: true,
-            reason: "wamid_payload_conflict",
-          },
-          { status: 200 }
-        );
-      }
-
       console.error("[WhatsApp Webhook] Canonical inbound transaction failure:", intakeError);
       return NextResponse.json(
         { error: "Internal ingestion failure: message could not be durably committed" },
@@ -170,6 +190,18 @@ export async function processWhatsAppPayload({
       );
     }
 
+    // Step C: Handle Payload Conflict -> 409 Conflict
+    if (intakeData?.conflict) {
+      return NextResponse.json(
+        {
+          error: "WHATSAPP_WAMID_PAYLOAD_CONFLICT",
+          message: "wamid payload conflict",
+        },
+        { status: 409 }
+      );
+    }
+
+    // Step D: Handle Idempotent Duplicate -> 200 OK
     if (intakeData?.duplicate) {
       return NextResponse.json(
         {
@@ -177,26 +209,30 @@ export async function processWhatsAppPayload({
           accepted: true,
           duplicate: true,
           wamid,
+          threadId: intakeData.thread_id,
+          jobId: intakeData.job_id || null,
         },
         { status: 200 }
       );
     }
 
-    if (!intakeData?.message_id) {
-      await supabase.from("inbox_messages").insert({
-        workspace_id: workspaceId,
-        thread_id: intakeData?.thread_id || null,
-        direction: "inbound",
-        provider: "whatsapp",
-        external_message_id: wamid,
-        content: textBody,
-        delivery_status: "delivered",
-        idempotency_key: `wamid_${wamid}`,
-        created_at: new Date().toISOString(),
-      });
+    // Step E: Enforce strict atomic contract (zero fallback inserts permitted)
+    if (
+      !intakeData?.success ||
+      !intakeData.thread_id ||
+      !intakeData.message_id ||
+      !intakeData.contact_id ||
+      !intakeData.intake_id ||
+      !intakeData.journey_id
+    ) {
+      console.error("[WhatsApp Webhook] Incomplete atomic ingestion response:", intakeData);
+      return NextResponse.json(
+        { error: "Internal ingestion failure: incomplete canonical record commitment" },
+        { status: 500 }
+      );
     }
 
-    // Acknowledge unsupported non-text message without triggering AI job
+    // Non-text messages don't require an AI job
     if (messageType !== "text") {
       return NextResponse.json(
         {
@@ -204,58 +240,25 @@ export async function processWhatsAppPayload({
           accepted: true,
           event: "unsupported_message_type_ignored",
           messageType,
-          threadId: intakeData?.thread_id,
-          messageId: intakeData?.message_id,
+          threadId: intakeData.thread_id,
+          messageId: intakeData.message_id,
+          jobId: null,
+          suppressionReason: intakeData.suppression_reason || "non_text_message",
         },
         { status: 200 }
       );
     }
 
-    let jobId = intakeData?.job_id || null;
-    if (!jobId) {
-      const aiJobIdempotencyKey = `whatsapp-ai:${workspaceId}:${wamid}`;
-      const { data: jobData, error: jobError } = await supabase
-        .from("whatsapp_ai_jobs")
-        .insert({
-          workspace_id: workspaceId,
-          integration_id: endpoint.integrationId || null,
-          thread_id: intakeData?.thread_id || null,
-          recipient_phone: fromPhone,
-          inbound_text: textBody,
-          sender_name: contactName,
-          inbound_wamid: wamid,
-          idempotency_key: aiJobIdempotencyKey,
-          status: "pending",
-          next_attempt_at: new Date().toISOString(),
-        })
-        .select("id")
-        .maybeSingle();
-
-      if (jobError) {
-        if (
-          jobError.code === "23505" ||
-          jobError.message?.includes("unique") ||
-          jobError.message?.includes("duplicate")
-        ) {
-          return NextResponse.json(
-            {
-              success: true,
-              accepted: true,
-              duplicate: true,
-              wamid,
-            },
-            { status: 200 }
-          );
-        }
-
-        console.error("[WhatsApp Webhook] Durable AI job enqueue failed code:", jobError.code || "DB_ERROR");
-        return NextResponse.json(
-          { error: "Internal enqueue failure: message could not be durably queued" },
-          { status: 500 }
-        );
-      }
-      jobId = jobData?.id || null;
+    // For text messages where AI was required, ensure job_id was enqueued
+    if (intakeData.ai_job_required && !intakeData.job_id) {
+      console.error("[WhatsApp Webhook] AI job required but missing job_id:", intakeData);
+      return NextResponse.json(
+        { error: "Internal enqueue failure: AI job could not be enqueued" },
+        { status: 500 }
+      );
     }
+
+    const jobId = intakeData.job_id || null;
 
     // Low-latency accelerator using Next.js after() for text AI jobs
     if (jobId) {
@@ -282,7 +285,7 @@ export async function processWhatsAppPayload({
           }
         });
       } catch {
-        // In non-supported contexts, outbox guarantees durability
+        // Outbox guarantees durability
       }
     }
 
@@ -291,15 +294,18 @@ export async function processWhatsAppPayload({
         success: true,
         accepted: true,
         wamid,
-        threadId: intakeData?.thread_id,
+        threadId: intakeData.thread_id,
         jobId,
+        journeyId: intakeData.journey_id,
+        playbookKey: canonicalPlaybookKey,
+        suppressionReason: intakeData.suppression_reason || null,
       },
       { status: 200 }
     );
   }
 
   return NextResponse.json(
-    { success: true, accepted: true, event: "whatsapp_generic_event" },
+    { success: true, accepted: true, ignored: true, reason: "no_messages_or_statuses_in_payload" },
     { status: 200 }
   );
 }

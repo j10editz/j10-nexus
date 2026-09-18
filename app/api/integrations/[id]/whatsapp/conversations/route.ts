@@ -9,35 +9,7 @@ import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-type EventRow = {
-  id: string;
-  normalized_event: unknown;
-  received_at: string;
-  processing_status: string;
-};
 
-function record(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-function text(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function messagePreview(message: Record<string, unknown>) {
-  const type = text(message.type) ?? "unknown";
-  const body = text(record(message.text)?.body);
-  const button = text(record(message.button)?.text);
-  const interactive = record(message.interactive);
-  const reply = record(interactive?.button_reply) ?? record(interactive?.list_reply);
-  const caption =
-    text(record(message.image)?.caption) ??
-    text(record(message.video)?.caption) ??
-    text(record(message.document)?.caption);
-
-  return body ?? button ?? text(reply?.title) ?? caption ?? `[${type} message]`;
-}
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
@@ -57,13 +29,14 @@ export async function GET(_request: Request, context: RouteContext) {
       );
     }
 
-    // Query canonical inbox_threads for this workspace
+    // Query canonical inbox_threads for this workspace and integration
     const { data: canonicalThreads, error: threadsError } = await supabase
       .from("inbox_threads")
       .select(`
         id,
         workspace_id,
         contact_id,
+        integration_id,
         channel,
         external_thread_id,
         status,
@@ -85,11 +58,16 @@ export async function GET(_request: Request, context: RouteContext) {
       `)
       .eq("workspace_id", wsContext.workspace.id)
       .eq("channel", "whatsapp")
+      .or(`integration_id.eq.${id},metadata->>integrationId.eq.${id}`)
       .order("last_message_at", { ascending: false })
       .limit(100);
 
     if (threadsError) {
       console.error("[WhatsApp Conversations] Canonical threads error:", threadsError);
+      return NextResponse.json(
+        { success: false, error: "Failed to load conversations." },
+        { status: 500 },
+      );
     }
 
     // Query service conversion journeys for these threads
@@ -149,45 +127,6 @@ export async function GET(_request: Request, context: RouteContext) {
             : null,
         });
       }
-    } else {
-      // Fallback: check legacy webhook events only if no canonical threads exist
-      const { data: legacyEvents } = await supabase
-        .from("integration_webhook_events")
-        .select("id,normalized_event,received_at,processing_status")
-        .eq("integration_id", id)
-        .order("received_at", { ascending: false })
-        .limit(100);
-
-      const legacyMap = new Map<string, any>();
-      for (const event of (legacyEvents ?? []) as EventRow[]) {
-        const normalized = record(event.normalized_event);
-        if (normalized?.capabilityId !== "whatsapp.message.received") continue;
-
-        const actor = record(normalized.actor);
-        const payload = record(normalized.data);
-        const message = record(payload?.message);
-        const sender = text(actor?.externalId) ?? text(message?.from);
-        if (!sender || !message) continue;
-
-        if (legacyMap.has(sender)) {
-          legacyMap.get(sender).messageCount += 1;
-          continue;
-        }
-
-        const preview = messagePreview(message);
-        legacyMap.set(sender, {
-          sender,
-          name: text(actor?.displayName) ?? `WhatsApp User (${sender})`,
-          lastMessage: preview,
-          messageType: text(message.type) ?? "unknown",
-          lastReceivedAt: event.received_at,
-          messageCount: 1,
-          status: event.processing_status,
-          escalated: false,
-          crmContact: null,
-        });
-      }
-      conversations.push(...Array.from(legacyMap.values()));
     }
 
     return NextResponse.json(

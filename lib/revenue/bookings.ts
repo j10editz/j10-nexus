@@ -10,6 +10,7 @@ export type BookingType =
   | "consultation";
 
 export type BookingStatus =
+  | "requested"
   | "scheduled"
   | "completed"
   | "canceled"
@@ -71,8 +72,10 @@ export async function createWorkspaceBooking(
   const duration = input.durationMinutes || 30;
   const meetingUrl = input.meetingUrl?.trim() || null;
   const bookingType: BookingType = input.bookingType || "executive_walkthrough";
-  const isConfirmed = Boolean(input.confirmationSource);
 
+  // Newly requested bookings MUST remain requested / pending_confirmation.
+  // Caller-provided text alone (like confirmationSource) does NOT prove external confirmation.
+  // Only a verified provider callback handled by trusted server path can set external confirmation.
   const { data: booking, error } = await supabase
     .from("crm_bookings")
     .insert({
@@ -85,15 +88,15 @@ export async function createWorkspaceBooking(
       scheduled_at: input.scheduledAt,
       duration_minutes: duration,
       meeting_url: meetingUrl,
-      status: isConfirmed ? "scheduled" : "scheduled",
+      status: "requested",
       notes: input.notes?.trim() || null,
       host_user_id: input.hostUserId || null,
       metadata: {
         ...(input.metadata || {}),
-        external_reservation_status: isConfirmed ? "confirmed_external_calendar" : "pending_confirmation",
-        is_external_calendar_confirmed: isConfirmed,
-        booking_confirmation_source: input.confirmationSource || null,
-        display_status: isConfirmed ? "Booked" : "Booking requested (Awaiting confirmation)",
+        external_reservation_status: "pending_confirmation",
+        is_external_calendar_confirmed: false,
+        booking_request_source: input.confirmationSource || "system",
+        display_status: "Booking requested (Awaiting confirmation)",
       },
     })
     .select("*")
@@ -105,7 +108,8 @@ export async function createWorkspaceBooking(
 
   return {
     ...(booking as BookingRecord),
-    external_reservation_status: isConfirmed ? "confirmed_external_calendar" : "pending_confirmation",
+    status: "requested",
+    external_reservation_status: "pending_confirmation",
   };
 }
 
@@ -183,6 +187,57 @@ export async function updateBookingStatus(
 }
 
 /**
+ * Transactionally confirms a booking via trusted provider callback,
+ * updating the booking status to scheduled, transitioning the associated conversion journey to booked,
+ * logging an immutable audit event, and safely attributing confirmed revenue.
+ */
+export async function confirmWorkspaceBookingAtomic(
+  supabase: SupabaseClient,
+  input: {
+    workspaceId: string;
+    bookingId: string;
+    calendarProvider: string;
+    externalEventId: string;
+    confirmedRevenue?: number | null;
+    confirmedMeetingUrl?: string | null;
+    actorId?: string;
+  }
+): Promise<{ success: boolean; bookingId: string; status: string; confirmedRevenue?: number | null }> {
+  if (!input.calendarProvider || !input.externalEventId) {
+    throw new Error("External calendar provider and provider event ID are strictly required for confirmation.");
+  }
+
+  // Call the atomic RPC which performs locking, journey transition, audit event, and revenue attribution
+  const { data, error } = await supabase.rpc("confirm_workspace_booking_atomic", {
+    p_workspace_id: input.workspaceId,
+    p_booking_id: input.bookingId,
+    p_provider: input.calendarProvider,
+    p_provider_event_id: input.externalEventId,
+    p_confirmed_revenue: input.confirmedRevenue !== undefined && input.confirmedRevenue !== null ? input.confirmedRevenue : 0,
+    p_actor_id: input.actorId || "booking_provider_callback",
+  });
+
+  if (error) {
+    throw new Error(`Failed to confirm workspace booking atomically: ${error.message}`);
+  }
+
+  const result = typeof data === "string" ? JSON.parse(data) : data;
+  if (!result?.success) {
+    throw new Error(`Atomic booking confirmation failed: ${result?.error || "Unknown error"}`);
+  }
+
+  if (input.confirmedMeetingUrl) {
+    await supabase
+      .from("crm_bookings")
+      .update({ meeting_url: input.confirmedMeetingUrl })
+      .eq("id", input.bookingId)
+      .eq("workspace_id", input.workspaceId);
+  }
+
+  return result;
+}
+
+/**
  * Confirms an external calendar reservation (Google Calendar, Outlook, Cal.com)
  * explicitly distinguishing internal CRM booking records from confirmed external reservations.
  */
@@ -194,52 +249,31 @@ export async function confirmExternalCalendarReservation(
     calendarProvider: "google_calendar" | "cal_com" | "outlook";
     externalEventId: string;
     confirmedMeetingUrl?: string;
+    confirmedRevenue?: number | null;
   }
 ): Promise<BookingRecord> {
-  const { data: existing, error: getErr } = await supabase
+  await confirmWorkspaceBookingAtomic(supabase, {
+    workspaceId: input.workspaceId,
+    bookingId: input.bookingId,
+    calendarProvider: input.calendarProvider,
+    externalEventId: input.externalEventId,
+    confirmedRevenue: input.confirmedRevenue,
+    confirmedMeetingUrl: input.confirmedMeetingUrl,
+  });
+
+  const { data: updated, error } = await supabase
     .from("crm_bookings")
     .select("*")
     .eq("id", input.bookingId)
     .eq("workspace_id", input.workspaceId)
     .single();
 
-  if (getErr || !existing) {
-    throw new Error(`Booking ${input.bookingId} not found: ${getErr?.message || "Not found"}`);
-  }
-
-  const existingMeta = (existing.metadata || {}) as Record<string, unknown>;
-  const updatedMeta = {
-    ...existingMeta,
-    external_reservation_status: "confirmed_external_calendar",
-    external_calendar_provider: input.calendarProvider,
-    external_calendar_event_id: input.externalEventId,
-    is_external_calendar_confirmed: true,
-    confirmed_at: new Date().toISOString(),
-  };
-
-  const updates: Record<string, unknown> = {
-    metadata: updatedMeta,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (input.confirmedMeetingUrl) {
-    updates.meeting_url = input.confirmedMeetingUrl;
-  }
-
-  const { data, error } = await supabase
-    .from("crm_bookings")
-    .update(updates)
-    .eq("id", input.bookingId)
-    .eq("workspace_id", input.workspaceId)
-    .select("*")
-    .single();
-
-  if (error || !data) {
-    throw new Error(`Failed to confirm external calendar reservation: ${error?.message}`);
+  if (error || !updated) {
+    throw new Error(`Failed to retrieve confirmed booking ${input.bookingId}`);
   }
 
   return {
-    ...(data as BookingRecord),
+    ...(updated as BookingRecord),
     external_reservation_status: "confirmed_external_calendar",
     external_calendar_provider: input.calendarProvider,
     external_calendar_event_id: input.externalEventId,
