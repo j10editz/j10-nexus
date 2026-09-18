@@ -4,6 +4,11 @@ import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/auth";
 import { storeIntegrationCredentials } from "@/lib/integrations/credentials";
 import { createTelegramBindingToken } from "@/lib/telegram/binding-token";
+import {
+  registerExistingTelegramIntegration,
+  TelegramRegistrationError,
+  type TelegramApiResult,
+} from "@/lib/telegram/registration-transaction";
 
 export async function POST(req: Request) {
   try {
@@ -30,11 +35,11 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { action, token, vipGroupChatId } = body;
+    const { action, token, vipGroupChatId, integrationId: requestedIntegrationId } = body;
     const supabase = createServerSupabaseClient();
     const adminClient = createAdminSupabaseClient();
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://j10-nexus.vercel.app";
+    const appUrl = process.env.J10_APP_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim();
     const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
 
     // Option 1: 1-Click Activate Official J10 Nexus Bot (Internal / VIP group only)
@@ -52,30 +57,31 @@ export async function POST(req: Request) {
           { status: 500 },
         );
       }
+      if (!appUrl) {
+        return NextResponse.json(
+          { success: false, error: "The production callback URL is not configured on the server environment." },
+          { status: 500 },
+        );
+      }
       const botUsername = "j10_nexus_leads_bot";
       const botId = "8687561980";
 
-      // Register Webhook for Official Bot to canonical endpoint
-      const officialWebhookUrl = `${appUrl}/api/webhooks/telegram`;
-      const whRes = await fetch(`https://api.telegram.org/bot${officialToken}/setWebhook`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: officialWebhookUrl,
-          secret_token: webhookSecret,
-          drop_pending_updates: false,
-          allowed_updates: ["message", "edited_message", "callback_query", "chat_join_request"],
-        }),
-      });
-      const whData = await whRes.json();
-
-      // Check existing integration row
+      // Cutover is deliberately existing-row only. A separate onboarding flow may
+      // create pending integrations, but production activation never creates one.
       const { data: existing } = await supabase
         .from("integrations")
-        .select("id, metadata, public_configuration")
+        .select("id, workspace_id, status, metadata, public_configuration")
         .eq("workspace_id", wsId)
         .eq("provider", "telegram")
         .maybeSingle();
+      if (!existing || !requestedIntegrationId || requestedIntegrationId !== existing.id || existing.workspace_id !== wsId) {
+        return NextResponse.json(
+          { success: false, error: "An exact existing Telegram integration is required for cutover." },
+          { status: 409 },
+        );
+      }
+      const previousStatus = existing.status;
+      const officialWebhookUrl = `${appUrl.replace(/\/$/, "")}/api/webhooks/telegram`;
 
       const safeMetadata = {
         ...(existing?.metadata || {}),
@@ -84,7 +90,7 @@ export async function POST(req: Request) {
         bot_name: "J10 NEXUS Official Bot",
         connected_at: new Date().toISOString(),
         is_official: true,
-        webhook_configured: whData?.ok ?? false,
+        webhook_configured: false,
         vip_group_chat_id: vipGroupChatId || existing?.metadata?.vip_group_chat_id || "",
       };
       // Explicitly purge any token fields from metadata
@@ -100,47 +106,42 @@ export async function POST(req: Request) {
       delete (safePublicConfig as any).bot_token;
       delete (safePublicConfig as any).telegramBotToken;
 
-      let integrationId = existing?.id;
-      if (existing) {
-        await supabase
-          .from("integrations")
-          .update({
-            status: "connected",
-            metadata: safeMetadata,
-            public_configuration: safePublicConfig,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", existing.id);
-      } else {
-        const { data: inserted, error: insErr } = await supabase
-          .from("integrations")
-          .insert({
-            workspace_id: wsId,
-            provider: "telegram",
-            status: "connected",
-            metadata: safeMetadata,
-            public_configuration: safePublicConfig,
-          })
-          .select("id")
-          .single();
+      const telegramRequest = async (endpoint: string, init?: RequestInit): Promise<TelegramApiResult> => {
+        const response = await fetch(`https://api.telegram.org/bot${officialToken}/${endpoint}`, init);
+        let payload: unknown;
+        try { payload = await response.json(); } catch { return { ok: false, description: "Malformed Telegram response." }; }
+        if (!response.ok || !payload || typeof payload !== "object") return { ok: false };
+        const data = payload as TelegramApiResult;
+        return { ok: data.ok === true, result: data.result, description: data.description };
+      };
 
-        if (insErr || !inserted) {
-          throw new Error("Failed to create official Telegram integration row.");
-        }
-        integrationId = inserted.id;
-      }
-
-      // Store bot token strictly in Encrypted Credential Vault
-      await storeIntegrationCredentials(
-        adminClient,
-        wsId,
+      await registerExistingTelegramIntegration(
+        { id: existing.id, workspaceId: wsId, status: "connected" },
+        officialWebhookUrl,
         {
-          connectionId: integrationId!,
-          values: {
-            bot_token: officialToken,
-            webhook_secret: webhookSecret,
+          stagePending: async () => {
+            const { data, error } = await supabase.from("integrations").update({ status: "pending", updated_at: new Date().toISOString() }).eq("id", existing.id).eq("workspace_id", wsId).eq("status", previousStatus).select("id, workspace_id, status").maybeSingle();
+            if (error || !data) throw new Error("Could not stage the exact Telegram integration.");
+            return { id: data.id, workspaceId: data.workspace_id, status: data.status };
           },
-        }
+          restorePreviousState: async () => {
+            const { data, error } = await supabase.from("integrations").update({ status: previousStatus, updated_at: new Date().toISOString() }).eq("id", existing.id).eq("workspace_id", wsId).eq("status", "pending").select("id").maybeSingle();
+            if (error || !data || data.id !== existing.id) throw new Error("Could not restore the previous integration state.");
+          },
+          persistVault: async () => { await storeIntegrationCredentials(adminClient, wsId, { connectionId: existing.id, values: { bot_token: officialToken, webhook_secret: webhookSecret } }); },
+          setWebhook: () => telegramRequest("setWebhook", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: officialWebhookUrl, secret_token: webhookSecret, drop_pending_updates: false, allowed_updates: ["message", "edited_message", "callback_query", "chat_join_request"] }) }),
+          getWebhookInfo: () => telegramRequest("getWebhookInfo"),
+          activate: async () => {
+            const { data, error } = await supabase.from("integrations").update({ status: "connected", metadata: { ...safeMetadata, webhook_configured: true }, public_configuration: safePublicConfig, updated_at: new Date().toISOString() }).eq("id", existing.id).eq("workspace_id", wsId).eq("status", "pending").select("id, workspace_id, status").maybeSingle();
+            if (error || !data) throw new Error("Could not activate the exact Telegram integration.");
+            return { id: data.id, workspaceId: data.workspace_id, status: data.status };
+          },
+          markDegraded: async () => {
+            const { data, error } = await supabase.from("integrations").update({ status: "pending", updated_at: new Date().toISOString() }).eq("id", existing.id).eq("workspace_id", wsId).select("id").maybeSingle();
+            if (error || !data || data.id !== existing.id) throw new Error("Could not mark the integration pending.");
+          },
+          compensateWebhook: () => telegramRequest("deleteWebhook", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ drop_pending_updates: false }) }),
+        },
       );
 
       // Generate expiring opaque cryptographic binding token (Correction 1: SHA-256 in DB, <= 64 chars)
@@ -265,7 +266,7 @@ export async function POST(req: Request) {
       adminClient,
       wsId,
       {
-        connectionId: integrationId!,
+          connectionId: integrationId!,
         values: {
           bot_token: cleanToken,
           webhook_secret: customWebhookSecret,
