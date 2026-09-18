@@ -4,7 +4,6 @@ import { createAdminSupabaseClient } from "@/lib/auth";
 import {
   assertNoCrossWorkspaceConflict,
   exchangeMetaCodeForAccessToken,
-  subscribeWabaToWebhook,
   upsertWhatsAppIntegration,
   validateAndConsumeWhatsAppSession,
   verifyWabaAndPhoneNumber,
@@ -127,24 +126,20 @@ export async function POST(req: Request) {
       );
     }
 
-    // 5. Subscribe WABA to application webhook
-    const subscribed = await subscribeWabaToWebhook(accessToken, wabaId);
-
-    // 6. Create or update integration & encrypted credentials via safe two-phase activation
-    const { integrationId, endpointKey, isReconnect, status } = await upsertWhatsAppIntegration(adminSupabase, {
+    // 5. Authoritative activation via service (creates endpoint, subscribes WABA, verifies compensation)
+    const { integrationId, endpointKey, isReconnect, status, callbackUrl } = await upsertWhatsAppIntegration(adminSupabase, {
       workspaceId: wsId,
       userId: context.user.id,
       verifiedDetails,
       accessToken,
       appSecret,
-      webhookSubscribed: subscribed,
     });
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://j10-nexus.vercel.app";
     const canonicalWebhookUrl = `${appUrl}/api/webhooks/whatsapp/${endpointKey}`;
 
-    // If webhook subscription failed or degraded, do not display Active; return action_required with 422
-    if (!subscribed || status !== "connected") {
+    // If webhook subscription failed or degraded, return action_required with 422
+    if (status !== "connected") {
       return NextResponse.json(
         {
           success: false,
@@ -153,6 +148,7 @@ export async function POST(req: Request) {
           integrationId,
           endpointKey,
           isReconnect,
+          callbackUrl,
           account: {
             wabaId: verifiedDetails.wabaId,
             wabaName: verifiedDetails.wabaName,
@@ -173,6 +169,7 @@ export async function POST(req: Request) {
       integrationId,
       endpointKey,
       webhookUrl: canonicalWebhookUrl,
+      callbackUrl,
       isReconnect,
       account: {
         wabaId: verifiedDetails.wabaId,
@@ -185,6 +182,14 @@ export async function POST(req: Request) {
       },
     });
   } catch (err: any) {
+    if (err?.message?.includes("COMPENSATION_REQUIRED")) {
+      console.error("[WhatsApp Connect API] compensation_required stage: connect code: COMPENSATION_REQUIRED");
+      return NextResponse.json(
+        { success: false, error: "Setup failed and automatic cleanup requires manual review.", code: "COMPENSATION_REQUIRED" },
+        { status: 500 }
+      );
+    }
+
     console.error("[WhatsApp Connect API] setup_failed stage: connect code:", err?.code || "CONNECT_FAILED");
     return NextResponse.json(
       { success: false, error: "Failed to connect WhatsApp account." },

@@ -21,6 +21,58 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_connection_sessions (
     CHECK (status IN ('pending', 'completed', 'expired', 'failed'))
 );
 
+-- Audit and harden existing table in case it was created previously with nullable created_by_user_id
+DO $$
+DECLARE
+  v_null_initiators INT;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'whatsapp_connection_sessions'
+  ) THEN
+    -- Check for NULL created_by_user_id rows
+    SELECT count(*) INTO v_null_initiators
+    FROM public.whatsapp_connection_sessions
+    WHERE created_by_user_id IS NULL;
+
+    IF v_null_initiators > 0 THEN
+      -- Safely remove expired or non-pending unusable sessions with NULL created_by_user_id
+      DELETE FROM public.whatsapp_connection_sessions
+      WHERE created_by_user_id IS NULL
+        AND (expires_at <= now() OR status != 'pending');
+
+      -- Recheck for any remaining active NULL initiating-user rows
+      SELECT count(*) INTO v_null_initiators
+      FROM public.whatsapp_connection_sessions
+      WHERE created_by_user_id IS NULL;
+
+      IF v_null_initiators > 0 THEN
+        RAISE EXCEPTION 'Audit failed: % active whatsapp_connection_sessions have NULL created_by_user_id', v_null_initiators;
+      END IF;
+    END IF;
+
+    -- Enforce created_by_user_id NOT NULL
+    ALTER TABLE public.whatsapp_connection_sessions
+      ALTER COLUMN created_by_user_id SET NOT NULL;
+
+    -- Enforce foreign key with ON DELETE CASCADE
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name = kcu.constraint_name
+        AND tc.table_schema = kcu.table_schema
+      WHERE tc.table_name = 'whatsapp_connection_sessions'
+        AND tc.table_schema = 'public'
+        AND tc.constraint_type = 'FOREIGN KEY'
+        AND kcu.column_name = 'created_by_user_id'
+    ) THEN
+      ALTER TABLE public.whatsapp_connection_sessions
+        ADD CONSTRAINT fk_whatsapp_connection_sessions_user
+        FOREIGN KEY (created_by_user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+    END IF;
+  END IF;
+END $$;
+
 -- 2. Unique constraint and indexes for fast single-use token lookups and workspace queries
 CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_conn_sessions_token_hash
   ON public.whatsapp_connection_sessions(state_token_hash);

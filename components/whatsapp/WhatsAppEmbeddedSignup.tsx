@@ -111,6 +111,88 @@ export async function initiateMetaSignupFlow({
   return true;
 }
 
+export interface CoordinateMetaSignupParams {
+  fetchSession: () => Promise<Response>;
+  fetchConnect: (body: {
+    code: string;
+    state: string;
+    wabaId: string;
+    phoneNumberId: string;
+  }) => Promise<Response>;
+  fb: FacebookSdk;
+  metaFinishEvent: {
+    waba_id: string;
+    phone_number_id: string;
+  };
+}
+
+/**
+ * Coordinates end-to-end Meta signup flow verifying exact state handoff:
+ * 1. Fetches session token.
+ * 2. Initiates Meta SDK and obtains authorization code.
+ * 3. Sends authorization code, FINISH payload, and EXACT persisted state token to /connect.
+ */
+export async function coordinateMetaSignupFlow({
+  fetchSession,
+  fetchConnect,
+  fb,
+  metaFinishEvent,
+}: CoordinateMetaSignupParams): Promise<{
+  success: boolean;
+  stateUsed: string | null;
+  error?: string;
+  connectResponse?: any;
+}> {
+  // 1. Fetch session from server
+  const sessionRes = await fetchSession();
+  if (!sessionRes.ok) {
+    return { success: false, stateUsed: null, error: "Session endpoint returned error." };
+  }
+
+  const sessionData = await sessionRes.json();
+  const stateToken = sessionData?.state?.trim();
+  if (!sessionData?.success || !stateToken) {
+    return { success: false, stateUsed: null, error: "Missing state token in session response." };
+  }
+
+  let receivedCode: string | null = null;
+
+  // 2. Initiate Meta SDK with validated server values
+  const initSuccess = await initiateMetaSignupFlow({
+    sessionData,
+    fb,
+    setWorking: () => {},
+    setIsError: () => {},
+    setMessage: () => {},
+    onCodeReceived: (code) => {
+      receivedCode = code;
+    },
+  });
+
+  if (!initSuccess) {
+    return { success: false, stateUsed: null, error: "Meta SDK initiation failed." };
+  }
+
+  if (!receivedCode) {
+    return { success: false, stateUsed: stateToken, error: "Meta did not return auth code." };
+  }
+
+  // 3. Connect via /api/integrations/whatsapp/connect sending the EXACT persisted state token
+  const connectRes = await fetchConnect({
+    code: receivedCode,
+    state: stateToken,
+    wabaId: metaFinishEvent.waba_id,
+    phoneNumberId: metaFinishEvent.phone_number_id,
+  });
+
+  const connectBody = await connectRes.json();
+  return {
+    success: connectRes.ok && connectBody.success === true,
+    stateUsed: stateToken,
+    connectResponse: connectBody,
+  };
+}
+
 export interface WhatsAppEmbeddedSignupProps {
   integrationId?: string | null;
   onConnected?: () => void;
@@ -282,6 +364,21 @@ export function WhatsAppEmbeddedSignup({
       setMessage("WhatsApp connection is not configured");
       return;
     }
+
+    // Validate and persist the returned token before launching Meta flow
+    if (
+      !sessionData?.success ||
+      !sessionData?.state ||
+      typeof sessionData.state !== "string" ||
+      !sessionData.state.trim()
+    ) {
+      setWorking(false);
+      setIsError(true);
+      setMessage("WhatsApp connection is not configured");
+      return;
+    }
+
+    stateTokenRef.current = sessionData.state.trim();
 
     // FAIL CLOSED: If state, appId, or configId is missing, stop immediately.
     await initiateMetaSignupFlow({
