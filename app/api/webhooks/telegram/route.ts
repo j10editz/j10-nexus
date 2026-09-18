@@ -39,7 +39,13 @@ export async function POST(request: Request) {
     }
 
     // 1. Strictly verify webhook secret token using constant-time comparison
-    const expectedSecret = (process.env.TELEGRAM_WEBHOOK_SECRET || "j10_nexus_telegram_secret").trim();
+    const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
+    if (!expectedSecret) {
+      return NextResponse.json(
+        { error: "Telegram webhook secret is not configured" },
+        { status: 503 },
+      );
+    }
     const receivedSecret = request.headers.get("x-telegram-bot-api-secret-token");
     if (!verifySecretToken(receivedSecret, expectedSecret)) {
       return NextResponse.json(

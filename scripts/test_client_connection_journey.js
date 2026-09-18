@@ -1,3 +1,4 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 const fs = require("fs");
 const postgres = require("postgres");
 const crypto = require("crypto");
@@ -15,11 +16,13 @@ const envVars = Object.fromEntries(
     })
 );
 
-const supabaseUrl = envVars.NEXT_PUBLIC_SUPABASE_URL || "https://qtzhcnyxbjocfgimtvvm.supabase.co";
+const supabaseUrl = envVars.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = envVars.SUPABASE_SERVICE_ROLE_KEY || envVars.SUPABASE_SECRET_KEY;
-const poolerUrl =
-  envVars.SUPABASE_POOLER_URL ||
-  "postgresql://postgres.qtzhcnyxbjocfgimtvvm:IDESSINMEMENE@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require";
+const poolerUrl = requireDatabaseUrl();
+
+if (!supabaseUrl || !serviceKey) {
+  throw new Error("NEXT_PUBLIC_SUPABASE_URL and a server-side Supabase key are required.");
+}
 
 const admin = createClient(supabaseUrl, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },

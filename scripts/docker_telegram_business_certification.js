@@ -1,9 +1,10 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 const postgres = require("postgres");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-const DB_URL = "postgresql://supabase_admin:postgres@localhost:54322/postgres";
+const DB_URL = requireDatabaseUrl();
 
 async function runCertification() {
   console.log("=================================================================");
