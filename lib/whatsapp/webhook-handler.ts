@@ -20,7 +20,7 @@ export interface ProcessWhatsAppPayloadOptions {
  * 2. Inbound Messages ->
  *    a. Extract wamid, fromPhone, textBody, contactName, and normalized media metadata.
  *    b. Atomically commit lead intake, CRM contact, inbox thread, inbox message,
- *       beauty lifecycle, and AI job via record_canonical_whatsapp_inbound_atomic.
+ *       service conversion journey, and AI job via record_canonical_whatsapp_inbound_atomic.
  *    c. Enforce strict idempotency and payload conflict detection.
  *    d. Low-latency accelerator using Next.js after().
  *    e. Fast 200 acknowledgement with { success: true, accepted: true, wamid, threadId, jobId }.

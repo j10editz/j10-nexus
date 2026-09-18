@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/auth";
 import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
-import { calculateBeautyMetrics } from "@/lib/beauty/conversion-service";
+import { calculateServiceBusinessMetrics } from "@/lib/service-business/conversion-service";
 
 export async function GET() {
   try {
@@ -11,7 +11,7 @@ export async function GET() {
     const { context: wsContext } = auth;
     const supabase = createServerSupabaseClient();
 
-    const metrics = await calculateBeautyMetrics(supabase, wsContext.workspace.id);
+    const metrics = await calculateServiceBusinessMetrics(supabase, wsContext.workspace.id);
 
     return NextResponse.json(
       { success: true, metrics },

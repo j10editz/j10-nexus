@@ -28,7 +28,7 @@ type CRMContactInfo = {
   estimatedValue?: number;
 };
 
-type BeautyLifecycleInfo = {
+type ServiceLifecycleInfo = {
   status: string;
   requestedService?: string | null;
   preferredDate?: string | null;
@@ -48,7 +48,7 @@ type Conversation = {
   escalated?: boolean;
   escalationReason?: string;
   crmContact?: CRMContactInfo | null;
-  lifecycle?: BeautyLifecycleInfo | null;
+  lifecycle?: ServiceLifecycleInfo | null;
 };
 
 type ThreadMessage = {
@@ -123,7 +123,7 @@ export function WhatsAppInbox({
     if (!selected) return;
     setResuming(true);
     try {
-      const res = await fetch("/api/beauty/operator-resume", {
+      const res = await fetch("/api/service-business/operator-resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ threadId: selected.threadId || selected.sender }),

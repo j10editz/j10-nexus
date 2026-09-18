@@ -1,19 +1,21 @@
--- Migration: 20261008_beauty_conversion_pipeline.sql
--- Description: Establishes the Beauty Booking Assistant conversion pipeline:
---   1. beauty_conversion_lifecycles and transition history
---   2. beauty_followups schedule foundation
---   3. safe extension of crm_bookings booking types for beauty appointments
---   4. atomic PostgreSQL RPC for exactly-once WhatsApp inbound ingestion
+-- Migration: 20261008_service_business_conversion_engine.sql
+-- Description: Establishes the universal J10 Service Business Conversion Engine:
+--   1. service_conversion_journeys and service_conversion_events (auditable transition history)
+--   2. service_followups scheduling foundation (durable, non-sending)
+--   3. safe extension of crm_bookings booking types for service appointments
+--   4. atomic PostgreSQL RPC for exactly-once WhatsApp inbound ingestion across any service industry
 -- Idempotent, workspace-scoped, and preserves all existing schemas and migrations.
 
 BEGIN;
 
--- 1. Beauty conversion lifecycles table
-CREATE TABLE IF NOT EXISTS public.beauty_conversion_lifecycles (
+-- 1. Universal service conversion journeys table
+CREATE TABLE IF NOT EXISTS public.service_conversion_journeys (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
   contact_id UUID REFERENCES public.contacts(id) ON DELETE SET NULL,
   thread_id UUID REFERENCES public.inbox_threads(id) ON DELETE CASCADE,
+  lead_intake_id UUID REFERENCES public.lead_intakes(id) ON DELETE SET NULL,
+  playbook_key TEXT NOT NULL DEFAULT 'general_service',
   status TEXT NOT NULL CHECK (status IN ('new', 'contacted', 'qualified', 'booking_offered', 'booked', 'lost', 'human_takeover')) DEFAULT 'new',
   requested_service TEXT,
   preferred_date DATE,
@@ -31,23 +33,26 @@ CREATE TABLE IF NOT EXISTS public.beauty_conversion_lifecycles (
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT uq_beauty_lifecycle_thread UNIQUE (workspace_id, thread_id)
+  CONSTRAINT uq_service_journey_thread UNIQUE (workspace_id, thread_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_beauty_lifecycle_ws_status
-  ON public.beauty_conversion_lifecycles(workspace_id, status);
+CREATE INDEX IF NOT EXISTS idx_service_journey_ws_status
+  ON public.service_conversion_journeys(workspace_id, status);
 
-CREATE INDEX IF NOT EXISTS idx_beauty_lifecycle_ws_contact
-  ON public.beauty_conversion_lifecycles(workspace_id, contact_id);
+CREATE INDEX IF NOT EXISTS idx_service_journey_ws_contact
+  ON public.service_conversion_journeys(workspace_id, contact_id);
 
-CREATE INDEX IF NOT EXISTS idx_beauty_lifecycle_ws_phone
-  ON public.beauty_conversion_lifecycles(workspace_id, normalized_phone);
+CREATE INDEX IF NOT EXISTS idx_service_journey_ws_phone
+  ON public.service_conversion_journeys(workspace_id, normalized_phone);
 
--- 2. Transition history for auditability
-CREATE TABLE IF NOT EXISTS public.beauty_lifecycle_transitions (
+CREATE INDEX IF NOT EXISTS idx_service_journey_ws_playbook
+  ON public.service_conversion_journeys(workspace_id, playbook_key);
+
+-- 2. Transition history for universal auditability
+CREATE TABLE IF NOT EXISTS public.service_conversion_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  lifecycle_id UUID NOT NULL REFERENCES public.beauty_conversion_lifecycles(id) ON DELETE CASCADE,
+  journey_id UUID NOT NULL REFERENCES public.service_conversion_journeys(id) ON DELETE CASCADE,
   from_status TEXT,
   to_status TEXT NOT NULL CHECK (to_status IN ('new', 'contacted', 'qualified', 'booking_offered', 'booked', 'lost', 'human_takeover')),
   reason TEXT,
@@ -57,14 +62,14 @@ CREATE TABLE IF NOT EXISTS public.beauty_lifecycle_transitions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_beauty_transitions_lifecycle
-  ON public.beauty_lifecycle_transitions(workspace_id, lifecycle_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_service_events_journey
+  ON public.service_conversion_events(workspace_id, journey_id, created_at);
 
--- 3. Beauty follow-up schedule foundation
-CREATE TABLE IF NOT EXISTS public.beauty_followups (
+-- 3. Service business follow-up schedule foundation
+CREATE TABLE IF NOT EXISTS public.service_followups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  lifecycle_id UUID NOT NULL REFERENCES public.beauty_conversion_lifecycles(id) ON DELETE CASCADE,
+  journey_id UUID NOT NULL REFERENCES public.service_conversion_journeys(id) ON DELETE CASCADE,
   thread_id UUID NOT NULL REFERENCES public.inbox_threads(id) ON DELETE CASCADE,
   contact_id UUID REFERENCES public.contacts(id) ON DELETE SET NULL,
   followup_type TEXT NOT NULL CHECK (followup_type IN ('inquiry_followup', 'booking_reminder', 'deposit_reminder', 'noshow_recovery')),
@@ -76,10 +81,10 @@ CREATE TABLE IF NOT EXISTS public.beauty_followups (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_beauty_followups_ws_sched
-  ON public.beauty_followups(workspace_id, status, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_service_followups_ws_sched
+  ON public.service_followups(workspace_id, status, scheduled_for);
 
--- 4. Extend crm_bookings type constraint safely
+-- 4. Extend crm_bookings type constraint safely for service businesses
 DO $$
 BEGIN
   IF EXISTS (
@@ -101,8 +106,7 @@ BEGIN
         'technical_demo',
         'closing_call',
         'onboarding',
-        'beauty_service',
-        'salon_appointment',
+        'service_appointment',
         'consultation'
       ));
   END IF;
@@ -120,63 +124,63 @@ BEGIN
 END $$;
 
 -- 5. Row Level Security
-ALTER TABLE public.beauty_conversion_lifecycles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.beauty_lifecycle_transitions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.beauty_followups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.service_conversion_journeys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.service_conversion_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.service_followups ENABLE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN
-  -- beauty_conversion_lifecycles policies
-  DROP POLICY IF EXISTS beauty_lifecycles_select_member ON public.beauty_conversion_lifecycles;
-  CREATE POLICY beauty_lifecycles_select_member ON public.beauty_conversion_lifecycles
+  -- service_conversion_journeys policies
+  DROP POLICY IF EXISTS service_journeys_select_member ON public.service_conversion_journeys;
+  CREATE POLICY service_journeys_select_member ON public.service_conversion_journeys
     FOR SELECT TO authenticated
     USING (workspace_id IN (SELECT workspace_id FROM public.workspace_memberships WHERE user_id = auth.uid()));
 
-  DROP POLICY IF EXISTS beauty_lifecycles_modify_member ON public.beauty_conversion_lifecycles;
-  CREATE POLICY beauty_lifecycles_modify_member ON public.beauty_conversion_lifecycles
+  DROP POLICY IF EXISTS service_journeys_modify_member ON public.service_conversion_journeys;
+  CREATE POLICY service_journeys_modify_member ON public.service_conversion_journeys
     FOR ALL TO authenticated
     USING (workspace_id IN (SELECT workspace_id FROM public.workspace_memberships WHERE user_id = auth.uid()))
     WITH CHECK (workspace_id IN (SELECT workspace_id FROM public.workspace_memberships WHERE user_id = auth.uid()));
 
-  -- beauty_lifecycle_transitions policies
-  DROP POLICY IF EXISTS beauty_transitions_select_member ON public.beauty_lifecycle_transitions;
-  CREATE POLICY beauty_transitions_select_member ON public.beauty_lifecycle_transitions
+  -- service_conversion_events policies
+  DROP POLICY IF EXISTS service_events_select_member ON public.service_conversion_events;
+  CREATE POLICY service_events_select_member ON public.service_conversion_events
     FOR SELECT TO authenticated
     USING (workspace_id IN (SELECT workspace_id FROM public.workspace_memberships WHERE user_id = auth.uid()));
 
-  DROP POLICY IF EXISTS beauty_transitions_modify_member ON public.beauty_lifecycle_transitions;
-  CREATE POLICY beauty_transitions_modify_member ON public.beauty_lifecycle_transitions
+  DROP POLICY IF EXISTS service_events_modify_member ON public.service_conversion_events;
+  CREATE POLICY service_events_modify_member ON public.service_conversion_events
     FOR ALL TO authenticated
     USING (workspace_id IN (SELECT workspace_id FROM public.workspace_memberships WHERE user_id = auth.uid()))
     WITH CHECK (workspace_id IN (SELECT workspace_id FROM public.workspace_memberships WHERE user_id = auth.uid()));
 
-  -- beauty_followups policies
-  DROP POLICY IF EXISTS beauty_followups_select_member ON public.beauty_followups;
-  CREATE POLICY beauty_followups_select_member ON public.beauty_followups
+  -- service_followups policies
+  DROP POLICY IF EXISTS service_followups_select_member ON public.service_followups;
+  CREATE POLICY service_followups_select_member ON public.service_followups
     FOR SELECT TO authenticated
     USING (workspace_id IN (SELECT workspace_id FROM public.workspace_memberships WHERE user_id = auth.uid()));
 
-  DROP POLICY IF EXISTS beauty_followups_modify_member ON public.beauty_followups;
-  CREATE POLICY beauty_followups_modify_member ON public.beauty_followups
+  DROP POLICY IF EXISTS service_followups_modify_member ON public.service_followups;
+  CREATE POLICY service_followups_modify_member ON public.service_followups
     FOR ALL TO authenticated
     USING (workspace_id IN (SELECT workspace_id FROM public.workspace_memberships WHERE user_id = auth.uid()))
     WITH CHECK (workspace_id IN (SELECT workspace_id FROM public.workspace_memberships WHERE user_id = auth.uid()));
 END $$;
 
 -- 6. Permissions lockdown
-REVOKE ALL ON public.beauty_conversion_lifecycles FROM PUBLIC, anon;
-GRANT ALL ON public.beauty_conversion_lifecycles TO service_role;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.beauty_conversion_lifecycles TO authenticated;
+REVOKE ALL ON public.service_conversion_journeys FROM PUBLIC, anon;
+GRANT ALL ON public.service_conversion_journeys TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.service_conversion_journeys TO authenticated;
 
-REVOKE ALL ON public.beauty_lifecycle_transitions FROM PUBLIC, anon;
-GRANT ALL ON public.beauty_lifecycle_transitions TO service_role;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.beauty_lifecycle_transitions TO authenticated;
+REVOKE ALL ON public.service_conversion_events FROM PUBLIC, anon;
+GRANT ALL ON public.service_conversion_events TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.service_conversion_events TO authenticated;
 
-REVOKE ALL ON public.beauty_followups FROM PUBLIC, anon;
-GRANT ALL ON public.beauty_followups TO service_role;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.beauty_followups TO authenticated;
+REVOKE ALL ON public.service_followups FROM PUBLIC, anon;
+GRANT ALL ON public.service_followups TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.service_followups TO authenticated;
 
--- 7. Atomic PostgreSQL RPC for exactly-once WhatsApp inbound ingestion
+-- 7. Atomic PostgreSQL RPC for exactly-once WhatsApp inbound ingestion across any service industry
 CREATE OR REPLACE FUNCTION public.record_canonical_whatsapp_inbound_atomic(
   p_workspace_id UUID,
   p_wamid TEXT,
@@ -186,7 +190,8 @@ CREATE OR REPLACE FUNCTION public.record_canonical_whatsapp_inbound_atomic(
   p_content TEXT,
   p_media_metadata JSONB DEFAULT '{}'::jsonb,
   p_payload_hash TEXT DEFAULT NULL,
-  p_integration_id UUID DEFAULT NULL
+  p_integration_id UUID DEFAULT NULL,
+  p_playbook_key TEXT DEFAULT 'general_service'
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -203,7 +208,7 @@ DECLARE
   v_thread_id UUID;
   v_message_id UUID;
   v_intake_id UUID;
-  v_lifecycle_id UUID;
+  v_journey_id UUID;
   v_job_id UUID := NULL;
   v_thread_ai_enabled BOOLEAN := true;
   v_thread_human_handoff BOOLEAN := false;
@@ -211,6 +216,7 @@ DECLARE
   v_lead_idempotency_key TEXT;
   v_intake_payload_sha TEXT;
   v_ai_job_key TEXT;
+  v_playbook_key TEXT := coalesce(nullif(trim(p_playbook_key), ''), 'general_service');
 BEGIN
   -- Workspace validation
   IF NOT EXISTS (SELECT 1 FROM public.workspaces WHERE id = p_workspace_id) THEN
@@ -349,7 +355,8 @@ BEGIN
         'integrationId', p_integration_id,
         'lastMessageSnippet', left(p_content, 120),
         'aiBotEnabled', true,
-        'humanHandoff', false
+        'humanHandoff', false,
+        'playbookKey', v_playbook_key
       )
     )
     RETURNING id INTO v_thread_id;
@@ -434,7 +441,8 @@ BEGIN
     jsonb_build_object(
       'wamid', trim(p_wamid),
       'messageType', p_message_type,
-      'integration_id', p_integration_id
+      'integration_id', p_integration_id,
+      'playbook_key', v_playbook_key
     )
   )
   ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
@@ -463,18 +471,20 @@ BEGIN
     );
   END IF;
 
-  -- Step 7: Beauty Conversion Lifecycle State
-  SELECT id INTO v_lifecycle_id
-  FROM public.beauty_conversion_lifecycles
+  -- Step 7: Universal Service Conversion Journey State
+  SELECT id INTO v_journey_id
+  FROM public.service_conversion_journeys
   WHERE workspace_id = p_workspace_id
     AND thread_id = v_thread_id
   LIMIT 1;
 
-  IF v_lifecycle_id IS NULL THEN
-    INSERT INTO public.beauty_conversion_lifecycles (
+  IF v_journey_id IS NULL THEN
+    INSERT INTO public.service_conversion_journeys (
       workspace_id,
       contact_id,
       thread_id,
+      lead_intake_id,
+      playbook_key,
       status,
       customer_name,
       normalized_phone,
@@ -484,6 +494,8 @@ BEGIN
       p_workspace_id,
       v_contact_id,
       v_thread_id,
+      v_intake_id,
+      v_playbook_key,
       'new',
       v_sender_name,
       v_normalized_phone,
@@ -492,11 +504,11 @@ BEGIN
            ELSE '[]'::jsonb END,
       jsonb_build_object('initial_inquiry', left(p_content, 200))
     )
-    RETURNING id INTO v_lifecycle_id;
+    RETURNING id INTO v_journey_id;
 
-    INSERT INTO public.beauty_lifecycle_transitions (
+    INSERT INTO public.service_conversion_events (
       workspace_id,
-      lifecycle_id,
+      journey_id,
       from_status,
       to_status,
       reason,
@@ -504,7 +516,7 @@ BEGIN
       actor_id
     ) VALUES (
       p_workspace_id,
-      v_lifecycle_id,
+      v_journey_id,
       NULL,
       'new',
       'inbound_whatsapp_inquiry',
@@ -512,7 +524,7 @@ BEGIN
       'whatsapp_webhook'
     );
   ELSE
-    UPDATE public.beauty_conversion_lifecycles
+    UPDATE public.service_conversion_journeys
     SET
       customer_name = coalesce(v_sender_name, customer_name),
       normalized_phone = coalesce(v_normalized_phone, normalized_phone),
@@ -522,7 +534,7 @@ BEGIN
         ELSE media_references
       END,
       updated_at = now()
-    WHERE id = v_lifecycle_id;
+    WHERE id = v_journey_id;
   END IF;
 
   -- Step 8: WhatsApp AI Job Enqueueing
@@ -564,14 +576,14 @@ BEGIN
     'message_id', v_message_id,
     'contact_id', v_contact_id,
     'intake_id', v_intake_id,
-    'lifecycle_id', v_lifecycle_id,
+    'journey_id', v_journey_id,
     'job_id', v_job_id
   );
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.record_canonical_whatsapp_inbound_atomic(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, TEXT, UUID) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.record_canonical_whatsapp_inbound_atomic(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, TEXT, UUID) TO service_role;
+REVOKE ALL ON FUNCTION public.record_canonical_whatsapp_inbound_atomic(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, TEXT, UUID, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_canonical_whatsapp_inbound_atomic(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, TEXT, UUID, TEXT) TO service_role;
 
 -- 8. Explicit Suppressed Outcome for AI Worker
 CREATE OR REPLACE FUNCTION public.suppress_whatsapp_ai_job(

@@ -1,0 +1,70 @@
+import type { ServicePlaybook } from "../types";
+
+export const autoDetailingPlaybook: ServicePlaybook = {
+  playbookKey: "auto_detailing",
+  industryName: "Auto Detailing",
+  displayName: "Auto Detailing & Reconditioning Playbook",
+  description: "Playbook for mobile detailers, auto spas, paint correction, and ceramic coating studios.",
+  terminology: {
+    serviceLabel: "package",
+    bookingLabel: "reservation",
+    providerLabel: "detailer",
+  },
+  defaultDurationMinutes: 120,
+  services: [
+    {
+      key: "full_interior_detail",
+      name: "Full Interior Detail",
+      price: 175,
+      priceDisplay: "$175",
+      durationMinutes: 150,
+      description: "Deep steam cleaning, shampooing, leather conditioning, and ozone odor treatment.",
+      requiresQuote: false,
+    },
+    {
+      key: "exterior_paint_correction",
+      name: "Paint Correction",
+      price: 350,
+      priceDisplay: "$350",
+      durationMinutes: 240,
+      description: "Multi-stage machine compounding and polishing to eliminate swirls and scratches.",
+      requiresQuote: false,
+    },
+    {
+      key: "ceramic_coating",
+      name: "Ceramic Coating",
+      price: null,
+      priceDisplay: "Custom Quote",
+      durationMinutes: 360,
+      description: "Professional grade multi-year hydrophobic nano-ceramic surface protection.",
+      requiresQuote: true,
+    },
+    {
+      key: "wash_and_vac",
+      name: "Maintenance Wash & Vac",
+      price: 65,
+      priceDisplay: "$65",
+      durationMinutes: 60,
+      description: "Hand foam bath, wheel decontamination, blow dry, and interior vacuum.",
+      requiresQuote: false,
+    },
+  ],
+  qualificationQuestions: {
+    service: "Which detailing package are you interested in?",
+    vehicle: "What is the year, make, and model of your vehicle?",
+    date: "What date would you like to schedule your detailing session?",
+    time: "Do you prefer a morning drop-off or afternoon?",
+  },
+  escalationKeywords: [
+    "damage",
+    "scratch",
+    "dent",
+    "insurance",
+    "accident",
+    "complaint",
+    "manager",
+    "refund",
+  ],
+  systemPromptInstructions:
+    "You are an AI booking coordinator for an elite automotive detailing studio. Help customers select the right vehicle treatment packages, gather vehicle details, and schedule service reservations.",
+};

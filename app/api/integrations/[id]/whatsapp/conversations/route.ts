@@ -92,16 +92,16 @@ export async function GET(_request: Request, context: RouteContext) {
       console.error("[WhatsApp Conversations] Canonical threads error:", threadsError);
     }
 
-    // Query beauty conversion lifecycles for these threads
-    const { data: lifecycles } = await supabase
-      .from("beauty_conversion_lifecycles")
+    // Query service conversion journeys for these threads
+    const { data: journeys } = await supabase
+      .from("service_conversion_journeys")
       .select("*")
       .eq("workspace_id", wsContext.workspace.id);
 
     const lifecycleMap = new Map<string, any>();
-    for (const lc of lifecycles || []) {
-      if (lc.thread_id) {
-        lifecycleMap.set(lc.thread_id, lc);
+    for (const j of journeys || []) {
+      if (j.thread_id) {
+        lifecycleMap.set(j.thread_id, j);
       }
     }
 

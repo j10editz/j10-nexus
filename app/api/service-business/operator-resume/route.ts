@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/auth";
 import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
-import { operatorResumeAi } from "@/lib/beauty/conversion-service";
+import { operatorResumeJourneyAi } from "@/lib/service-business/conversion-service";
 
 export async function POST(req: Request) {
   try {
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await operatorResumeAi(supabase, {
+    const result = await operatorResumeJourneyAi(supabase, {
       workspaceId: wsContext.workspace.id,
       threadId,
       operatorUserId: wsContext.user.id,

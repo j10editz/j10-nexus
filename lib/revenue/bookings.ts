@@ -6,8 +6,7 @@ export type BookingType =
   | "technical_demo"
   | "closing_call"
   | "onboarding"
-  | "beauty_service"
-  | "salon_appointment"
+  | "service_appointment"
   | "consultation";
 
 export type BookingStatus =

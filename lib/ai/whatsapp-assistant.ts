@@ -8,7 +8,11 @@ import { assertWorkspaceEntitlement, recordVerifiedWorkspaceUsage } from "@/lib/
 import { WHATSAPP_RUNTIME_ADAPTER } from "@/lib/integrations/providers/whatsapp/adapter";
 import { WHATSAPP_ACTION_CAPABILITY_IDS } from "@/types/integration-whatsapp";
 import { getIntegrationCredentials } from "@/lib/integrations/credentials";
-import { extractBeautyIntent, updateBeautyLifecycleState } from "@/lib/beauty/conversion-service";
+import { resolvePlaybookForWorkspace } from "@/lib/service-business/playbooks/registry";
+import {
+  extractServiceIntent,
+  updateServiceJourneyLifecycleState,
+} from "@/lib/service-business/conversion-service";
 
 export interface WhatsAppAIMessageInput {
   supabase: SupabaseClient;
@@ -195,9 +199,9 @@ export async function generateAndSendWhatsAppAIResponse(
       .eq("id", threadId)
       .eq("workspace_id", workspaceId);
 
-    // Update beauty conversion lifecycle state to human_takeover
+    // Update service conversion journey state to human_takeover
     try {
-      await updateBeautyLifecycleState(supabase, {
+      await updateServiceJourneyLifecycleState(supabase, {
         workspaceId,
         threadId,
         status: "human_takeover",
@@ -306,7 +310,22 @@ export async function generateAndSendWhatsAppAIResponse(
   }
 
   // 7. Grounded System Prompt
-  const formattedServices = (botConfig.services || [])
+  const activePlaybook = resolvePlaybookForWorkspace(threadMeta);
+  const serviceLabel = activePlaybook.terminology.serviceLabel;
+  const bookingLabel = activePlaybook.terminology.bookingLabel;
+
+  const playbookCatalog = activePlaybook.services.map((s) => ({
+    name: s.name,
+    description: s.description || "",
+    price: s.priceDisplay || (s.price !== null && s.price !== undefined ? `$${s.price}` : "Custom Quote"),
+    duration: s.durationMinutes ? `${s.durationMinutes} mins` : undefined,
+  }));
+  const mergedServices =
+    botConfig.services && botConfig.services.length > 0
+      ? botConfig.services
+      : playbookCatalog;
+
+  const formattedServices = mergedServices
     .map((s, idx) => `${idx + 1}. ${s.name}: ${s.description} (Price: ${s.price}${s.duration ? `, Duration: ${s.duration}` : ""})`)
     .join("\n");
 
@@ -314,26 +333,27 @@ export async function generateAndSendWhatsAppAIResponse(
     .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
     .join("\n\n");
 
-  const systemInstruction = `You are the official 24/7 AI Receptionist & Beauty Booking Assistant representing "${businessName}" on WhatsApp.
-Your role is to help clients with inquiries, consultations, and appointment scheduling for salons, barbershops, nail technicians, lash technicians, braiders, and makeup artists.
+  const systemInstruction = `You are the official 24/7 AI Receptionist & Service Booking Assistant representing "${businessName}" on WhatsApp.
+Your role is to help clients with inquiries, consultations, and ${bookingLabel} scheduling.
+
+${activePlaybook.systemPromptInstructions || ""}
 
 CRITICAL SAFETY & GROUNDING RULES:
 1. You represent "${businessName}". You MUST NOT mention J10 NEXUS unless "${businessName}" is explicitly J10 NEXUS.
 2. Answer questions accurately and exclusively about "${businessName}", its services, pricing, business hours, and policies.
 3. If a question is in Spanish, answer in natural fluent Spanish. If in French, answer in French. Match the user's language automatically.
 4. Tone: ${botConfig.tone.toUpperCase()} (warm, professional, helpful, concise).
-5. NEVER invent or hallucinate service prices, discounts, or availability not provided in the knowledge base below.
+5. NEVER invent or hallucinate ${serviceLabel} prices, discounts, or availability not provided in the knowledge base below.
 6. NEVER claim an appointment is booked or confirmed unless explicitly confirmed by external calendar/system. If the customer wants to book, provide the booking link or take their preferred service, date, and time.
 7. NEVER invent synthetic meeting or calendar URLs (e.g. meet.j10nexus.com). Only provide the configured booking link.
-8. NEVER diagnose skin, hair, scalp, or nail medical conditions. Advise clients to consult a licensed medical professional for medical issues.
+8. NEVER provide regulated medical, legal, or financial advice. Advise clients to consult a licensed professional for regulated questions.
 9. NEVER claim a deposit was paid or charge cards over text.
 10. If you are uncertain or the client asks for custom requests outside your knowledge, politely offer to connect them with a human specialist.
 
 CONVERSION WORKFLOW:
-- Inquire which service the client is looking for if not already specified.
+- Inquire which ${serviceLabel} the client is looking for if not already specified.
 - Ask for their preferred date and time or time window (e.g., morning/afternoon).
-- If configured service requires reference photos (e.g., hair color, braiding, lash style, nail art), politely invite them to send a reference photo.
-- When service and preference are discussed, offer the official booking link: ${botConfig.booking_link || "Please let us know your preferred time and our team will lock it in."}`;
+- When ${serviceLabel} and preference are discussed, offer the official booking link: ${botConfig.booking_link || "Please let us know your preferred time and our team will lock it in."}`;
 
   let replyText = "";
   if (geminiKey) {
@@ -383,16 +403,16 @@ CONVERSION WORKFLOW:
     }
   }
 
-  // 10. Update beauty conversion lifecycle state
+  // 10. Update service conversion journey state
   try {
-    const extracted = extractBeautyIntent({
+    const extracted = extractServiceIntent({
       text: inboundText,
-      configuredServices: botConfig.services || [],
+      playbook: activePlaybook,
       bookingLink: botConfig.booking_link,
       replyText,
     });
 
-    await updateBeautyLifecycleState(supabase, {
+    await updateServiceJourneyLifecycleState(supabase, {
       workspaceId,
       threadId,
       status: extracted.suggestedStatus,
@@ -403,10 +423,10 @@ CONVERSION WORKFLOW:
       qualificationCompleteness: extracted.qualificationCompleteness,
       bookingOfferedAt: extracted.offeredBookingLink ? new Date().toISOString() : undefined,
       actorType: "ai_assistant",
-      reason: "Automated beauty service qualification and response",
+      reason: "Automated service qualification and response",
     });
   } catch (lifecycleErr) {
-    console.warn("[WhatsApp Assistant] Lifecycle update notice:", lifecycleErr);
+    console.warn("[WhatsApp Assistant] Journey update notice:", lifecycleErr);
   }
 
   return {
