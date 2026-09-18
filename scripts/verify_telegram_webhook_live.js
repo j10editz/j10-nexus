@@ -13,8 +13,14 @@ const envVars = Object.fromEntries(
 );
 
 const supabase = createClient(envVars.NEXT_PUBLIC_SUPABASE_URL, envVars.SUPABASE_SECRET_KEY);
-const encKeyBase64 = envVars.J10_INTEGRATION_ENCRYPTION_KEY || 'N+I5XXn3uXQvv7dPW1Sh9TQJZPv+LO2phEwhJ2QsnxI=';
+const encKeyBase64 = envVars.J10_INTEGRATION_ENCRYPTION_KEY;
+if (!encKeyBase64) {
+  throw new Error('J10_INTEGRATION_ENCRYPTION_KEY must be configured.');
+}
 const encryptionKey = Buffer.from(encKeyBase64, 'base64');
+if (encryptionKey.length !== 32) {
+  throw new Error('J10_INTEGRATION_ENCRYPTION_KEY must decode to 32 bytes.');
+}
 
 function decryptPayload(providerId, envelope) {
   const iv = Buffer.from(envelope.initialization_vector, 'base64');
@@ -60,7 +66,10 @@ async function verifyWebhook() {
   });
 
   const targetUrl = 'https://j10-nexus.vercel.app/api/webhooks/telegram';
-  const secretToken = envVars.TELEGRAM_WEBHOOK_SECRET || 'j10_nexus_telegram_secret';
+  const secretToken = envVars.TELEGRAM_WEBHOOK_SECRET;
+if (!secretToken) {
+  throw new Error('TELEGRAM_WEBHOOK_SECRET must be configured.');
+}
 
   if (infoData.result?.url !== targetUrl) {
     console.log(`Setting permanent Vercel HTTPS webhook endpoint to: ${targetUrl}...`);

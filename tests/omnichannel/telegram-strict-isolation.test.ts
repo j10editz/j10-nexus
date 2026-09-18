@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
+const TEST_TELEGRAM_WEBHOOK_SECRET = "telegram-webhook-test-secret";
+const originalWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+
 vi.mock("@/lib/integrations/webhooks/service-client", () => ({
   createWebhookServiceClient: vi.fn().mockReturnValue({
     from: vi.fn().mockReturnValue({
@@ -23,15 +26,18 @@ vi.mock("@/lib/integrations/webhooks/service-client", () => ({
 describe("Telegram Strict Multi-Tenant Isolation & Deduplication Tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.TELEGRAM_WEBHOOK_SECRET = TEST_TELEGRAM_WEBHOOK_SECRET;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (originalWebhookSecret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    else process.env.TELEGRAM_WEBHOOK_SECRET = originalWebhookSecret;
   });
 
   it("1. proves an unbound DM is never assigned to any workspace and drops safely with { ok: true }", async () => {
     const { POST } = await import("@/app/api/webhooks/telegram/route");
-    const validSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "j10_nexus_telegram_secret";
+    const validSecret = TEST_TELEGRAM_WEBHOOK_SECRET;
 
     // Unbound DM from unknown user without /start token or existing thread
     const unboundPayload = {

@@ -1,3 +1,4 @@
+const { requireDatabaseUrl } = require("./lib/database-url.cjs");
 const postgres = require('postgres');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -13,12 +14,18 @@ const envVars = Object.fromEntries(
     })
 );
 
-const url = 'postgresql://postgres.qtzhcnyxbjocfgimtvvm:IDESSINMEMENE@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require';
+const url = requireDatabaseUrl();
 const sql = postgres(url, { ssl: 'require', connect_timeout: 10 });
 
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
-const encKeyBase64 = envVars.J10_INTEGRATION_ENCRYPTION_KEY || 'N+I5XXn3uXQvv7dPW1Sh9TQJZPv+LO2phEwhJ2QsnxI=';
+const encKeyBase64 = envVars.J10_INTEGRATION_ENCRYPTION_KEY;
+if (!encKeyBase64) {
+  throw new Error('J10_INTEGRATION_ENCRYPTION_KEY must be configured.');
+}
 const encryptionKey = Buffer.from(encKeyBase64, 'base64');
+if (encryptionKey.length !== 32) {
+  throw new Error('J10_INTEGRATION_ENCRYPTION_KEY must decode to 32 bytes.');
+}
 const keyVersion = Number(envVars.J10_INTEGRATION_ENCRYPTION_KEY_VERSION || '1');
 
 function encryptValues(providerId, values) {

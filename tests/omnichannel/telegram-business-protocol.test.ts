@@ -1,12 +1,18 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
+const TEST_TELEGRAM_WEBHOOK_SECRET = "telegram-webhook-test-secret";
+const originalWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+
 describe("Telegram Business Protocol & Webhook Certification", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.TELEGRAM_WEBHOOK_SECRET = TEST_TELEGRAM_WEBHOOK_SECRET;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (originalWebhookSecret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    else process.env.TELEGRAM_WEBHOOK_SECRET = originalWebhookSecret;
   });
 
   it("rejects unauthorized webhook requests missing valid secret token", async () => {
@@ -27,7 +33,7 @@ describe("Telegram Business Protocol & Webhook Certification", () => {
 
   it("acknowledges duplicate update_id returning strictly { ok: true } without leaking internal fields", async () => {
     const { POST } = await import("@/app/api/webhooks/telegram/route");
-    const validSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "j10_nexus_telegram_secret";
+    const validSecret = TEST_TELEGRAM_WEBHOOK_SECRET;
 
     const updatePayload = {
       update_id: 999901,
