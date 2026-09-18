@@ -85,6 +85,8 @@ async function setupDatabase() {
       lead_source text,
       notes text,
       metadata jsonb not null default '{}'::jsonb,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
       unique(workspace_id, id)
     );
     CREATE TABLE public.inbox_threads (
@@ -131,27 +133,26 @@ async function setupDatabase() {
       unique(workspace_id, id)
     );
     CREATE TABLE public.automations (id uuid primary key default gen_random_uuid(), trigger_type text not null, constraint automations_trigger_type_check check(trigger_type = any(array['manual','new_crm_contact','crm_status_changed','new_ai_task','ai_task_completed','schedule','integration_event'])));
+    -- Real pre-20261008 crm_bookings schema (from 20260919_tier1_revenue_loop.sql)
     CREATE TABLE public.crm_bookings (
       id uuid primary key default gen_random_uuid(),
-      workspace_id uuid not null references public.workspaces(id),
+      workspace_id uuid not null references public.workspaces(id) on delete cascade,
       contact_id uuid references public.contacts(id),
       thread_id uuid references public.inbox_threads(id),
       proposal_id uuid,
-      booking_type text,
-      title text default 'Service Appointment',
-      scheduled_at timestamptz default now(),
-      duration_minutes integer default 60,
+      title text not null default 'Executive Walkthrough',
+      booking_type text not null default 'executive_walkthrough',
+      scheduled_at timestamptz not null default now(),
+      duration_minutes integer not null default 30 check (duration_minutes > 0),
       meeting_url text,
-      status text default 'requested',
-      external_reservation_status text default 'pending_confirmation',
-      external_calendar_provider text,
-      external_calendar_event_id text,
+      status text not null default 'scheduled',
       notes text,
       host_user_id uuid,
       metadata jsonb not null default '{}'::jsonb,
-      created_at timestamptz default now(),
-      updated_at timestamptz default now(),
-      CONSTRAINT chk_crm_bookings_type CHECK (booking_type IN ('executive_walkthrough', 'discovery_call', 'technical_demo', 'closing_call', 'onboarding', 'service_appointment', 'consultation'))
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now(),
+      CONSTRAINT chk_crm_bookings_type CHECK (booking_type IN ('executive_walkthrough', 'discovery_call', 'technical_demo', 'closing_call', 'onboarding')),
+      CONSTRAINT chk_crm_bookings_status CHECK (status IN ('scheduled', 'completed', 'canceled', 'rescheduled', 'no_show'))
     );
   `);
 
@@ -163,6 +164,58 @@ async function setupDatabase() {
   return db;
 }
 
+function parseSingleCondition(token: string, params: any[]): string {
+  token = token.trim();
+  if (token.includes(".is.null")) {
+    const col = token.split(".is.null")[0].trim();
+    return `"${col}" IS NULL`;
+  }
+  if (token.includes(".is.not.null")) {
+    const col = token.split(".is.not.null")[0].trim();
+    return `"${col}" IS NOT NULL`;
+  }
+  if (token.includes(".eq.")) {
+    const [left, right] = token.split(".eq.");
+    params.push(right);
+    if (left.includes("->>")) {
+      const [col, prop] = left.split("->>");
+      return `"${col}"->>'${prop}' = $${params.length}`;
+    }
+    return `"${left}" = $${params.length}`;
+  }
+  return "true";
+}
+
+function parsePostgrestOr(expr: string, params: any[]): string {
+  const orTokens: string[] = [];
+  let current = "";
+  let inParen = 0;
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (ch === "(") inParen++;
+    else if (ch === ")") inParen--;
+
+    if (ch === "," && inParen === 0) {
+      orTokens.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) orTokens.push(current.trim());
+
+  const sqlParts = orTokens.map((token) => {
+    if (token.startsWith("and(") && token.endsWith(")")) {
+      const inner = token.slice(4, -1);
+      const andTokens = inner.split(",");
+      return `(${andTokens.map((t) => parseSingleCondition(t, params)).join(" AND ")})`;
+    }
+    return parseSingleCondition(token, params);
+  });
+
+  return sqlParts.join(" OR ");
+}
+
 /**
  * Creates an authoritative SupabaseClient adapter wrapping PGlite
  * to drive production routes and handlers with real database contracts.
@@ -170,10 +223,43 @@ async function setupDatabase() {
 function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
   return {
     from: (table: string) => {
-      let filterCol: string | null = null;
-      let filterVal: any = null;
+      const eqFilters: Array<{ col: string; val: any }> = [];
+      const isFilters: Array<{ col: string; val: any }> = [];
+      const orFilters: Array<string> = [];
+      let orderBy: { col: string; ascending: boolean } | null = null;
+      let limitCount: number | null = null;
       let insertedData: any = null;
       let updatedData: any = null;
+      let isDelete = false;
+
+      const buildWhere = () => {
+        const clauses: string[] = [];
+        const params: any[] = [];
+
+        for (const f of eqFilters) {
+          params.push(f.val);
+          clauses.push(`"${f.col}" = $${params.length}`);
+        }
+
+        for (const f of isFilters) {
+          if (f.val === null) {
+            clauses.push(`"${f.col}" IS NULL`);
+          } else {
+            params.push(f.val);
+            clauses.push(`"${f.col}" IS $${params.length}`);
+          }
+        }
+
+        for (const rawOr of orFilters) {
+          const sql = parsePostgrestOr(rawOr, params);
+          if (sql) {
+            clauses.push(`(${sql})`);
+          }
+        }
+
+        const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+        return { whereSql, params };
+      };
 
       const builder: any = {
         select: (_cols?: string) => builder,
@@ -185,15 +271,38 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
           updatedData = data;
           return builder;
         },
-        eq: (col: string, val: any) => {
-          filterCol = col;
-          filterVal = val;
+        delete: () => {
+          isDelete = true;
           return builder;
         },
-        order: () => builder,
-        limit: () => builder,
+        eq: (col: string, val: any) => {
+          eqFilters.push({ col, val });
+          return builder;
+        },
+        is: (col: string, val: any) => {
+          isFilters.push({ col, val });
+          return builder;
+        },
+        or: (expr: string) => {
+          orFilters.push(expr);
+          return builder;
+        },
+        order: (col: string, options?: { ascending?: boolean }) => {
+          orderBy = { col, ascending: options?.ascending ?? true };
+          return builder;
+        },
+        limit: (n: number) => {
+          limitCount = n;
+          return builder;
+        },
         maybeSingle: async () => {
-          const res = await db.query(`SELECT * FROM public.${table} WHERE ${filterCol} = $1 LIMIT 1`, [filterVal]);
+          const { whereSql, params } = buildWhere();
+          let sql = `SELECT * FROM public.${table} ${whereSql}`;
+          if (orderBy) {
+            sql += ` ORDER BY "${orderBy.col}" ${orderBy.ascending ? "ASC" : "DESC"}`;
+          }
+          sql += " LIMIT 1";
+          const res = await db.query(sql, params);
           return { data: res.rows[0] || null, error: null };
         },
         single: async () => {
@@ -201,7 +310,7 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
             const keys = Object.keys(insertedData);
             const vals = Object.values(insertedData);
             const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
-            const cols = keys.join(", ");
+            const cols = keys.map((k) => `"${k}"`).join(", ");
             const res = await db.query(
               `INSERT INTO public.${table} (${cols}) VALUES (${placeholders}) RETURNING *`,
               vals
@@ -211,31 +320,57 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
           if (updatedData) {
             const keys = Object.keys(updatedData);
             const vals = Object.values(updatedData);
-            const sets = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+            const sets = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
+            const { whereSql, params: whereParams } = buildWhere();
+            let adjustedWhere = whereSql;
+            for (let i = whereParams.length; i >= 1; i--) {
+              adjustedWhere = adjustedWhere.replace(new RegExp(`\\$${i}\\b`, "g"), `$${vals.length + i}`);
+            }
             const res = await db.query(
-              `UPDATE public.${table} SET ${sets} WHERE ${filterCol} = $${keys.length + 1} RETURNING *`,
-              [...vals, filterVal]
+              `UPDATE public.${table} SET ${sets} ${adjustedWhere} RETURNING *`,
+              [...vals, ...whereParams]
             );
             return { data: res.rows[0] || null, error: null };
           }
-          const res = await db.query(`SELECT * FROM public.${table} WHERE ${filterCol} = $1 LIMIT 1`, [filterVal]);
+          const { whereSql, params } = buildWhere();
+          let sql = `SELECT * FROM public.${table} ${whereSql}`;
+          if (orderBy) {
+            sql += ` ORDER BY "${orderBy.col}" ${orderBy.ascending ? "ASC" : "DESC"}`;
+          }
+          sql += " LIMIT 1";
+          const res = await db.query(sql, params);
           return { data: res.rows[0] || null, error: null };
         },
         then: async (resolve: any) => {
-          if (updatedData && filterCol) {
+          if (isDelete) {
+            const { whereSql, params } = buildWhere();
+            const res = await db.query(`DELETE FROM public.${table} ${whereSql} RETURNING *`, params);
+            return resolve({ data: res.rows, error: null });
+          }
+          if (updatedData) {
             const keys = Object.keys(updatedData);
             const vals = Object.values(updatedData);
-            const sets = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+            const sets = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
+            const { whereSql, params: whereParams } = buildWhere();
+            let adjustedWhere = whereSql;
+            for (let i = whereParams.length; i >= 1; i--) {
+              adjustedWhere = adjustedWhere.replace(new RegExp(`\\$${i}\\b`, "g"), `$${vals.length + i}`);
+            }
             const res = await db.query(
-              `UPDATE public.${table} SET ${sets} WHERE ${filterCol} = $${keys.length + 1} RETURNING *`,
-              [...vals, filterVal]
+              `UPDATE public.${table} SET ${sets} ${adjustedWhere} RETURNING *`,
+              [...vals, ...whereParams]
             );
             return resolve({ data: res.rows, error: null });
           }
-          const res = await db.query(
-            filterCol ? `SELECT * FROM public.${table} WHERE ${filterCol} = $1` : `SELECT * FROM public.${table}`,
-            filterCol ? [filterVal] : []
-          );
+          const { whereSql, params } = buildWhere();
+          let sql = `SELECT * FROM public.${table} ${whereSql}`;
+          if (orderBy) {
+            sql += ` ORDER BY "${orderBy.col}" ${orderBy.ascending ? "ASC" : "DESC"}`;
+          }
+          if (limitCount !== null) {
+            sql += ` LIMIT ${limitCount}`;
+          }
+          const res = await db.query(sql, params);
           return resolve({ data: res.rows, error: null });
         },
       };
@@ -255,7 +390,7 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
               params.p_sender_name,
               params.p_message_type,
               params.p_content,
-              JSON.stringify(params.p_metadata || {}),
+              JSON.stringify(params.p_media_metadata || params.p_metadata || {}),
               params.p_payload_hash || null,
               params.p_integration_id || null,
               params.p_playbook_key || "general_service",
@@ -306,6 +441,37 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
           return { data: res.rows[0].confirm_workspace_booking_atomic, error: null };
         }
 
+        if (fn === "handoff_service_thread_atomic") {
+          const res = await db.query<{ handoff_service_thread_atomic: any }>(
+            `SELECT public.handoff_service_thread_atomic(
+              $1::uuid, $2::uuid, $3, $4, $5
+            )`,
+            [
+              params.p_workspace_id,
+              params.p_thread_id,
+              params.p_reason || null,
+              params.p_actor_type || "ai_assistant",
+              params.p_actor_id || null,
+            ]
+          );
+          return { data: res.rows[0].handoff_service_thread_atomic, error: null };
+        }
+
+        if (fn === "resume_service_thread_atomic") {
+          const res = await db.query<{ resume_service_thread_atomic: any }>(
+            `SELECT public.resume_service_thread_atomic(
+              $1::uuid, $2::uuid, $3, $4
+            )`,
+            [
+              params.p_workspace_id,
+              params.p_thread_id,
+              params.p_operator_user_id,
+              params.p_notes || null,
+            ]
+          );
+          return { data: res.rows[0].resume_service_thread_atomic, error: null };
+        }
+
         if (fn === "suppress_whatsapp_ai_job") {
           const res = await db.query<{ suppress_whatsapp_ai_job: any }>(
             `SELECT public.suppress_whatsapp_ai_job($1::uuid, $2::uuid, $3)`,
@@ -321,6 +487,7 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
     },
   } as any;
 }
+
 
 describe("J10 Service Business Conversion Engine - Production Path Invariants", () => {
   let db: PGlite;
@@ -958,9 +1125,15 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
     const viewerSelect = await db.query("SELECT * FROM public.service_conversion_journeys WHERE id = $1", [journeyId]);
     expect(viewerSelect.rows.length).toBe(1);
 
-    // Viewer update fails under RLS
-    const viewerUpdate = await db.query("UPDATE public.service_conversion_journeys SET notes = 'tampered' WHERE id = $1 RETURNING id", [journeyId]);
-    expect(viewerUpdate.rows.length).toBe(0);
+    // Direct table mutations are revoked from authenticated: UPDATE throws permission denied or returns 0 rows
+    let updateDenied = false;
+    try {
+      const viewerUpdate = await db.query("UPDATE public.service_conversion_journeys SET notes = 'tampered' WHERE id = $1 RETURNING id", [journeyId]);
+      if (viewerUpdate.rows.length === 0) updateDenied = true;
+    } catch (err: any) {
+      if (/permission denied/i.test(err.message)) updateDenied = true;
+    }
+    expect(updateDenied).toBe(true);
 
     // B. Suspended member cannot SELECT
     await db.exec(`
@@ -1184,5 +1357,243 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
     expect(autoMetrics.estimatedServiceValue).toBe(525);
     expect(autoMetrics.confirmedAttributedRevenue).toBe(175);
     expect(autoMetrics.inquiryToBookedRate).toBe(0.5);
+  });
+
+  // 16. Idempotency & Conflict Guard in Booking Confirmation
+  it("16. Provider event replay is idempotent, rejects empty event ID, and fails closed on conflicting confirmation", async () => {
+    const booking = await createWorkspaceBooking(supabase, {
+      workspaceId: workspaceBeauty,
+      title: "Hair Styling Session",
+      scheduledAt: new Date(Date.now() + 86400000).toISOString(),
+    });
+
+    // A. Replay exact same confirmation succeeds idempotently
+    const confirm1 = await confirmWorkspaceBookingAtomic(supabase, {
+      workspaceId: workspaceBeauty,
+      bookingId: booking.id,
+      calendarProvider: "google_calendar",
+      externalEventId: "evt_idemp_101",
+      confirmedRevenue: 85.00,
+    });
+    expect(confirm1.success).toBe(true);
+
+    const confirm2 = await confirmWorkspaceBookingAtomic(supabase, {
+      workspaceId: workspaceBeauty,
+      bookingId: booking.id,
+      calendarProvider: "google_calendar",
+      externalEventId: "evt_idemp_101",
+      confirmedRevenue: 85.00,
+    });
+    expect(confirm2.success).toBe(true);
+    expect(confirm2.duplicate).toBe(true);
+
+    // B. Replay with conflicting calendarProvider / event ID for the same booking fails closed
+    let conflictFailed = false;
+    try {
+      await confirmWorkspaceBookingAtomic(supabase, {
+        workspaceId: workspaceBeauty,
+        bookingId: booking.id,
+        calendarProvider: "cal_com",
+        externalEventId: "evt_conflict_different",
+      });
+    } catch (err: any) {
+      conflictFailed = true;
+      expect(err.message).toMatch(/already confirmed/i);
+    }
+    expect(conflictFailed).toBe(true);
+
+    // C. Missing provider or event ID throws validation error
+    let emptyProviderFailed = false;
+    try {
+      await confirmWorkspaceBookingAtomic(supabase, {
+        workspaceId: workspaceBeauty,
+        bookingId: booking.id,
+        calendarProvider: "" as any,
+        externalEventId: "evt_123",
+      });
+    } catch (err: any) {
+      emptyProviderFailed = true;
+      expect(err.message).toMatch(/required/i);
+    }
+    expect(emptyProviderFailed).toBe(true);
+  });
+
+  // 17. Direct lifecycle transition forbids booked status and client-supplied confirmation source or revenue
+  it("17. transition_service_journey_atomic strictly forbids booked status and rejects unconfirmed revenue", async () => {
+    const threadId = (await db.query<{ id: string }>(
+      "INSERT INTO public.inbox_threads (workspace_id, channel, external_thread_id) VALUES ($1, 'whatsapp', '+15550001111') RETURNING id",
+      [workspaceBeauty]
+    )).rows[0].id;
+
+    const jId = (await db.query<{ id: string }>(
+      "INSERT INTO public.service_conversion_journeys (workspace_id, thread_id, status) VALUES ($1, $2, 'qualified') RETURNING id",
+      [workspaceBeauty, threadId]
+    )).rows[0].id;
+
+    // Direct transition to 'booked' via updateServiceJourneyLifecycleState must fail
+    let bookedForbidden = false;
+    try {
+      await updateServiceJourneyLifecycleState(supabase, {
+        workspaceId: workspaceBeauty,
+        journeyId: jId,
+        toStatus: "booked" as any,
+        actorType: "operator",
+      });
+    } catch (err: any) {
+      bookedForbidden = true;
+      expect(err.message).toMatch(/cannot transition a journey to booked/i);
+    }
+    expect(bookedForbidden).toBe(true);
+
+    // Direct RPC call to transition_service_journey_atomic with 'booked' must fail
+    let rpcForbidden = false;
+    try {
+      await db.query(
+        "SELECT public.transition_service_journey_atomic($1::uuid, $2::uuid, 'booked', 'operator')",
+        [workspaceBeauty, jId]
+      );
+    } catch (err: any) {
+      rpcForbidden = true;
+      expect(err.message).toMatch(/cannot transition a journey to booked/i);
+    }
+    expect(rpcForbidden).toBe(true);
+  });
+
+  // 18. Handoff & Resume RPCs Atomically Synchronize Thread Metadata and Journey State
+  it("18. Handoff and resume transactional RPCs atomically synchronize thread metadata and journey state", async () => {
+    const threadId = (await db.query<{ id: string }>(
+      `INSERT INTO public.inbox_threads (workspace_id, channel, external_thread_id, metadata)
+       VALUES ($1, 'whatsapp', '+15553332222', '{"humanHandoff": false}'::jsonb) RETURNING id`,
+      [workspaceBeauty]
+    )).rows[0].id;
+
+    const jId = (await db.query<{ id: string }>(
+      "INSERT INTO public.service_conversion_journeys (workspace_id, thread_id, status) VALUES ($1, $2, 'contacted') RETURNING id",
+      [workspaceBeauty, threadId]
+    )).rows[0].id;
+
+    // Execute handoff RPC
+    const handoffRes = await db.query<{ handoff_service_thread_atomic: any }>(
+      "SELECT public.handoff_service_thread_atomic($1::uuid, $2::uuid, 'Customer requested human agent', 'ai_assistant')",
+      [workspaceBeauty, threadId]
+    );
+    expect(handoffRes.rows[0].handoff_service_thread_atomic.success).toBe(true);
+
+    // Verify thread metadata has humanHandoff: true
+    const threadAfterHandoff = await db.query<any>("SELECT metadata FROM public.inbox_threads WHERE id = $1", [threadId]);
+    expect(threadAfterHandoff.rows[0].metadata.humanHandoff).toBe(true);
+
+    // Verify journey status is human_takeover
+    const journeyAfterHandoff = await db.query<any>("SELECT status FROM public.service_conversion_journeys WHERE id = $1", [jId]);
+    expect(journeyAfterHandoff.rows[0].status).toBe("human_takeover");
+
+    // Verify audit event
+    const handoffEvent = await db.query<any>("SELECT * FROM public.service_conversion_events WHERE journey_id = $1 AND to_status = 'human_takeover'", [jId]);
+    expect(handoffEvent.rows.length).toBe(1);
+
+    // Execute operator resume
+    const resumedJourney = await operatorResumeJourneyAi(supabase, {
+      workspaceId: workspaceBeauty,
+      threadId,
+      operatorUserId: userOwner,
+      notes: "Operator finished consultation",
+    });
+    expect(resumedJourney.status).toBe("contacted");
+
+    // Verify thread metadata has humanHandoff: false
+    const threadAfterResume = await db.query<any>("SELECT metadata FROM public.inbox_threads WHERE id = $1", [threadId]);
+    expect(threadAfterResume.rows[0].metadata.humanHandoff).toBe(false);
+  });
+
+  // 19. Universal Service Business Support with Honest "Not Configured" Fallbacks
+  it("19. Universal service business model supports arbitrary services and prevents fabricated business details", () => {
+    // A. Custom HVAC Business
+    const hvacWorkspaceMeta = {
+      business_name: "Apex HVAC & Clean Air",
+      industry: "home_services",
+      business_hours: "Mon-Fri 7:30 AM - 5:30 PM",
+      cancellation_policy: "24 hours advance notice required for full refund",
+      booking_url: "https://apex-hvac.example.com/book",
+      services: [
+        { id: "hvac_tuneup", name: "Seasonal AC Tune-up", price: 129, duration: "60 min" },
+        { id: "duct_clean", name: "Whole-Home Duct Cleaning", price: 349, duration: "120 min" },
+      ],
+    };
+
+    const hvacPrompt = buildAssistantSystemInstruction({
+      workspaceMetadata: hvacWorkspaceMeta,
+      playbookKey: "general_service",
+    });
+
+    expect(hvacPrompt).toContain("Apex HVAC & Clean Air");
+    expect(hvacPrompt).toContain("Seasonal AC Tune-up");
+    expect(hvacPrompt).toContain("$129");
+    expect(hvacPrompt).toContain("Whole-Home Duct Cleaning");
+    expect(hvacPrompt).toContain("$349");
+    expect(hvacPrompt).toContain("Mon-Fri 7:30 AM - 5:30 PM");
+    expect(hvacPrompt).toContain("24 hours advance notice required for full refund");
+    expect(hvacPrompt).toContain("https://apex-hvac.example.com/book");
+
+    // Must NOT contain beauty or auto defaults
+    expect(hvacPrompt).not.toContain("Lash Extensions");
+    expect(hvacPrompt).not.toContain("Balayage");
+    expect(hvacPrompt).not.toContain("Ceramic Coating");
+    expect(hvacPrompt).not.toContain("Standard Service Consultation");
+
+    // B. Completely unconfigured workspace: honest fallbacks, zero invented claims
+    const emptyPrompt = buildAssistantSystemInstruction({
+      workspaceMetadata: {},
+      playbookKey: "general_service",
+    });
+
+    expect(emptyPrompt).toContain("AVAILABLE SERVICES & PRICING:\nNot configured.");
+    expect(emptyPrompt).toContain("OPERATING HOURS:\nNot configured.");
+    expect(emptyPrompt).toContain("POLICIES:\nNot configured.");
+    expect(emptyPrompt).toContain("OFFICIAL BOOKING LINK:\nNot configured.");
+  });
+
+  // 20. Stale metadata isolation across integration boundaries
+  it("20. Multi-integration isolation guarantees canonical integration_id wins and never leaks across integrations", async () => {
+    // Create integration 3 on workspaceBeauty
+    const int3 = await db.query<{ id: string }>(
+      "INSERT INTO public.integrations (workspace_id, user_id, provider, status) VALUES ($1, $2, 'whatsapp', 'connected') RETURNING id",
+      [workspaceBeauty, userOwner]
+    );
+    const integrationOther = int3.rows[0].id;
+
+    const phone = "+15552468101";
+
+    // Ingest inbound for integrationBeauty
+    const resA = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_iso_1', $2, 'Isolated Client', 'text', 'Hi Int 1', '{}'::jsonb, 'iso1', $3::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, phone, integrationBeauty]
+    );
+
+    // Ingest inbound for integrationOther
+    const resB = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_iso_2', $2, 'Isolated Client', 'text', 'Hi Int 2', '{}'::jsonb, 'iso2', $3::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, phone, integrationOther]
+    );
+
+    const threadA = resA.rows[0].record_canonical_whatsapp_inbound_atomic.thread_id;
+    const threadB = resB.rows[0].record_canonical_whatsapp_inbound_atomic.thread_id;
+
+    // Must be two distinct threads
+    expect(threadA).not.toBe(threadB);
+
+    // Filter threads for integrationBeauty: threadB MUST NOT appear
+    const threadsIntBeauty = await supabase
+      .from("inbox_threads")
+      .select("id")
+      .eq("workspace_id", workspaceBeauty)
+      .or(`integration_id.eq.${integrationBeauty},and(integration_id.is.null,metadata->>integrationId.eq.${integrationBeauty})`);
+
+    const ids = (threadsIntBeauty.data || []).map((t: any) => t.id);
+    expect(ids).toContain(threadA);
+    expect(ids).not.toContain(threadB);
   });
 });

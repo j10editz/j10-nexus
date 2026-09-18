@@ -98,7 +98,7 @@ export async function getWhatsAppMessageThread(
     .select("id, external_thread_id")
     .eq("workspace_id", workspaceId)
     .eq("channel", "whatsapp")
-    .or(`integration_id.eq.${integrationId},metadata->>integrationId.eq.${integrationId}`)
+    .or(`integration_id.eq.${integrationId},and(integration_id.is.null,metadata->>integrationId.eq.${integrationId})`)
     .or(`external_thread_id.eq.${senderPhone},external_thread_id.eq.${cleanSender}`)
     .order("last_message_at", { ascending: false })
     .limit(1)

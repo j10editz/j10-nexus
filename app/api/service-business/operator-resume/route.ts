@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/auth";
 import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
+import { createAdminSupabaseClient } from "@/lib/auth";
 import { operatorResumeJourneyAi } from "@/lib/service-business/conversion-service";
 
 export async function POST(req: Request) {
@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     if (auth.error) return auth.error;
 
     const { context: wsContext } = auth;
-    const supabase = createServerSupabaseClient();
+    const adminSupabase = createAdminSupabaseClient();
 
     const body = await req.json();
     const threadId = typeof body.threadId === "string" ? body.threadId.trim() : null;
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await operatorResumeJourneyAi(supabase, {
+    const result = await operatorResumeJourneyAi(adminSupabase, {
       workspaceId: wsContext.workspace.id,
       threadId,
       operatorUserId: wsContext.user.id,

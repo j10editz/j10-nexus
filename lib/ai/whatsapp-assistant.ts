@@ -18,6 +18,7 @@ import type { ServicePlaybook } from "@/lib/service-business/types";
 import {
   extractConfiguredPrice,
   extractServiceIntent,
+  isValidHttpsUrl,
   updateServiceJourneyLifecycleState,
 } from "@/lib/service-business/conversion-service";
 
@@ -192,33 +193,22 @@ export async function generateAndSendWhatsAppAIResponse(
     lower.includes("speak to a person") ||
     lower.includes("real person")
   ) {
-    await supabase
-      .from("inbox_threads")
-      .update({
-        priority: "urgent",
-        metadata: {
-          ...threadMeta,
-          aiBotEnabled: false,
-          humanHandoff: true,
-          humanRequestedAt: new Date().toISOString(),
-        },
-      })
-      .eq("id", threadId)
-      .eq("workspace_id", workspaceId);
+    const { data: handoffData, error: handoffError } = await supabase.rpc(
+      "handoff_service_thread_atomic",
+      {
+        p_workspace_id: workspaceId,
+        p_thread_id: threadId,
+        p_reason: "Customer requested human representative",
+        p_actor_type: "ai_assistant",
+        p_actor_id: null,
+      }
+    );
 
-    // Update service conversion journey state to human_takeover
-    try {
-      await updateServiceJourneyLifecycleState(supabase, {
-        workspaceId,
-        threadId,
-        status: "human_takeover",
-        humanTakeoverReason: "Customer requested human representative",
-        actorType: "ai_assistant",
-        reason: "Customer escalation keyword detected",
-      });
-    } catch {}
+    if (handoffError) {
+      throw new Error(`Handoff transaction failed: ${handoffError.message}`);
+    }
 
-    const alreadySentNotice = threadMeta.humanHandoffNoticeSent === true;
+    const alreadySentNotice = handoffData?.already_sent_notice === true;
     if (alreadySentNotice) {
       return {
         replyText: "",
@@ -238,19 +228,25 @@ export async function generateAndSendWhatsAppAIResponse(
       inboundWamid,
     });
 
-    await supabase
-      .from("inbox_threads")
-      .update({
-        metadata: {
-          ...threadMeta,
-          aiBotEnabled: false,
-          humanHandoff: true,
-          humanRequestedAt: new Date().toISOString(),
-          humanHandoffNoticeSent: true,
-        },
-      })
-      .eq("id", threadId)
-      .eq("workspace_id", workspaceId);
+    if (sendResult.deliveryStatus === "sent") {
+      const { error: updateMetaError } = await supabase
+        .from("inbox_threads")
+        .update({
+          metadata: {
+            ...threadMeta,
+            aiBotEnabled: false,
+            humanHandoff: true,
+            humanRequestedAt: new Date().toISOString(),
+            humanHandoffNoticeSent: true,
+          },
+        })
+        .eq("id", threadId)
+        .eq("workspace_id", workspaceId);
+
+      if (updateMetaError) {
+        console.warn("[WhatsApp Assistant] Failed to record humanHandoffNoticeSent:", updateMetaError.message);
+      }
+    }
 
     return { replyText: handoffNotice, ...sendResult };
   }
@@ -318,61 +314,71 @@ export async function generateAndSendWhatsAppAIResponse(
 
   // 7. Grounded System Prompt
   let resolvedKey: string | null = null;
-  try {
-    const { data: journeyRow } = await supabase
-      .from("service_conversion_journeys")
-      .select("playbook_key")
-      .eq("workspace_id", workspaceId)
-      .eq("thread_id", threadId)
-      .maybeSingle();
-    resolvedKey = journeyRow?.playbook_key || null;
-  } catch {}
+  const { data: journeyRow, error: journeyErr } = await supabase
+    .from("service_conversion_journeys")
+    .select("playbook_key")
+    .eq("workspace_id", workspaceId)
+    .eq("thread_id", threadId)
+    .maybeSingle();
+
+  if (journeyErr) {
+    throw new Error(`Database error querying service journey playbook: ${journeyErr.message}`);
+  }
+  resolvedKey = journeyRow?.playbook_key || null;
 
   if (!resolvedKey) {
-    try {
-      const { data: wsRow } = await supabase
-        .from("workspaces")
-        .select("metadata")
-        .eq("id", workspaceId)
-        .maybeSingle();
-      resolvedKey = resolveAuthoritativePlaybookKey({
-        workspaceMetadata: wsRow?.metadata as Record<string, unknown>,
-      });
-    } catch {}
+    const { data: wsRow, error: wsErr } = await supabase
+      .from("workspaces")
+      .select("metadata")
+      .eq("id", workspaceId)
+      .maybeSingle();
+
+    if (wsErr) {
+      throw new Error(`Database error querying workspace metadata for playbook: ${wsErr.message}`);
+    }
+    resolvedKey = resolveAuthoritativePlaybookKey({
+      workspaceMetadata: wsRow?.metadata as Record<string, unknown>,
+    });
   }
 
   const activePlaybook = getPlaybook(resolvedKey);
   const serviceLabel = activePlaybook.terminology.serviceLabel;
   const bookingLabel = activePlaybook.terminology.bookingLabel;
 
-  const playbookCatalog = activePlaybook.services.map((s) => ({
-    name: s.name,
-    description: s.description || "",
-    price: s.priceDisplay || (s.price !== null && s.price !== undefined ? `$${s.price}` : "Custom Quote"),
-    duration: s.durationMinutes ? `${s.durationMinutes} mins` : undefined,
-  }));
+  // Workspace-configured services are authoritative.
+  // Playbooks provide terminology and qualification guidance only.
+  // Only preset industry playbooks (e.g. beauty_grooming, auto_detailing) provide starter services
+  // when workspace has zero configured services. General service has no starter services.
+  let effectiveServicesList: any[] = [];
+  if (Array.isArray(botConfig.services) && botConfig.services.length > 0) {
+    effectiveServicesList = botConfig.services;
+  } else if (activePlaybook.playbookKey !== "general_service" && activePlaybook.services && activePlaybook.services.length > 0) {
+    effectiveServicesList = activePlaybook.services.map((s) => ({
+      name: s.name,
+      description: s.description || "",
+      price: s.priceDisplay || (s.price !== null && s.price !== undefined ? `$${s.price}` : "Custom Quote"),
+      duration: s.durationMinutes ? `${s.durationMinutes} mins` : undefined,
+    }));
+  }
 
-  const mergedServices =
-    botConfig.services && botConfig.services.length > 0
-      ? botConfig.services
-      : playbookCatalog;
-
-  const formattedServices = mergedServices
-    .map((s, idx) => `${idx + 1}. ${s.name}: ${s.description} (Price: ${s.price}${s.duration ? `, Duration: ${s.duration}` : ""})`)
-    .join("\n");
+  const formattedServices = effectiveServicesList.length > 0
+    ? effectiveServicesList
+        .map((s, idx) => `${idx + 1}. ${s.name}: ${s.description || "No description"} (Price: ${s.price || "Custom Quote"}${s.duration ? `, Duration: ${s.duration}` : ""})`)
+        .join("\n")
+    : "";
 
   const formattedFaqs = (botConfig.faqs || [])
     .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
     .join("\n\n");
 
   const businessDescription =
-    (botConfig as any).company_description?.trim() || botConfig.description?.trim() || `${businessName} provides premium appointment-based professional services.`;
+    (botConfig as any).company_description?.trim() || botConfig.description?.trim() || undefined;
   const businessHours =
-    botConfig.business_hours?.trim() || "Monday - Saturday: 9:00 AM - 6:00 PM";
+    botConfig.business_hours?.trim() || undefined;
   const policies =
-    (botConfig as any).policies?.trim() || botConfig.pricing_details?.trim() || "Cancellations and rescheduling require 24 hours advance notice.";
-  const bookingLink =
-    botConfig.booking_link?.trim() || "Please contact our team directly for booking confirmation.";
+    (botConfig as any).policies?.trim() || botConfig.pricing_details?.trim() || undefined;
+  const rawBookingLink = botConfig.booking_link?.trim();
+  const bookingLink = isValidHttpsUrl(rawBookingLink) ? rawBookingLink : undefined;
 
   const systemInstruction = buildAssistantSystemInstruction({
     businessName,
@@ -436,7 +442,7 @@ export async function generateAndSendWhatsAppAIResponse(
 
   // 10. Update service conversion journey state with effective services
   try {
-    const effectiveCatalog = mergedServices.map((s, idx) => ({
+    const effectiveCatalog = effectiveServicesList.map((s, idx) => ({
       key: (s as any).id || s.name || `svc_${idx}`,
       name: s.name,
       price: extractConfiguredPrice(s.price),
@@ -450,7 +456,7 @@ export async function generateAndSendWhatsAppAIResponse(
       text: inboundText,
       playbook: activePlaybook,
       effectiveServices: effectiveCatalog,
-      bookingLink: botConfig.booking_link,
+      bookingLink: bookingLink || null,
       replyText,
     });
 
@@ -479,8 +485,11 @@ export async function generateAndSendWhatsAppAIResponse(
 
 /**
  * Builds the fully grounded system instruction incorporating workspace services, hours, faqs, policies, and booking link.
+ * Strictly adheres to truthfulness: missing fields are marked "Not configured" and model is forbidden from inventing facts.
  */
 export function buildAssistantSystemInstruction(params: {
+  workspaceMetadata?: any;
+  playbookKey?: string;
   businessName?: string;
   businessDescription?: string;
   businessHours?: string;
@@ -496,20 +505,39 @@ export function buildAssistantSystemInstruction(params: {
   playbook?: ServicePlaybook;
   tone?: string;
 }): string {
-  const activePlaybook = params.activePlaybook || params.playbook || defaultPlaybook;
-  const businessName = params.businessName || "Our Business";
-  const businessDescription = params.businessDescription || "Professional appointment-based service provider.";
-  const businessHours = params.businessHours || "Monday - Friday: 9:00 AM - 5:00 PM";
-  const policies = params.policies || "Standard cancellation and reservation policies apply.";
-  const bookingLink = params.bookingLink || "https://booking.j10nexus.com";
-  const tone = params.tone || "professional, warm, helpful, and concise";
+  const meta = params.workspaceMetadata || {};
+  const activePlaybook =
+    params.activePlaybook ||
+    params.playbook ||
+    (params.playbookKey ? getPlaybook(params.playbookKey) : defaultPlaybook);
+  const businessName =
+    params.businessName || meta.business_name || meta.name || "Our Business";
+  const businessDescription =
+    params.businessDescription?.trim() ||
+    meta.business_description?.trim() ||
+    meta.description?.trim() ||
+    "Not configured. (Do NOT invent business descriptions, background, or marketing claims.)";
+  const businessHours =
+    params.businessHours?.trim() ||
+    meta.business_hours?.trim() ||
+    "Not configured. (Do NOT state specific operating days or hours as fact. If asked, state that hours are not configured or offer to have a team member follow up.)";
+  const policies =
+    params.policies?.trim() ||
+    meta.policies?.trim() ||
+    meta.cancellation_policy?.trim() ||
+    "Not configured. (Do NOT invent cancellation, deposit, or rescheduling policies.)";
+
+  const rawBookingLink = params.bookingLink?.trim() || meta.booking_url?.trim() || meta.booking_link?.trim();
+  const validatedBookingLink = isValidHttpsUrl(rawBookingLink) ? rawBookingLink : undefined;
+  const tone = params.tone || meta.tone || "professional, warm, helpful, and concise";
 
   let formattedServices = params.formattedServices || "";
-  if (!formattedServices && Array.isArray(params.services) && params.services.length > 0) {
-    formattedServices = params.services
+  const servicesList = params.services || meta.services;
+  if (!formattedServices && Array.isArray(servicesList) && servicesList.length > 0) {
+    formattedServices = servicesList
       .map((s: any) => {
-        const price = s.price !== undefined ? ` - $${s.price}` : "";
-        const dur = s.durationMinutes ? ` (${s.durationMinutes} min)` : "";
+        const price = s.price !== undefined && s.price !== null ? ` - $${s.price}` : "";
+        const dur = s.durationMinutes || s.duration ? ` (${s.durationMinutes || s.duration})` : "";
         const desc = s.description ? `: ${s.description}` : "";
         return `• ${s.name}${price}${dur}${desc}`;
       })
@@ -517,8 +545,9 @@ export function buildAssistantSystemInstruction(params: {
   }
 
   let formattedFaqs = params.formattedFaqs || "";
-  if (!formattedFaqs && Array.isArray(params.faqs) && params.faqs.length > 0) {
-    formattedFaqs = params.faqs
+  const faqsList = params.faqs || meta.faqs;
+  if (!formattedFaqs && Array.isArray(faqsList) && faqsList.length > 0) {
+    formattedFaqs = faqsList
       .map((f: any) => `Q: ${f.question}\nA: ${f.answer}`)
       .join("\n\n");
   }
@@ -528,6 +557,14 @@ export function buildAssistantSystemInstruction(params: {
 
   const pricingNotesBlock = params.pricingNotes ? `\nPRICING NOTES:\n${params.pricingNotes}\n` : "";
   const escalationBlock = params.escalationInstructions ? `\nESCALATION INSTRUCTIONS:\n${params.escalationInstructions}\n` : "";
+
+  const bookingLinkBlock = validatedBookingLink
+    ? `OFFICIAL BOOKING LINK:\n${validatedBookingLink}`
+    : `OFFICIAL BOOKING LINK:\nNot configured.\n(CRITICAL: No online booking link is configured for this workspace. You MUST NOT state or claim an online booking link exists, and you MUST NOT provide placeholder or synthetic URLs. Collect the client's preferred ${serviceLabel}, date, and time, and offer to have a human specialist follow up to confirm.)`;
+
+  const servicesBlock = formattedServices
+    ? `AVAILABLE ${serviceLabel.toUpperCase()}S & PRICING:\n${formattedServices}`
+    : `AVAILABLE ${serviceLabel.toUpperCase()}S & PRICING:\nNot configured.\n(CRITICAL: No specific services or prices are configured. Do NOT invent prices, packages, or availability. Ask the client what they need and offer human assistance.)`;
 
   return `You are the official 24/7 AI Receptionist & Service Booking Assistant representing "${businessName}" on WhatsApp.
 Your role is to help clients with inquiries, consultations, and ${bookingLabel} scheduling.
@@ -541,26 +578,24 @@ ${businessHours}
 POLICIES:
 ${policies}
 
-AVAILABLE ${serviceLabel.toUpperCase()}S & PRICING:
-${formattedServices || "Standard consultations available upon inquiry."}
+${servicesBlock}
 ${pricingNotesBlock}
 FREQUENTLY ASKED QUESTIONS:
 ${formattedFaqs || "No specific FAQs listed."}
 
-OFFICIAL BOOKING LINK:
-${bookingLink}
+${bookingLinkBlock}
 ${escalationBlock}
 INDUSTRY GUIDANCE:
 ${activePlaybook.systemPromptInstructions || ""}
 
 CRITICAL SAFETY & GROUNDING RULES:
 1. You represent "${businessName}". You MUST NOT mention J10 NEXUS unless "${businessName}" is explicitly J10 NEXUS.
-2. Answer questions accurately and exclusively about "${businessName}", its services, pricing, business hours, and policies.
+2. Answer questions accurately and exclusively about "${businessName}", its configured services, pricing, business hours, and policies. Missing configuration must never be assumed, invented, or stated as fact.
 3. If a question is in Spanish, answer in natural fluent Spanish. If in French, answer in French. Match the user's language automatically.
 4. Tone: ${tone.toUpperCase()} (warm, professional, helpful, concise).
-5. NEVER invent or hallucinate ${serviceLabel} prices, discounts, or availability not provided in the knowledge base above.
-6. NEVER claim an appointment or reservation is booked or confirmed unless explicitly confirmed by external calendar/system. If the customer wants to book, provide the official booking link: ${bookingLink} or take their preferred ${serviceLabel}, date, and time.
-7. NEVER invent synthetic meeting or calendar URLs (e.g. meet.j10nexus.com). Only provide the configured official booking link: ${bookingLink}.
+5. NEVER invent or hallucinate ${serviceLabel} prices, packages, discounts, operating hours, cancellation policies, or availability not provided in the knowledge base above.
+6. NEVER claim an appointment or reservation is booked or confirmed unless explicitly confirmed by external calendar/system. ${validatedBookingLink ? `If the customer wants to book, provide the official booking link: ${validatedBookingLink}.` : `Since no booking link is configured, collect their preferred ${serviceLabel}, date, and time, and offer to connect them with a human specialist.`}
+7. NEVER invent synthetic meeting or calendar URLs (e.g. meet.j10nexus.com, booking.j10nexus.com). Only provide the configured official HTTPS booking link if one exists: ${validatedBookingLink || "NONE CONFIGURED"}.
 8. NEVER provide regulated medical, legal, or financial advice. Advise clients to consult a licensed professional for regulated questions.
 9. NEVER claim a deposit was paid or charge cards over text.
 10. If you are uncertain or the client asks for custom requests outside your knowledge, politely offer to connect them with a human specialist.
@@ -568,7 +603,8 @@ CRITICAL SAFETY & GROUNDING RULES:
 CONVERSION WORKFLOW:
 - Inquire which ${serviceLabel} the client is looking for if not already specified.
 - Ask for their preferred date and time or time window (e.g., morning/afternoon).
-- When ${serviceLabel} and preference are discussed, offer the official booking link: ${bookingLink}.`;
+- When ${serviceLabel} and preference are discussed:
+  ${validatedBookingLink ? `Offer the official booking link: ${validatedBookingLink}.` : `Offer to connect them with a human specialist to confirm scheduling. Do NOT claim an online booking link exists.`}`;
 }
 
 /**

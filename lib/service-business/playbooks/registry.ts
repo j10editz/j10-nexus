@@ -13,17 +13,7 @@ export const defaultPlaybook: ServicePlaybook = {
     providerLabel: "specialist",
   },
   defaultDurationMinutes: 60,
-  services: [
-    {
-      key: "standard_service",
-      name: "Standard Service Consultation",
-      price: null,
-      priceDisplay: "Custom Quote",
-      durationMinutes: 60,
-      description: "Initial consultation and service delivery.",
-      requiresQuote: true,
-    },
-  ],
+  services: [],
   qualificationQuestions: {
     service: "What type of service are you looking for?",
     date: "What date works best for you?",

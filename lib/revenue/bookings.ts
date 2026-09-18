@@ -202,7 +202,7 @@ export async function confirmWorkspaceBookingAtomic(
     confirmedMeetingUrl?: string | null;
     actorId?: string;
   }
-): Promise<{ success: boolean; bookingId: string; status: string; confirmedRevenue?: number | null }> {
+): Promise<{ success: boolean; bookingId: string; status: string; confirmedRevenue?: number | null; duplicate?: boolean; idempotent?: boolean }> {
   if (!input.calendarProvider || !input.externalEventId) {
     throw new Error("External calendar provider and provider event ID are strictly required for confirmation.");
   }

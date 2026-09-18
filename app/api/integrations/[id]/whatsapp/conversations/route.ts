@@ -58,7 +58,7 @@ export async function GET(_request: Request, context: RouteContext) {
       `)
       .eq("workspace_id", wsContext.workspace.id)
       .eq("channel", "whatsapp")
-      .or(`integration_id.eq.${id},metadata->>integrationId.eq.${id}`)
+      .or(`integration_id.eq.${id},and(integration_id.is.null,metadata->>integrationId.eq.${id})`)
       .order("last_message_at", { ascending: false })
       .limit(100);
 

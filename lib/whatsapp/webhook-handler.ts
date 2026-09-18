@@ -135,29 +135,41 @@ export async function processWhatsAppPayload({
     let workspaceMetadata: Record<string, unknown> | null = null;
     let integrationConfig: Record<string, unknown> | null = null;
 
-    try {
-      const { data: wsRow } = await supabase
-        .from("workspaces")
-        .select("metadata")
-        .eq("id", workspaceId)
-        .maybeSingle();
-      if (wsRow?.metadata) {
-        workspaceMetadata = wsRow.metadata as Record<string, unknown>;
-      }
-    } catch {}
+    const { data: wsRow, error: wsError } = await supabase
+      .from("workspaces")
+      .select("metadata")
+      .eq("id", workspaceId)
+      .maybeSingle();
+
+    if (wsError) {
+      console.error("[WhatsApp Webhook] Workspace lookup failed:", wsError);
+      return NextResponse.json(
+        { success: false, error: "Database error resolving workspace metadata" },
+        { status: 500 }
+      );
+    }
+    if (wsRow?.metadata) {
+      workspaceMetadata = wsRow.metadata as Record<string, unknown>;
+    }
 
     if (endpoint.integrationId) {
-      try {
-        const { data: integRow } = await supabase
-          .from("integrations")
-          .select("public_configuration")
-          .eq("id", endpoint.integrationId)
-          .eq("workspace_id", workspaceId)
-          .maybeSingle();
-        if (integRow?.public_configuration) {
-          integrationConfig = integRow.public_configuration as Record<string, unknown>;
-        }
-      } catch {}
+      const { data: integRow, error: integError } = await supabase
+        .from("integrations")
+        .select("public_configuration")
+        .eq("id", endpoint.integrationId)
+        .eq("workspace_id", workspaceId)
+        .maybeSingle();
+
+      if (integError) {
+        console.error("[WhatsApp Webhook] Integration lookup failed:", integError);
+        return NextResponse.json(
+          { success: false, error: "Database error resolving integration configuration" },
+          { status: 500 }
+        );
+      }
+      if (integRow?.public_configuration) {
+        integrationConfig = integRow.public_configuration as Record<string, unknown>;
+      }
     }
 
     const canonicalPlaybookKey = resolveAuthoritativePlaybookKey({

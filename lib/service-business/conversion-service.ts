@@ -19,6 +19,20 @@ export type {
 import { defaultPlaybook } from "./playbooks/registry";
 
 /**
+ * Validates that a booking URL is a genuine HTTPS link.
+ * Never accepts placeholders, synthetic URLs, or insecure links.
+ */
+export function isValidHttpsUrl(urlString?: string | null): boolean {
+  if (!urlString || typeof urlString !== "string") return false;
+  try {
+    const parsed = new URL(urlString.trim());
+    return parsed.protocol === "https:" && Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Extracts numeric price ONLY from configured service price.
  * Never invents values. Returns null if price is custom, missing, or non-numeric.
  */
@@ -161,10 +175,11 @@ export function extractServiceIntent(args: {
   }
 
   // 6. Booking link offered check:
-  // Strict truthfulness: ONLY true when outbound replyText actually contains the official bookingLink.
-  // Inbound customer queries containing "book" are NOT booking offers!
+  // Strict truthfulness: ONLY true when outbound replyText actually contains a validated HTTPS booking link.
+  // Missing link, placeholder link, or inbound customer queries containing "book" must NEVER transition to booking_offered!
+  const hasValidBookingLink = isValidHttpsUrl(bookingLink);
   const offeredBookingLink = Boolean(
-    bookingLink && replyText && replyText.includes(bookingLink)
+    hasValidBookingLink && bookingLink && replyText && replyText.includes(bookingLink)
   );
 
   // 7. Suggested status
@@ -292,7 +307,7 @@ export async function updateServiceJourneyLifecycleState(
 
 /**
  * Allows an authorized operator to resume AI assistance on a service thread.
- * Performs authorized state transition back to contacted or qualified.
+ * Invokes transactional resume_service_thread_atomic RPC.
  */
 export async function operatorResumeJourneyAi(
   supabase: SupabaseClient,
@@ -304,7 +319,7 @@ export async function operatorResumeJourneyAi(
     operatorId?: string | null;
     notes?: string;
   }
-) {
+): Promise<ServiceConversionJourneyRecord> {
   const { workspaceId } = args;
   const operatorUserId = args.operatorUserId || args.operatorId;
 
@@ -312,27 +327,16 @@ export async function operatorResumeJourneyAi(
     throw new Error("operatorUserId is required to resume AI assistance");
   }
 
-  // 1. Verify operator membership
-  const { data: member } = await supabase
-    .from("workspace_memberships")
-    .select("role, status")
-    .eq("workspace_id", workspaceId)
-    .eq("user_id", operatorUserId)
-    .maybeSingle();
-
-  if (!member || member.status !== "active" || member.role === "viewer" || member.role === "suspended" || member.role === "removed") {
-    throw new Error("Unauthorized: operator lacks active modifier role in workspace");
-  }
-
-  // 2. Resolve thread ID
+  // 1. Resolve thread ID
   let resolvedThreadId = args.threadId;
   if (!resolvedThreadId && args.journeyId) {
-    const { data: jRow } = await supabase
+    const { data: jRow, error: jErr } = await supabase
       .from("service_conversion_journeys")
       .select("thread_id")
       .eq("id", args.journeyId)
       .eq("workspace_id", workspaceId)
       .maybeSingle();
+    if (jErr) throw new Error(`Failed to query journey: ${jErr.message}`);
     resolvedThreadId = jRow?.thread_id;
   }
 
@@ -340,61 +344,44 @@ export async function operatorResumeJourneyAi(
     throw new Error("Thread not found for journey in workspace");
   }
 
-  const { data: thread } = await supabase
-    .from("inbox_threads")
-    .select("id, metadata")
-    .eq("id", resolvedThreadId)
-    .eq("workspace_id", workspaceId)
-    .single();
+  // 2. Call transactional atomic RPC
+  const { data: resumeResult, error: resumeError } = await supabase.rpc(
+    "resume_service_thread_atomic",
+    {
+      p_workspace_id: workspaceId,
+      p_thread_id: resolvedThreadId,
+      p_operator_user_id: operatorUserId,
+      p_notes: args.notes || null,
+    }
+  );
 
-  if (!thread) throw new Error("Thread not found in workspace");
+  if (resumeError) {
+    throw new Error(`Resume transaction failed: ${resumeError.message}`);
+  }
 
-  const meta = (thread.metadata || {}) as Record<string, any>;
+  if (!resumeResult?.success) {
+    throw new Error("Failed to resume service thread AI");
+  }
 
-  // 3. Update thread to re-enable AI
-  await supabase
-    .from("inbox_threads")
-    .update({
-      metadata: {
-        ...meta,
-        aiBotEnabled: true,
-        humanHandoff: false,
-        resumedByUserId: operatorUserId,
-        resumedAt: new Date().toISOString(),
-      },
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", resolvedThreadId)
-    .eq("workspace_id", workspaceId);
-
-  // 4. Update journey state back to contacted or qualified via operator transition
-  const { data: journey } = await supabase
+  // 3. Return verified journey state
+  const { data: verifiedJourney, error: fetchErr } = await supabase
     .from("service_conversion_journeys")
     .select("*")
     .eq("thread_id", resolvedThreadId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
 
-  if (journey && journey.status === "human_takeover") {
-    const resumeStatus: ServiceLifecycleStatus =
-      journey.qualification_completeness >= 0.7 ? "qualified" : "contacted";
-
-    return await updateServiceJourneyLifecycleState(supabase, {
-      workspaceId,
-      threadId: resolvedThreadId,
-      status: resumeStatus,
-      actorType: "operator",
-      actorId: operatorUserId,
-      reason: args.notes || "Operator manually resumed AI assistance",
-    });
+  if (fetchErr) {
+    throw new Error(`Failed to fetch verified journey after resume: ${fetchErr.message}`);
   }
 
-  return journey as ServiceConversionJourneyRecord;
+  return verifiedJourney as ServiceConversionJourneyRecord;
 }
 
 /**
  * Calculates authentic workspace-scoped service business conversion metrics.
  * Strictly derives from real canonical rows with zero invented data.
+ * Throws when query returns an error; returns zeros ONLY on successful query with zero rows.
  */
 export async function calculateServiceBusinessMetrics(
   supabase: SupabaseClient,
@@ -405,7 +392,11 @@ export async function calculateServiceBusinessMetrics(
     .select("id, status, estimated_service_value, attributed_revenue, qualification_completeness, created_at, updated_at")
     .eq("workspace_id", workspaceId);
 
-  if (error || !rows) {
+  if (error) {
+    throw new Error(`Database error calculating service business metrics: ${error.message}`);
+  }
+
+  if (!rows || rows.length === 0) {
     return {
       inquiriesReceived: 0,
       contacted: 0,
