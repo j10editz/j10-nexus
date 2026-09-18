@@ -65,9 +65,13 @@ export async function registerExistingTelegramIntegration(
 ) {
   let staged = false;
   let remoteChanged = false;
+  let exactExpected = expected;
   try {
     const pending = await deps.stagePending();
-    assertExactRow(pending, expected);
+    // First-time onboarding has no integration ID until its pending row is
+    // created. Every later operation is still bound to that exact returned row.
+    if (!exactExpected.id) exactExpected = { ...exactExpected, id: pending.id };
+    assertExactRow(pending, exactExpected);
     if (pending.status !== "pending") {
       throw new TelegramRegistrationError("EXACT_ROW_REQUIRED", "Integration was not staged as pending.");
     }
@@ -87,7 +91,7 @@ export async function registerExistingTelegramIntegration(
     }
 
     const active = await deps.activate();
-    assertExactRow(active, expected);
+    assertExactRow(active, exactExpected);
     if (active.status !== "connected") {
       throw new TelegramRegistrationError("EXACT_ROW_REQUIRED", "Integration activation did not return connected.");
     }

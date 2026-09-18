@@ -62,6 +62,16 @@ describe("Telegram registration transaction", () => {
     expect(d.activate).toHaveBeenCalledOnce();
   });
 
+  it("binds first-time onboarding to the exact newly returned pending row", async () => {
+    const created = { ...expected, id: "integration-created", status: "pending" };
+    const d = deps({
+      stagePending: vi.fn().mockResolvedValue(created),
+      activate: vi.fn().mockResolvedValue({ ...expected, id: "integration-created" }),
+    });
+    await expect(registerExistingTelegramIntegration({ ...expected, id: "" }, url, d)).resolves.toMatchObject({ id: "integration-created", status: "connected" });
+    expect(d.activate).toHaveBeenCalledOnce();
+  });
+
   it("rejects wrong webhook readback and never activates", async () => {
     const d = deps({ getWebhookInfo: vi.fn().mockResolvedValue({ ok: true, result: { url: "https://wrong.example" } }) });
     await expect(registerExistingTelegramIntegration(expected, url, d)).rejects.toMatchObject({ code: "WEBHOOK_URL_MISMATCH" });
