@@ -141,7 +141,10 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
           }
           if (table === "inbox_threads") {
             return {
-              data: overrides.thread !== undefined ? overrides.thread : null,
+              data:
+                overrides.thread !== undefined
+                  ? overrides.thread
+                  : { id: "th-1", workspace_id: TEST_WORKSPACE_ID, metadata: { aiBotEnabled: true } },
               error: null,
             };
           }
@@ -631,7 +634,7 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
     }) as any;
 
     const { serviceClient } = mockEndpointAndService({
-      thread: { id: "th-1", metadata: { humanHandoff: true } },
+      thread: { id: "th-1", metadata: { humanHandoff: true, humanHandoffNoticeStatus: "sent" } },
     });
 
     const result = await generateAndSendWhatsAppAIResponse({

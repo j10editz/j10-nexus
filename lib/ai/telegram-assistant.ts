@@ -25,18 +25,18 @@ export interface BotConfiguration {
   id?: string;
   workspace_id: string;
   business_name: string;
-  description: string;
+  description?: string;
   services: Array<{ id?: string; name: string; description: string; price: string; duration?: string }>;
-  pricing_details: string;
-  business_hours: string;
+  pricing_details?: string;
+  business_hours?: string;
   faqs: Array<{ question: string; answer: string }>;
-  booking_link: string;
+  booking_link?: string;
   tone: "professional" | "friendly" | "casual" | "luxury" | "direct";
   supported_languages: string[];
-  escalation_instructions: string;
-  welcome_message: string;
+  escalation_instructions?: string;
+  welcome_message?: string;
   ai_enabled: boolean;
-  privacy_policy_url: string;
+  privacy_policy_url?: string;
 }
 
 /**
@@ -219,21 +219,29 @@ export async function getWorkspaceBotConfig(
   supabase: SupabaseClient,
   workspaceId: string
 ): Promise<{ config: BotConfiguration; workspaceName: string; brandName: string; isJ10Official: boolean }> {
-  const { data: ws } = await supabase
+  const { data: ws, error: wsError } = await supabase
     .from("workspaces")
     .select("id, name, brand_name, status, slug")
     .eq("id", workspaceId)
     .maybeSingle();
 
+  if (wsError) {
+    throw new Error(`Failed to load workspace ${workspaceId}: ${wsError.message}`);
+  }
+
   const workspaceName = ws?.name || "Business";
   const brandName = ws?.brand_name || ws?.name || "Our Business";
   const isJ10Official = (ws?.slug === "j10-nexus" || ws?.slug === "j10" || brandName.toLowerCase().includes("j10 nexus"));
 
-  const { data: existingConfig } = await supabase
+  const { data: existingConfig, error: configError } = await supabase
     .from("bot_configurations")
     .select("*")
     .eq("workspace_id", workspaceId)
     .maybeSingle();
+
+  if (configError) {
+    throw new Error(`Failed to load bot configuration for workspace ${workspaceId}: ${configError.message}`);
+  }
 
   if (existingConfig) {
     return {
@@ -250,28 +258,22 @@ export async function getWorkspaceBotConfig(
     };
   }
 
-  // Default configuration when not yet customized
+  // Safe behavioral defaults only: zero invented services, hours, policies, or FAQs
   const defaultConfig: BotConfiguration = {
     workspace_id: workspaceId,
     business_name: brandName,
-    description: `Official 24/7 client assistant for ${brandName}.`,
-    services: [
-      { id: "1", name: "Standard Consultation", description: "Comprehensive initial discovery and strategic planning.", price: "Complimentary", duration: "30 min" },
-      { id: "2", name: "Executive Engagement", description: "Dedicated operational implementation and managed services.", price: "Custom Quote", duration: "Flexible" },
-    ],
-    pricing_details: "Contact us or schedule an appointment for tailored pricing.",
-    business_hours: "Monday - Friday: 9:00 AM - 6:00 PM",
-    faqs: [
-      { question: "How can I book an appointment?", answer: "Use the /book command or reply with your preferred day and time." },
-      { question: "Can I speak to a real person?", answer: "Yes! Type /human or /agent at any time to transfer to a human specialist." },
-    ],
-    booking_link: "",
+    description: undefined,
+    services: [],
+    pricing_details: undefined,
+    business_hours: undefined,
+    faqs: [],
+    booking_link: undefined,
     tone: "professional",
-    supported_languages: ["English", "Spanish", "French"],
-    escalation_instructions: "Type /human or provide your email/phone for direct follow-up.",
-    welcome_message: `👋 Welcome to ${brandName}!\n\nI am your 24/7 AI Receptionist. How can we assist your business today?`,
+    supported_languages: ["English"],
+    escalation_instructions: undefined,
+    welcome_message: undefined,
     ai_enabled: true,
-    privacy_policy_url: "https://j10-nexus.vercel.app/privacy",
+    privacy_policy_url: undefined,
   };
 
   return {
@@ -330,8 +332,10 @@ export async function handleDeterministicCommands(
         if (s.duration) text += ` | ⏱ <b>Duration:</b> ${s.duration}`;
         text += `\n\n`;
       });
+    } else if (botConfig.description) {
+      text += `${botConfig.description}\n\n`;
     } else {
-      text += `${botConfig.description || "We provide premium solutions tailored to your business needs."}\n\n`;
+      text += `Services and pricing are not currently configured. Please inquire for details or request to speak with our team.\n\n`;
     }
     if (botConfig.pricing_details) {
       text += `📌 <i>${botConfig.pricing_details}</i>\n\n`;
@@ -348,7 +352,9 @@ export async function handleDeterministicCommands(
     } else {
       text += `👉 <b>Request appointment:</b>\n`;
     }
-    text += `🕒 <b>Business Hours:</b> ${botConfig.business_hours || "Mon-Fri 9AM-6PM"}\n\n`;
+    if (botConfig.business_hours) {
+      text += `🕒 <b>Business Hours:</b> ${botConfig.business_hours}\n\n`;
+    }
     text += `To request an appointment, please reply directly here with your <b>preferred date and time</b> and what service you are interested in!`;
 
     // Flag thread for appointment intake

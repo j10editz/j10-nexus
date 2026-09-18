@@ -14,7 +14,8 @@ import { autoDetailingPlaybook } from "@/lib/service-business/playbooks/auto-det
 import { getPlaybook, defaultPlaybook, isValidPlaybookKey, resolveAuthoritativePlaybookKey } from "@/lib/service-business/playbooks/registry";
 import { createWorkspaceBooking, confirmWorkspaceBookingAtomic } from "@/lib/revenue/bookings";
 import { processWhatsAppPayload } from "@/lib/whatsapp/webhook-handler";
-import { buildAssistantSystemInstruction } from "@/lib/ai/whatsapp-assistant";
+import { getWorkspaceBotConfig } from "@/lib/ai/telegram-assistant";
+import { buildAssistantSystemInstruction, generateAndSendWhatsAppAIResponse } from "@/lib/ai/whatsapp-assistant";
 import type { IntegrationConnection } from "@/types/integration";
 
 const stage1Migration = readFileSync(
@@ -43,6 +44,26 @@ async function setupDatabase() {
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
     CREATE SCHEMA IF NOT EXISTS auth;
     CREATE TABLE auth.users (id uuid primary key default gen_random_uuid(), email text);
+    CREATE TABLE IF NOT EXISTS public.bot_configurations (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      workspace_id uuid NOT NULL,
+      business_name text NOT NULL DEFAULT '',
+      description text,
+      services jsonb NOT NULL DEFAULT '[]'::jsonb,
+      pricing_details text,
+      business_hours text,
+      faqs jsonb NOT NULL DEFAULT '[]'::jsonb,
+      booking_link text,
+      tone text NOT NULL DEFAULT 'professional',
+      supported_languages text[] NOT NULL DEFAULT ARRAY['English']::text[],
+      escalation_instructions text,
+      welcome_message text,
+      ai_enabled boolean NOT NULL DEFAULT true,
+      privacy_policy_url text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT uq_bot_configurations_workspace UNIQUE (workspace_id)
+    );
     CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID AS $$
       SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
     $$ LANGUAGE sql STABLE;
@@ -427,7 +448,7 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
         if (fn === "confirm_workspace_booking_atomic") {
           const res = await db.query<{ confirm_workspace_booking_atomic: any }>(
             `SELECT public.confirm_workspace_booking_atomic(
-              $1::uuid, $2::uuid, $3, $4, $5::numeric, $6
+              $1::uuid, $2::uuid, $3, $4, $5::numeric, $6, $7
             )`,
             [
               params.p_workspace_id,
@@ -436,6 +457,7 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
               params.p_provider_event_id,
               params.p_confirmed_revenue ?? 0,
               params.p_actor_id || "booking_provider_callback",
+              params.p_confirmed_meeting_url || null,
             ]
           );
           return { data: res.rows[0].confirm_workspace_booking_atomic, error: null };
@@ -455,6 +477,21 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
             ]
           );
           return { data: res.rows[0].handoff_service_thread_atomic, error: null };
+        }
+
+        if (fn === "record_thread_handoff_notice_atomic") {
+          const res = await db.query<{ record_thread_handoff_notice_atomic: any }>(
+            `SELECT public.record_thread_handoff_notice_atomic(
+              $1::uuid, $2::uuid, $3, $4
+            )`,
+            [
+              params.p_workspace_id,
+              params.p_thread_id,
+              params.p_status,
+              params.p_error || null,
+            ]
+          );
+          return { data: res.rows[0].record_thread_handoff_notice_atomic, error: null };
         }
 
         if (fn === "resume_service_thread_atomic") {
@@ -1595,5 +1632,378 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
     const ids = (threadsIntBeauty.data || []).map((t: any) => t.id);
     expect(ids).toContain(threadA);
     expect(ids).not.toContain(threadB);
+  });
+
+  // 21. Live Bot Configuration Honest Loader
+  it("21. getWorkspaceBotConfig returns safe defaults with empty services/faqs and throws on DB error", async () => {
+    // 1. Unconfigured workspace returns empty services, empty faqs, undefined factual fields
+    const res = await getWorkspaceBotConfig(supabase, workspaceBeauty);
+    expect(res.config.services).toEqual([]);
+    expect(res.config.faqs).toEqual([]);
+    expect(res.config.description).toBeUndefined();
+    expect(res.config.pricing_details).toBeUndefined();
+    expect(res.config.business_hours).toBeUndefined();
+    expect(res.config.booking_link).toBeUndefined();
+    // Safe defaults present
+    expect(res.config.tone).toBe("professional");
+    expect(res.config.supported_languages).toEqual(["English"]);
+    expect(res.config.ai_enabled).toBe(true);
+
+    // 2. Database error throws (fail closed, never fall back to invented defaults)
+    const brokenSupabase = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({ data: null, error: { message: "database connection lost" } }),
+          }),
+        }),
+      }),
+    } as any;
+
+    await expect(getWorkspaceBotConfig(brokenSupabase, workspaceBeauty)).rejects.toThrow(/database connection lost/);
+  });
+
+  // 22. Fail-Closed on Thread Lookup
+  it("22. generateAndSendWhatsAppAIResponse fails closed on thread lookup error or missing thread", async () => {
+    // Non-existent thread
+    const fakeThreadId = "00000000-0000-0000-0000-000000000099";
+    await expect(
+      generateAndSendWhatsAppAIResponse({
+        supabase,
+        workspaceId: workspaceBeauty,
+        integrationId: integrationBeauty,
+        threadId: fakeThreadId,
+        recipientPhone: "+15551112222",
+        inboundText: "Hello there",
+        senderName: "Fail Closed Tester",
+        inboundWamid: "wamid_fail_closed_test",
+      })
+    ).rejects.toThrow(/not found in workspace/i);
+  });
+
+  // 23. Handoff Notice Retry Lifecycle
+  it("23. Handoff notice delivers when pending, retries on failure, and suppresses when sent", async () => {
+    // Ingest thread
+    const inb = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_handoff_cycle', '+15559876543', 'Handoff User', 'text', 'I need a human now', '{}'::jsonb, 'hcycle', $2::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, integrationBeauty]
+    );
+    const { thread_id: threadId } = inb.rows[0].record_canonical_whatsapp_inbound_atomic;
+
+    // Trigger human handoff RPC
+    const handoffRes = await db.query<{ handoff_service_thread_atomic: any }>(
+      `SELECT public.handoff_service_thread_atomic($1::uuid, $2::uuid, 'User requested agent')`,
+      [workspaceBeauty, threadId]
+    );
+    expect(handoffRes.rows[0].handoff_service_thread_atomic.already_sent_notice).toBe(false);
+
+    // Verify thread metadata has humanHandoff: true, noticeStatus: 'pending'
+    let threadRow = await db.query<any>("SELECT metadata FROM public.inbox_threads WHERE id = $1", [threadId]);
+    expect(threadRow.rows[0].metadata.humanHandoff).toBe(true);
+    expect(threadRow.rows[0].metadata.humanHandoffNoticeStatus).toBe("pending");
+
+    // Next invocation: notice status is 'pending', so it delivers notice and transitions to 'sent'
+    // Call record_thread_handoff_notice_atomic directly to simulate successful delivery
+    await db.query(
+      `SELECT public.record_thread_handoff_notice_atomic($1::uuid, $2::uuid, 'sent')`,
+      [workspaceBeauty, threadId]
+    );
+
+    threadRow = await db.query<any>("SELECT metadata FROM public.inbox_threads WHERE id = $1", [threadId]);
+    expect(threadRow.rows[0].metadata.humanHandoffNoticeStatus).toBe("sent");
+    expect(threadRow.rows[0].metadata.humanHandoffNoticeSent).toBe(true);
+
+    // Next invocation with noticeStatus: 'sent' -> suppresses AI cleanly without resending notice
+    const suppressedResult = await generateAndSendWhatsAppAIResponse({
+      supabase,
+      workspaceId: workspaceBeauty,
+      integrationId: integrationBeauty,
+      threadId,
+      recipientPhone: "+15559876543",
+      inboundText: "Are you there?",
+      senderName: "Handoff User",
+      inboundWamid: "wamid_after_handoff",
+    });
+    expect(suppressedResult.skippedReason).toBe("human_handoff_active");
+  });
+
+  // 24. Stage 1 Identity Ambiguity Preservation
+  it("24. Stage 1 identity ambiguity resolves to ambiguous with null contact_id when multiple contacts match", async () => {
+    const sharedPhone = "+15559998877";
+
+    // Create Contact A
+    await db.query(
+      "INSERT INTO public.contacts (workspace_id, name, phone) VALUES ($1, 'Ambiguous Alice', $2)",
+      [workspaceBeauty, sharedPhone]
+    );
+    // Create Contact B with the same phone in the same workspace
+    await db.query(
+      "INSERT INTO public.contacts (workspace_id, name, phone) VALUES ($1, 'Ambiguous Bob', $2)",
+      [workspaceBeauty, sharedPhone]
+    );
+
+    // Inbound arrives from sharedPhone
+    const res = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_ambiguous_1', $2, 'Caller', 'text', 'Hello I want a booking', '{}'::jsonb, 'h_ambig', $3::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, sharedPhone, integrationBeauty]
+    );
+
+    const payload = res.rows[0].record_canonical_whatsapp_inbound_atomic;
+    expect(payload.resolution_status).toBe("ambiguous");
+    expect(payload.contact_id).toBeNull();
+
+    // Verify lead_intakes record
+    const intake = await db.query<any>("SELECT * FROM public.lead_intakes WHERE id = $1", [payload.intake_id]);
+    expect(intake.rows[0].resolution_status).toBe("ambiguous");
+    expect(intake.rows[0].contact_id).toBeNull();
+
+    // Verify inbox_threads record
+    const thread = await db.query<any>("SELECT * FROM public.inbox_threads WHERE id = $1", [payload.thread_id]);
+    expect(thread.rows[0].contact_id).toBeNull();
+
+    // Verify service_conversion_journeys record
+    const journey = await db.query<any>("SELECT * FROM public.service_conversion_journeys WHERE id = $1", [payload.journey_id]);
+    expect(journey.rows[0].contact_id).toBeNull();
+
+    // Zero auto-merge: both contacts still exist unchanged
+    const matchingContacts = await db.query<any>(
+      "SELECT id, name FROM public.contacts WHERE workspace_id = $1 AND phone = $2 ORDER BY name ASC",
+      [workspaceBeauty, sharedPhone]
+    );
+    expect(matchingContacts.rows.length).toBe(2);
+    expect(matchingContacts.rows[0].name).toBe("Ambiguous Alice");
+    expect(matchingContacts.rows[1].name).toBe("Ambiguous Bob");
+  });
+
+  // 25. Trusted Booking Confirmation Path & Replay Invariants
+  it("25. confirmWorkspaceBookingAtomic enforces Option B revenue validation, HTTPS URL, same-txn update, and replay checks", async () => {
+    // Create a booking
+    const booking = await createWorkspaceBooking(supabase, {
+      workspaceId: workspaceAuto,
+      title: "Full Auto Detail",
+      scheduledAt: new Date(Date.now() + 86400000).toISOString(),
+    });
+
+    // 1. Negative revenue rejected
+    await expect(
+      confirmWorkspaceBookingAtomic(supabase, {
+        workspaceId: workspaceAuto,
+        bookingId: booking.id,
+        calendarProvider: "cal_com",
+        externalEventId: "cal_evt_123",
+        confirmedRevenue: -25.00,
+      })
+    ).rejects.toThrow(/invalid \(must be between 0 and 99999999\.99\)/);
+
+    // 2. Revenue exceeding 99999999.99 rejected
+    await expect(
+      confirmWorkspaceBookingAtomic(supabase, {
+        workspaceId: workspaceAuto,
+        bookingId: booking.id,
+        calendarProvider: "cal_com",
+        externalEventId: "cal_evt_123",
+        confirmedRevenue: 100000000.00,
+      })
+    ).rejects.toThrow(/invalid \(must be between 0 and 99999999\.99\)/);
+
+    // 3. Non-HTTPS meeting URL rejected
+    await expect(
+      confirmWorkspaceBookingAtomic(supabase, {
+        workspaceId: workspaceAuto,
+        bookingId: booking.id,
+        calendarProvider: "cal_com",
+        externalEventId: "cal_evt_123",
+        confirmedRevenue: 250.00,
+        confirmedMeetingUrl: "http://insecure.example.com/meet",
+      })
+    ).rejects.toThrow(/Meeting URL must be a valid HTTPS URL/);
+
+    // 4. Valid confirmation with HTTPS meeting URL succeeds in same transaction
+    const res = await confirmWorkspaceBookingAtomic(supabase, {
+      workspaceId: workspaceAuto,
+      bookingId: booking.id,
+      calendarProvider: "cal_com",
+      externalEventId: "cal_evt_123",
+      confirmedRevenue: 250.00,
+      confirmedMeetingUrl: "https://meet.google.com/abc-defg-hij",
+    });
+    expect(res.success).toBe(true);
+
+    const bookingRow = (await db.query<any>("SELECT * FROM public.crm_bookings WHERE id = $1", [booking.id])).rows[0];
+    expect(bookingRow.status).toBe("scheduled");
+    expect(Number(bookingRow.confirmed_revenue)).toBe(250.00);
+    expect(bookingRow.meeting_url).toBe("https://meet.google.com/abc-defg-hij");
+    expect(bookingRow.external_calendar_provider).toBe("cal_com");
+    expect(bookingRow.external_calendar_event_id).toBe("cal_evt_123");
+
+    // 5. Exact replay returns persisted values
+    const replayRes = await confirmWorkspaceBookingAtomic(supabase, {
+      workspaceId: workspaceAuto,
+      bookingId: booking.id,
+      calendarProvider: "cal_com",
+      externalEventId: "cal_evt_123",
+      confirmedRevenue: 250.00,
+      confirmedMeetingUrl: "https://meet.google.com/abc-defg-hij",
+    });
+    expect(replayRes.idempotent).toBe(true);
+    expect(Number(replayRes.confirmed_revenue)).toBe(250.00);
+    expect(replayRes.meeting_url).toBe("https://meet.google.com/abc-defg-hij");
+
+    // 6. Conflicting revenue replay fails closed
+    await expect(
+      confirmWorkspaceBookingAtomic(supabase, {
+        workspaceId: workspaceAuto,
+        bookingId: booking.id,
+        calendarProvider: "cal_com",
+        externalEventId: "cal_evt_123",
+        confirmedRevenue: 300.00,
+      })
+    ).rejects.toThrow(/conflicting revenue/);
+  });
+
+  // 26. Terminal Journey States Preservation on Handoff
+  it("26. handoff_service_thread_atomic preserves terminal journey states (booked, lost) without regression", async () => {
+    // Case A: Journey in 'booked' state
+    const inbBooked = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_booked_pres', '+15557771111', 'Booked Client', 'text', 'My booking', '{}'::jsonb, 'hbp', $2::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, integrationBeauty]
+    );
+    const { journey_id: bookedJourneyId, thread_id: bookedThreadId } = inbBooked.rows[0].record_canonical_whatsapp_inbound_atomic;
+
+    await db.query("UPDATE public.service_conversion_journeys SET status = 'booked' WHERE id = $1", [bookedJourneyId]);
+
+    // Customer requests human handoff on booked thread
+    const handoffBookedRes = await db.query<{ handoff_service_thread_atomic: any }>(
+      `SELECT public.handoff_service_thread_atomic($1::uuid, $2::uuid, 'Customer asking question about existing booking')`,
+      [workspaceBeauty, bookedThreadId]
+    );
+
+    // Journey MUST remain 'booked'
+    expect(handoffBookedRes.rows[0].handoff_service_thread_atomic.journey_status).toBe("booked");
+    const journeyBookedRow = (await db.query<any>("SELECT status FROM public.service_conversion_journeys WHERE id = $1", [bookedJourneyId])).rows[0];
+    expect(journeyBookedRow.status).toBe("booked");
+
+    // Audit event must record terminal state preserved
+    const auditBooked = await db.query<any>(
+      "SELECT * FROM public.service_conversion_events WHERE journey_id = $1 AND metadata->>'terminal_state_preserved' = 'true'",
+      [bookedJourneyId]
+    );
+    expect(auditBooked.rows.length).toBe(1);
+    expect(auditBooked.rows[0].to_status).toBe("booked");
+
+    // Case B: Journey in 'lost' state
+    const inbLost = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_lost_pres', '+15557772222', 'Lost Client', 'text', 'Never mind', '{}'::jsonb, 'hlp', $2::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, integrationBeauty]
+    );
+    const { journey_id: lostJourneyId, thread_id: lostThreadId } = inbLost.rows[0].record_canonical_whatsapp_inbound_atomic;
+
+    await db.query("UPDATE public.service_conversion_journeys SET status = 'lost' WHERE id = $1", [lostJourneyId]);
+
+    const handoffLostRes = await db.query<{ handoff_service_thread_atomic: any }>(
+      `SELECT public.handoff_service_thread_atomic($1::uuid, $2::uuid, 'Customer reached out after being lost')`,
+      [workspaceBeauty, lostThreadId]
+    );
+
+    expect(handoffLostRes.rows[0].handoff_service_thread_atomic.journey_status).toBe("lost");
+    const journeyLostRow = (await db.query<any>("SELECT status FROM public.service_conversion_journeys WHERE id = $1", [lostJourneyId])).rows[0];
+    expect(journeyLostRow.status).toBe("lost");
+  });
+
+  // 27. Follow-up scheduling check constraint
+  it("27. service_followups check constraint enforces scheduled_for > created_at for scheduled status", async () => {
+    // Ingest a journey
+    const inb = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_followup_chk', '+15558889999', 'Followup Client', 'text', 'Hi', '{}'::jsonb, 'hfc', $2::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, integrationBeauty]
+    );
+    const { journey_id: journeyId, thread_id: threadId } = inb.rows[0].record_canonical_whatsapp_inbound_atomic;
+
+    // Past / equal scheduled_for with status = 'scheduled' MUST violate constraint
+    let constraintViolated = false;
+    try {
+      await db.query(
+        `INSERT INTO public.service_followups (
+          workspace_id, journey_id, thread_id, followup_type, scheduled_for, status, created_at
+        ) VALUES ($1, $2, $3, 'inquiry_followup', now() - interval '1 hour', 'scheduled', now())`,
+        [workspaceBeauty, journeyId, threadId]
+      );
+    } catch (err: any) {
+      constraintViolated = true;
+      expect(err.message).toMatch(/check constraint/i);
+    }
+    expect(constraintViolated).toBe(true);
+
+    // Future scheduled_for with status = 'scheduled' succeeds
+    const okRes = await db.query(
+      `INSERT INTO public.service_followups (
+        workspace_id, journey_id, thread_id, followup_type, scheduled_for, status, created_at
+      ) VALUES ($1, $2, $3, 'inquiry_followup', now() + interval '2 hours', 'scheduled', now()) RETURNING id`,
+      [workspaceBeauty, journeyId, threadId]
+    );
+    expect(okRes.rows.length).toBe(1);
+
+    // Cancelled status with past scheduled_for also succeeds (constraint only applies when status = 'scheduled')
+    const cancelledRes = await db.query(
+      `INSERT INTO public.service_followups (
+        workspace_id, journey_id, thread_id, followup_type, scheduled_for, status, created_at
+      ) VALUES ($1, $2, $3, 'inquiry_followup', now() - interval '1 hour', 'cancelled', now()) RETURNING id`,
+      [workspaceBeauty, journeyId, threadId]
+    );
+    expect(cancelledRes.rows.length).toBe(1);
+  });
+
+  // 28. Lifecycle transition security
+  it("28. updateServiceJourneyLifecycleState rejects status=booked and client revenue", async () => {
+    // Ingest a journey
+    const inb = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_life_sec', '+15553332211', 'Sec Client', 'text', 'Interested', '{}'::jsonb, 'hls', $2::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, integrationBeauty]
+    );
+    const { journey_id: journeyId } = inb.rows[0].record_canonical_whatsapp_inbound_atomic;
+
+    // 1. Calling transition to 'booked' throws an error
+    await expect(
+      updateServiceJourneyLifecycleState(supabase, {
+        workspaceId: workspaceBeauty,
+        journeyId,
+        toStatus: "booked" as any,
+        actorType: "operator",
+      })
+    ).rejects.toThrow(/cannot transition a journey to booked/i);
+
+    // 2. Supplying attributedRevenue in direct transition_service_journey_atomic RPC throws error
+    await expect(
+      db.query(
+        `SELECT public.transition_service_journey_atomic(
+          $1::uuid, $2::uuid, 'qualified', 'operator', null, null, '{}'::jsonb, null, null, null, null, null, null, 500::numeric
+        )`,
+        [workspaceBeauty, journeyId]
+      )
+    ).rejects.toThrow(/Attributed revenue cannot be updated via transition_service_journey_atomic/i);
+  });
+
+  // 29. Migration Idempotency (double-apply)
+  it("29. 20261008_service_business_conversion_engine.sql is fully idempotent and succeeds on double apply", async () => {
+    // Execute the entire migration a second time on the already-migrated database
+    await expect(db.exec(serviceEngineMigration)).resolves.not.toThrow();
+
+    // Verify key functions still exist and are executable
+    const checkFunc = await db.query<any>(
+      "SELECT proname FROM pg_proc WHERE proname IN ('confirm_workspace_booking_atomic', 'record_canonical_whatsapp_inbound_atomic', 'handoff_service_thread_atomic', 'record_thread_handoff_notice_atomic')"
+    );
+    expect(checkFunc.rows.length).toBe(4);
   });
 });

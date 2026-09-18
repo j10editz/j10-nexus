@@ -135,6 +135,32 @@ ALTER TABLE public.service_conversion_journeys
   ADD COLUMN IF NOT EXISTS attributed_revenue NUMERIC(10,2) DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 
+-- Restore missing constraints if table existed partially
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_service_journeys_workspace_id') THEN
+    ALTER TABLE public.service_conversion_journeys ADD CONSTRAINT uq_service_journeys_workspace_id UNIQUE (workspace_id, id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_service_journey_thread') THEN
+    ALTER TABLE public.service_conversion_journeys ADD CONSTRAINT uq_service_journey_thread UNIQUE (workspace_id, thread_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_scj_contact') THEN
+    ALTER TABLE public.service_conversion_journeys ADD CONSTRAINT fk_scj_contact FOREIGN KEY (workspace_id, contact_id) REFERENCES public.contacts(workspace_id, id) ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_scj_thread') THEN
+    ALTER TABLE public.service_conversion_journeys ADD CONSTRAINT fk_scj_thread FOREIGN KEY (workspace_id, thread_id) REFERENCES public.inbox_threads(workspace_id, id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_scj_intake') THEN
+    ALTER TABLE public.service_conversion_journeys ADD CONSTRAINT fk_scj_intake FOREIGN KEY (workspace_id, lead_intake_id) REFERENCES public.lead_intakes(workspace_id, id) ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_scj_status') THEN
+    ALTER TABLE public.service_conversion_journeys ADD CONSTRAINT chk_scj_status CHECK (status IN ('new', 'contacted', 'qualified', 'booking_offered', 'booked', 'lost', 'human_takeover'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_scj_qualification') THEN
+    ALTER TABLE public.service_conversion_journeys ADD CONSTRAINT chk_scj_qualification CHECK (qualification_completeness >= 0.0 AND qualification_completeness <= 1.0);
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_service_journey_ws_status
   ON public.service_conversion_journeys(workspace_id, status);
 
@@ -170,6 +196,20 @@ ALTER TABLE public.service_conversion_events
   ADD COLUMN IF NOT EXISTS actor_type TEXT NOT NULL,
   ADD COLUMN IF NOT EXISTS actor_id TEXT,
   ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Restore missing constraints on service_conversion_events if table existed partially
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sce_journey') THEN
+    ALTER TABLE public.service_conversion_events ADD CONSTRAINT fk_sce_journey FOREIGN KEY (workspace_id, journey_id) REFERENCES public.service_conversion_journeys(workspace_id, id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_sce_to_status') THEN
+    ALTER TABLE public.service_conversion_events ADD CONSTRAINT chk_sce_to_status CHECK (to_status IN ('new', 'contacted', 'qualified', 'booking_offered', 'booked', 'lost', 'human_takeover'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_sce_actor_type') THEN
+    ALTER TABLE public.service_conversion_events ADD CONSTRAINT chk_sce_actor_type CHECK (actor_type IN ('system', 'ai_assistant', 'operator'));
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_service_events_journey
   ON public.service_conversion_events(workspace_id, journey_id, created_at);
@@ -207,17 +247,54 @@ ALTER TABLE public.service_followups
   ADD COLUMN IF NOT EXISTS cancel_reason TEXT,
   ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 
--- Future scheduling constraint for newly scheduled follow-ups (checked via NOT VALID + VALIDATE CONSTRAINT)
+-- Restore missing constraints on service_followups if table existed partially
 DO $$
 BEGIN
-  IF NOT EXISTS (
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sf_journey') THEN
+    ALTER TABLE public.service_followups ADD CONSTRAINT fk_sf_journey FOREIGN KEY (workspace_id, journey_id) REFERENCES public.service_conversion_journeys(workspace_id, id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sf_thread') THEN
+    ALTER TABLE public.service_followups ADD CONSTRAINT fk_sf_thread FOREIGN KEY (workspace_id, thread_id) REFERENCES public.inbox_threads(workspace_id, id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sf_contact') THEN
+    ALTER TABLE public.service_followups ADD CONSTRAINT fk_sf_contact FOREIGN KEY (workspace_id, contact_id) REFERENCES public.contacts(workspace_id, id) ON DELETE SET NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_sf_followup_type') THEN
+    ALTER TABLE public.service_followups ADD CONSTRAINT chk_sf_followup_type CHECK (followup_type IN ('inquiry_followup', 'booking_reminder', 'deposit_reminder', 'noshow_recovery'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_sf_status') THEN
+    ALTER TABLE public.service_followups ADD CONSTRAINT chk_sf_status CHECK (status IN ('scheduled', 'cancelled', 'completed', 'expired'));
+  END IF;
+END $$;
+
+-- Future scheduling invariant: for scheduled follow-ups, scheduled_for must be strictly in the future relative to creation
+DO $$
+BEGIN
+  IF EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'chk_service_followups_future_sched'
   ) THEN
-    ALTER TABLE public.service_followups
-      ADD CONSTRAINT chk_service_followups_future_sched
-      CHECK (status <> 'scheduled' OR scheduled_for >= created_at - INTERVAL '5 minutes')
-      NOT VALID;
+    ALTER TABLE public.service_followups DROP CONSTRAINT chk_service_followups_future_sched;
+  END IF;
+
+  ALTER TABLE public.service_followups
+    ADD CONSTRAINT chk_service_followups_future_sched
+    CHECK (status <> 'scheduled' OR scheduled_for > created_at)
+    NOT VALID;
+END $$;
+
+-- Preflight reconciliation check: inspect existing records safely without silently mutating production data
+DO $$
+DECLARE
+  v_violating_count INTEGER;
+BEGIN
+  SELECT count(*) INTO v_violating_count
+  FROM public.service_followups
+  WHERE status = 'scheduled' AND scheduled_for <= created_at;
+
+  IF v_violating_count = 0 THEN
     ALTER TABLE public.service_followups VALIDATE CONSTRAINT chk_service_followups_future_sched;
+  ELSE
+    RAISE NOTICE 'Preflight found % existing scheduled follow-up records with scheduled_for <= created_at. Preserving historical records untouched; future-scheduling invariant enforced on new rows.', v_violating_count;
   END IF;
 END $$;
 
@@ -236,7 +313,8 @@ BEGIN
       ADD COLUMN IF NOT EXISTS external_reservation_status TEXT DEFAULT 'pending_confirmation',
       ADD COLUMN IF NOT EXISTS external_calendar_provider TEXT,
       ADD COLUMN IF NOT EXISTS external_calendar_event_id TEXT,
-      ADD COLUMN IF NOT EXISTS externally_confirmed_at TIMESTAMPTZ;
+      ADD COLUMN IF NOT EXISTS externally_confirmed_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS confirmed_revenue NUMERIC(10,2);
 
     -- Replace chk_crm_bookings_type safely to support service appointments and consultations
     IF EXISTS (
@@ -398,6 +476,9 @@ DECLARE
   v_ai_job_enqueued BOOLEAN := false;
   v_suppression_reason TEXT := NULL;
   v_lock_key BIGINT;
+  v_candidates UUID[];
+  v_contact_resolution_status TEXT := 'created';
+  v_existing_resolution_status TEXT := NULL;
 BEGIN
   -- Workspace validation
   IF NOT EXISTS (SELECT 1 FROM public.workspaces WHERE id = p_workspace_id) THEN
@@ -469,7 +550,7 @@ BEGIN
     WHERE thread_id = v_existing_msg.thread_id AND workspace_id = p_workspace_id
     LIMIT 1;
 
-    SELECT id INTO v_existing_intake_id
+    SELECT id, resolution_status INTO v_existing_intake_id, v_existing_resolution_status
     FROM public.lead_intakes
     WHERE workspace_id = p_workspace_id AND idempotency_key = 'whatsapp_inbound_' || trim(p_wamid)
     LIMIT 1;
@@ -486,6 +567,7 @@ BEGIN
       'message_id', v_existing_msg.id,
       'thread_id', v_existing_msg.thread_id,
       'contact_id', v_existing_contact_id,
+      'resolution_status', v_existing_resolution_status,
       'intake_id', v_existing_intake_id,
       'journey_id', v_existing_journey_id,
       'job_id', v_existing_job_id,
@@ -495,16 +577,34 @@ BEGIN
     );
   END IF;
 
-  -- Step 2: Canonical Contact Resolution
+  -- Step 2: Canonical Contact Resolution (Stage 1 Contract)
+  v_candidates := '{}';
   IF v_normalized_phone IS NOT NULL THEN
-    SELECT id INTO v_contact_id
-    FROM public.contacts
-    WHERE workspace_id = p_workspace_id AND phone = v_normalized_phone
-    ORDER BY created_at ASC
-    LIMIT 1;
+    SELECT array_agg(DISTINCT cand.cid) INTO v_candidates FROM (
+      SELECT ci.contact_id AS cid
+      FROM public.contact_identities ci
+      WHERE ci.workspace_id = p_workspace_id
+        AND ci.identity_type = 'phone'
+        AND ci.normalized_value = v_normalized_phone
+      UNION
+      SELECT c.id AS cid
+      FROM public.contacts c
+      WHERE c.workspace_id = p_workspace_id
+        AND (c.phone = v_normalized_phone OR regexp_replace(coalesce(c.phone, ''), '\D', '', 'g') = v_digits)
+    ) cand
+    WHERE cand.cid IS NOT NULL;
   END IF;
 
-  IF v_contact_id IS NULL THEN
+  IF coalesce(array_length(v_candidates, 1), 0) > 1 THEN
+    -- Multiple candidates match this normalized phone: ambiguous identity!
+    -- Strictly DO NOT arbitrarily select oldest contact, and DO NOT auto-merge.
+    v_contact_resolution_status := 'ambiguous';
+    v_contact_id := NULL;
+  ELSIF coalesce(array_length(v_candidates, 1), 0) = 1 THEN
+    v_contact_id := v_candidates[1];
+    v_contact_resolution_status := 'matched';
+  ELSE
+    -- Zero candidates: create new canonical contact and register phone identity
     INSERT INTO public.contacts (
       workspace_id,
       name,
@@ -535,6 +635,23 @@ BEGIN
       )
     )
     RETURNING id INTO v_contact_id;
+
+    v_contact_resolution_status := 'created';
+
+    IF v_normalized_phone IS NOT NULL THEN
+      INSERT INTO public.contact_identities (
+        workspace_id,
+        contact_id,
+        identity_type,
+        normalized_value
+      ) VALUES (
+        p_workspace_id,
+        v_contact_id,
+        'phone',
+        v_normalized_phone
+      )
+      ON CONFLICT DO NOTHING;
+    END IF;
   END IF;
 
   -- Step 3: Canonical Thread Resolution
@@ -671,7 +788,7 @@ BEGIN
     trim(p_wamid),
     v_lead_idempotency_key,
     v_intake_payload_sha,
-    'created',
+    v_contact_resolution_status,
     v_sender_name,
     v_normalized_phone,
     v_normalized_phone,
@@ -802,6 +919,7 @@ BEGIN
     'thread_id', v_thread_id,
     'message_id', v_message_id,
     'contact_id', v_contact_id,
+    'resolution_status', v_contact_resolution_status,
     'intake_id', v_intake_id,
     'journey_id', v_journey_id,
     'job_id', v_job_id,
@@ -847,6 +965,14 @@ BEGIN
   -- Strict prohibition: ordinary lifecycle transition RPC must never transition a journey to booked
   IF p_to_status = 'booked' THEN
     RAISE EXCEPTION 'The transition_service_journey_atomic RPC cannot transition a journey to booked. Use confirm_workspace_booking_atomic instead.';
+  END IF;
+
+  IF p_attributed_revenue IS NOT NULL THEN
+    RAISE EXCEPTION 'Attributed revenue cannot be updated via transition_service_journey_atomic. Use confirm_workspace_booking_atomic instead.';
+  END IF;
+
+  IF p_booking_confirmation_source IS NOT NULL THEN
+    RAISE EXCEPTION 'Booking confirmation source cannot be updated via transition_service_journey_atomic. Use confirm_workspace_booking_atomic instead.';
   END IF;
 
   -- 1. Lock journey row for update and verify workspace ownership
@@ -963,13 +1089,16 @@ GRANT EXECUTE ON FUNCTION public.transition_service_journey_atomic(UUID, UUID, T
 
 -- 10. Transactional Booking Confirmation RPC for Honest Provider Confirmation
 -- ONLY this function may set booking to scheduled, journey to booked, set confirmation source, and attribute revenue.
+DROP FUNCTION IF EXISTS public.confirm_workspace_booking_atomic(UUID, UUID, TEXT, TEXT, NUMERIC, TEXT);
+
 CREATE OR REPLACE FUNCTION public.confirm_workspace_booking_atomic(
   p_workspace_id UUID,
   p_booking_id UUID,
   p_provider TEXT,
   p_provider_event_id TEXT,
   p_confirmed_revenue NUMERIC(10,2),
-  p_actor_id TEXT DEFAULT NULL
+  p_actor_id TEXT DEFAULT NULL,
+  p_confirmed_meeting_url TEXT DEFAULT NULL
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -980,13 +1109,36 @@ DECLARE
   v_booking RECORD;
   v_journey RECORD;
   v_existing_other_booking RECORD;
+  v_provider TEXT;
+  v_event_id TEXT;
+  v_meeting_url TEXT;
 BEGIN
-  -- Strict input validation
+  -- Strict input validation and normalization
   IF p_provider IS NULL OR trim(p_provider) = '' THEN
     RAISE EXCEPTION 'Provider is required for external confirmation';
   END IF;
   IF p_provider_event_id IS NULL OR trim(p_provider_event_id) = '' THEN
     RAISE EXCEPTION 'Provider event ID is required for external confirmation';
+  END IF;
+
+  v_provider := lower(trim(p_provider));
+  v_event_id := trim(p_provider_event_id);
+
+  -- Option B Infrastructure Validation: Revenue must be within 0.00 and 99999999.99 if supplied
+  IF p_confirmed_revenue IS NOT NULL THEN
+    IF p_confirmed_revenue < 0 OR p_confirmed_revenue > 99999999.99 THEN
+      RAISE EXCEPTION 'Confirmed revenue % is invalid (must be between 0 and 99999999.99)', p_confirmed_revenue;
+    END IF;
+  END IF;
+
+  -- Meeting URL validation: must be HTTPS if supplied
+  IF p_confirmed_meeting_url IS NOT NULL AND trim(p_confirmed_meeting_url) <> '' THEN
+    v_meeting_url := trim(p_confirmed_meeting_url);
+    IF v_meeting_url !~* '^https://[^\s/$.?#].[^\s]*$' THEN
+      RAISE EXCEPTION 'Meeting URL must be a valid HTTPS URL: %', p_confirmed_meeting_url;
+    END IF;
+  ELSE
+    v_meeting_url := NULL;
   END IF;
 
   -- 1. Lock booking row for update and verify workspace ownership
@@ -1000,7 +1152,13 @@ BEGIN
   END IF;
 
   -- Idempotency check: repeated delivery of exact same provider confirmation is idempotent
-  IF v_booking.external_calendar_provider = p_provider AND v_booking.external_calendar_event_id = p_provider_event_id THEN
+  IF v_booking.external_calendar_provider = v_provider AND v_booking.external_calendar_event_id = v_event_id THEN
+    -- Check replay conflict: if revenue is provided and differs from already persisted confirmed revenue -> fail closed
+    IF p_confirmed_revenue IS NOT NULL AND v_booking.confirmed_revenue IS NOT NULL AND v_booking.confirmed_revenue <> p_confirmed_revenue THEN
+      RAISE EXCEPTION 'Booking % is already confirmed with revenue % but received conflicting revenue %', p_booking_id, v_booking.confirmed_revenue, p_confirmed_revenue;
+    END IF;
+
+    -- Return persisted values
     RETURN jsonb_build_object(
       'success', true,
       'idempotent', true,
@@ -1008,13 +1166,14 @@ BEGIN
       'booking_id', p_booking_id,
       'status', v_booking.status,
       'external_reservation_status', v_booking.external_reservation_status,
-      'confirmed_revenue', p_confirmed_revenue
+      'confirmed_revenue', coalesce(v_booking.confirmed_revenue, p_confirmed_revenue),
+      'meeting_url', v_booking.meeting_url
     );
   END IF;
 
   -- Replay protection: if booking is already confirmed with differing provider or event ID -> fail closed
   IF v_booking.external_calendar_event_id IS NOT NULL AND (
-    v_booking.external_calendar_provider <> p_provider OR v_booking.external_calendar_event_id <> p_provider_event_id
+    v_booking.external_calendar_provider <> v_provider OR v_booking.external_calendar_event_id <> v_event_id
   ) THEN
     RAISE EXCEPTION 'Booking % is already confirmed with provider % and event %', p_booking_id, v_booking.external_calendar_provider, v_booking.external_calendar_event_id;
   END IF;
@@ -1023,25 +1182,31 @@ BEGIN
   SELECT id INTO v_existing_other_booking
   FROM public.crm_bookings
   WHERE workspace_id = p_workspace_id
-    AND external_calendar_provider = p_provider
-    AND external_calendar_event_id = p_provider_event_id
+    AND external_calendar_provider = v_provider
+    AND external_calendar_event_id = v_event_id
     AND id <> p_booking_id
   LIMIT 1;
 
   IF v_existing_other_booking.id IS NOT NULL THEN
-    RAISE EXCEPTION 'Provider event ID % for provider % already confirmed another booking (%) in workspace %', p_provider_event_id, p_provider, v_existing_other_booking.id, p_workspace_id;
+    RAISE EXCEPTION 'Provider event ID % for provider % already confirmed another booking (%) in workspace %', v_event_id, v_provider, v_existing_other_booking.id, p_workspace_id;
   END IF;
 
-  -- 2. Update booking to confirmed status
+  -- 2. Update booking to confirmed status in the same transaction, including meeting_url and confirmed_revenue
   UPDATE public.crm_bookings
   SET
     status = 'scheduled',
     external_reservation_status = 'confirmed_external_calendar',
-    external_calendar_provider = p_provider,
-    external_calendar_event_id = p_provider_event_id,
+    external_calendar_provider = v_provider,
+    external_calendar_event_id = v_event_id,
+    confirmed_revenue = coalesce(p_confirmed_revenue, v_booking.confirmed_revenue),
+    meeting_url = coalesce(v_meeting_url, v_booking.meeting_url),
     externally_confirmed_at = coalesce(v_booking.externally_confirmed_at, now()),
     updated_at = now()
   WHERE id = p_booking_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Failed to update booking % in workspace %', p_booking_id, p_workspace_id;
+  END IF;
 
   -- 3. If booking is linked to a thread, update corresponding journey
   IF v_booking.thread_id IS NOT NULL THEN
@@ -1055,7 +1220,7 @@ BEGIN
       UPDATE public.service_conversion_journeys
       SET
         status = 'booked',
-        booking_confirmation_source = p_provider,
+        booking_confirmation_source = v_provider,
         attributed_revenue = coalesce(p_confirmed_revenue, v_journey.estimated_service_value, 0),
         updated_at = now()
       WHERE id = v_journey.id;
@@ -1075,13 +1240,14 @@ BEGIN
         v_journey.id,
         v_journey.status,
         'booked',
-        'Confirmed via external calendar provider ' || p_provider,
+        'Confirmed via external calendar provider ' || v_provider,
         'system',
         coalesce(p_actor_id, 'booking_webhook'),
         jsonb_build_object(
-          'provider', p_provider,
-          'provider_event_id', p_provider_event_id,
-          'confirmed_revenue', p_confirmed_revenue
+          'provider', v_provider,
+          'provider_event_id', v_event_id,
+          'confirmed_revenue', p_confirmed_revenue,
+          'meeting_url', v_meeting_url
         )
       );
 
@@ -1102,13 +1268,14 @@ BEGIN
     'booking_id', p_booking_id,
     'status', 'scheduled',
     'external_reservation_status', 'confirmed_external_calendar',
-    'confirmed_revenue', p_confirmed_revenue
+    'confirmed_revenue', coalesce(p_confirmed_revenue, v_booking.confirmed_revenue),
+    'meeting_url', coalesce(v_meeting_url, v_booking.meeting_url)
   );
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.confirm_workspace_booking_atomic(UUID, UUID, TEXT, TEXT, NUMERIC, TEXT) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.confirm_workspace_booking_atomic(UUID, UUID, TEXT, TEXT, NUMERIC, TEXT) TO service_role;
+REVOKE ALL ON FUNCTION public.confirm_workspace_booking_atomic(UUID, UUID, TEXT, TEXT, NUMERIC, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.confirm_workspace_booking_atomic(UUID, UUID, TEXT, TEXT, NUMERIC, TEXT, TEXT) TO service_role;
 
 -- 11. Explicit Suppressed Outcome for AI Worker
 CREATE OR REPLACE FUNCTION public.suppress_whatsapp_ai_job(
@@ -1170,6 +1337,8 @@ DECLARE
   v_journey RECORD;
   v_from_status TEXT;
   v_updated_meta JSONB;
+  v_journey_final_status TEXT := 'none';
+  v_already_sent_notice BOOLEAN;
 BEGIN
   -- 1. Lock workspace-scoped thread
   SELECT * INTO v_thread
@@ -1181,7 +1350,13 @@ BEGIN
     RAISE EXCEPTION 'Thread % not found in workspace %', p_thread_id, p_workspace_id;
   END IF;
 
-  -- 2. Lock and transition journey if present
+  -- Check existing notice status
+  v_already_sent_notice := (
+    coalesce(v_thread.metadata->>'humanHandoffNoticeStatus', '') = 'sent'
+    OR coalesce((v_thread.metadata->>'humanHandoffNoticeSent')::boolean, false) = true
+  );
+
+  -- 2. Lock and inspect journey if present
   SELECT * INTO v_journey
   FROM public.service_conversion_journeys
   WHERE thread_id = p_thread_id AND workspace_id = p_workspace_id
@@ -1190,50 +1365,79 @@ BEGIN
   IF v_journey.id IS NOT NULL THEN
     v_from_status := v_journey.status;
 
-    UPDATE public.service_conversion_journeys
-    SET
-      status = 'human_takeover',
-      human_takeover_reason = coalesce(p_reason, 'Customer escalation keyword detected'),
-      updated_at = now()
-    WHERE id = v_journey.id;
+    -- PRESERVE TERMINAL STATES: booked and lost must NEVER regress to human_takeover
+    IF v_from_status IN ('booked', 'lost') THEN
+      v_journey_final_status := v_from_status;
 
-    -- Write immutable audit event
-    INSERT INTO public.service_conversion_events (
-      workspace_id,
-      journey_id,
-      from_status,
-      to_status,
-      reason,
-      actor_type,
-      actor_id,
-      metadata
-    ) VALUES (
-      p_workspace_id,
-      v_journey.id,
-      v_from_status,
-      'human_takeover',
-      coalesce(p_reason, 'Escalated to human representative'),
-      coalesce(p_actor_type, 'ai_assistant'),
-      p_actor_id,
-      jsonb_build_object('reason', p_reason)
-    );
+      -- Log an audit event documenting the handoff request while preserving terminal state
+      INSERT INTO public.service_conversion_events (
+        workspace_id,
+        journey_id,
+        from_status,
+        to_status,
+        reason,
+        actor_type,
+        actor_id,
+        metadata
+      ) VALUES (
+        p_workspace_id,
+        v_journey.id,
+        v_from_status,
+        v_from_status,
+        coalesce(p_reason, 'Human handoff requested on terminal journey'),
+        coalesce(p_actor_type, 'ai_assistant'),
+        p_actor_id,
+        jsonb_build_object('reason', p_reason, 'terminal_state_preserved', true)
+      );
+    ELSE
+      v_journey_final_status := 'human_takeover';
 
-    -- Cancel applicable scheduled follow-ups
-    UPDATE public.service_followups
-    SET
-      status = 'cancelled',
-      cancel_reason = 'lifecycle_transition_to_human_takeover',
-      updated_at = now()
-    WHERE workspace_id = p_workspace_id
-      AND journey_id = v_journey.id
-      AND status = 'scheduled';
+      UPDATE public.service_conversion_journeys
+      SET
+        status = 'human_takeover',
+        human_takeover_reason = coalesce(p_reason, 'Customer escalation keyword detected'),
+        updated_at = now()
+      WHERE id = v_journey.id;
+
+      -- Write immutable audit event
+      INSERT INTO public.service_conversion_events (
+        workspace_id,
+        journey_id,
+        from_status,
+        to_status,
+        reason,
+        actor_type,
+        actor_id,
+        metadata
+      ) VALUES (
+        p_workspace_id,
+        v_journey.id,
+        v_from_status,
+        'human_takeover',
+        coalesce(p_reason, 'Escalated to human representative'),
+        coalesce(p_actor_type, 'ai_assistant'),
+        p_actor_id,
+        jsonb_build_object('reason', p_reason)
+      );
+
+      -- Cancel applicable scheduled follow-ups
+      UPDATE public.service_followups
+      SET
+        status = 'cancelled',
+        cancel_reason = 'lifecycle_transition_to_human_takeover',
+        updated_at = now()
+      WHERE workspace_id = p_workspace_id
+        AND journey_id = v_journey.id
+        AND status = 'scheduled';
+    END IF;
   END IF;
 
-  -- 3. Update thread: disable AI and flag human handoff
+  -- 3. Update thread: disable AI and flag human handoff, initialize notice status to pending if not already sent
   v_updated_meta := coalesce(v_thread.metadata, '{}'::jsonb) || jsonb_build_object(
     'aiBotEnabled', false,
     'humanHandoff', true,
-    'humanRequestedAt', now()
+    'humanRequestedAt', now(),
+    'humanHandoffNoticeStatus', CASE WHEN v_already_sent_notice THEN 'sent' ELSE 'pending' END
   );
 
   UPDATE public.inbox_threads
@@ -1246,14 +1450,63 @@ BEGIN
     'success', true,
     'thread_id', p_thread_id,
     'journey_id', v_journey.id,
-    'journey_status', 'human_takeover',
-    'already_sent_notice', coalesce((v_thread.metadata->>'humanHandoffNoticeSent')::boolean, false)
+    'journey_status', v_journey_final_status,
+    'already_sent_notice', v_already_sent_notice
   );
 END;
 $$;
 
 REVOKE ALL ON FUNCTION public.handoff_service_thread_atomic(UUID, UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.handoff_service_thread_atomic(UUID, UUID, TEXT, TEXT, TEXT) TO service_role;
+
+-- 12b. Transactional Handoff Notice Status Recorder (Service-Role Only)
+CREATE OR REPLACE FUNCTION public.record_thread_handoff_notice_atomic(
+  p_workspace_id UUID,
+  p_thread_id UUID,
+  p_status TEXT,
+  p_error TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_thread RECORD;
+  v_meta JSONB;
+BEGIN
+  SELECT * INTO v_thread
+  FROM public.inbox_threads
+  WHERE id = p_thread_id AND workspace_id = p_workspace_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Thread % not found in workspace %', p_thread_id, p_workspace_id;
+  END IF;
+
+  v_meta := coalesce(v_thread.metadata, '{}'::jsonb) || jsonb_build_object(
+    'humanHandoffNoticeStatus', p_status,
+    'humanHandoffNoticeAt', now()
+  );
+
+  IF p_status = 'sent' THEN
+    v_meta := v_meta || jsonb_build_object('humanHandoffNoticeSent', true);
+  END IF;
+
+  IF p_error IS NOT NULL THEN
+    v_meta := v_meta || jsonb_build_object('humanHandoffNoticeError', p_error);
+  END IF;
+
+  UPDATE public.inbox_threads
+  SET metadata = v_meta, updated_at = now()
+  WHERE id = p_thread_id;
+
+  RETURN jsonb_build_object('success', true, 'status', p_status);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT) TO service_role;
 
 -- 13. Transactional Operator Resume RPC (Service-Role Only)
 CREATE OR REPLACE FUNCTION public.resume_service_thread_atomic(
@@ -1330,8 +1583,8 @@ BEGIN
     v_resume_status := v_journey.status;
   END IF;
 
-  -- 3. Update thread: remove humanHandoffNoticeSent, re-enable AI
-  v_updated_meta := (coalesce(v_thread.metadata, '{}'::jsonb) - 'humanHandoffNoticeSent') || jsonb_build_object(
+  -- 3. Update thread: remove handoff notice markers, re-enable AI
+  v_updated_meta := (coalesce(v_thread.metadata, '{}'::jsonb) - 'humanHandoffNoticeSent' - 'humanHandoffNoticeStatus' - 'humanHandoffNoticeError') || jsonb_build_object(
     'aiBotEnabled', true,
     'humanHandoff', false,
     'resumedByUserId', p_operator_user_id,

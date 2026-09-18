@@ -136,6 +136,53 @@ async function callGeminiAPI(
 }
 
 /**
+ * Records thread handoff notice delivery state atomically without overwriting concurrent metadata.
+ */
+export async function recordThreadHandoffNoticeDelivery(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  threadId: string,
+  status: "pending" | "sent",
+  outboundWamid?: string,
+  error?: string
+): Promise<void> {
+  const { error: rpcErr } = await supabase.rpc("record_thread_handoff_notice_atomic", {
+    p_workspace_id: workspaceId,
+    p_thread_id: threadId,
+    p_status: status,
+    p_wamid: outboundWamid || null,
+    p_error: error || null,
+  });
+
+  if (rpcErr) {
+    console.warn("[WhatsApp Assistant] record_thread_handoff_notice_atomic error, falling back to merge query:", rpcErr.message);
+    const { data: freshThread } = await supabase
+      .from("inbox_threads")
+      .select("metadata")
+      .eq("id", threadId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+
+    const freshMeta = (freshThread?.metadata || {}) as Record<string, any>;
+    await supabase
+      .from("inbox_threads")
+      .update({
+        metadata: {
+          ...freshMeta,
+          aiBotEnabled: false,
+          humanHandoff: true,
+          humanHandoffNoticeStatus: status,
+          humanHandoffNoticeSent: status === "sent",
+          humanHandoffNoticeWamid: outboundWamid || freshMeta.humanHandoffNoticeWamid || null,
+          humanHandoffNoticeLastError: error || null,
+        },
+      })
+      .eq("id", threadId)
+      .eq("workspace_id", workspaceId);
+  }
+}
+
+/**
  * Intelligent 24/7 AI conversational receptionist engine for WhatsApp.
  * Respects entitlements, human handoff, bot grounding, and sends reply via WhatsApp Graph API.
  */
@@ -153,21 +200,59 @@ export async function generateAndSendWhatsAppAIResponse(
     inboundWamid,
   } = input;
 
-  // 1. Thread-level AI-off and Human Handoff Enforcement
-  const { data: thread } = await supabase
+  // 1. Thread-level AI-off and Human Handoff Enforcement (Fail-closed on lookup error or missing thread)
+  const { data: thread, error: threadError } = await supabase
     .from("inbox_threads")
     .select("id, contact_id, metadata, priority")
     .eq("id", threadId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
 
+  if (threadError) {
+    throw new Error(`Failed to query thread ${threadId} in workspace ${workspaceId}: ${threadError.message}`);
+  }
+
+  if (!thread) {
+    throw new Error(`Thread ${threadId} not found in workspace ${workspaceId}`);
+  }
+
   const threadMeta = (thread?.metadata || {}) as Record<string, any>;
-  if (threadMeta.aiBotEnabled === false || threadMeta.humanHandoff === true) {
+  const isHandoffActive = threadMeta.aiBotEnabled === false || threadMeta.humanHandoff === true;
+  const rawNoticeStatus = threadMeta.humanHandoffNoticeStatus || (threadMeta.humanHandoffNoticeSent ? "sent" : null);
+
+  // If handoff is active and notice has already been delivered, suppress AI response without duplicating notice
+  if (isHandoffActive && rawNoticeStatus === "sent") {
     return {
       replyText: "",
       deliveryStatus: "failed",
       skippedReason: "human_handoff_active",
     };
+  }
+
+  // If handoff is active but notice delivery is pending (or not yet recorded as sent),
+  // do NOT suppress the job! Deliver / retry delivering the handoff notice.
+  if (isHandoffActive && (rawNoticeStatus === "pending" || !rawNoticeStatus)) {
+    const { config: botConfig, brandName } = await getWorkspaceBotConfig(supabase, workspaceId);
+    const businessName = botConfig.business_name || brandName;
+    const handoffNotice = `Our team at ${businessName} has been alerted. A specialist will respond to you directly here shortly.`;
+
+    const sendResult = await sendWhatsAppOutbound({
+      supabase,
+      workspaceId,
+      integrationId,
+      threadId,
+      recipientPhone,
+      text: handoffNotice,
+      inboundWamid,
+    });
+
+    if (sendResult.deliveryStatus === "sent") {
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, "sent", sendResult.outboundWamid);
+      return { replyText: handoffNotice, ...sendResult };
+    } else {
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, "pending", undefined, sendResult.error || "delivery_failed");
+      throw new Error(`Handoff notice delivery failed: ${sendResult.error || "delivery_failed"}`);
+    }
   }
 
   // 2. Resolve Bot Configuration & Master Switch
@@ -208,7 +293,8 @@ export async function generateAndSendWhatsAppAIResponse(
       throw new Error(`Handoff transaction failed: ${handoffError.message}`);
     }
 
-    const alreadySentNotice = handoffData?.already_sent_notice === true;
+    const handoffRes = typeof handoffData === "string" ? JSON.parse(handoffData) : handoffData;
+    const alreadySentNotice = handoffRes?.already_sent_notice === true || handoffRes?.notice_status === "sent";
     if (alreadySentNotice) {
       return {
         replyText: "",
@@ -229,26 +315,12 @@ export async function generateAndSendWhatsAppAIResponse(
     });
 
     if (sendResult.deliveryStatus === "sent") {
-      const { error: updateMetaError } = await supabase
-        .from("inbox_threads")
-        .update({
-          metadata: {
-            ...threadMeta,
-            aiBotEnabled: false,
-            humanHandoff: true,
-            humanRequestedAt: new Date().toISOString(),
-            humanHandoffNoticeSent: true,
-          },
-        })
-        .eq("id", threadId)
-        .eq("workspace_id", workspaceId);
-
-      if (updateMetaError) {
-        console.warn("[WhatsApp Assistant] Failed to record humanHandoffNoticeSent:", updateMetaError.message);
-      }
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, "sent", sendResult.outboundWamid);
+      return { replyText: handoffNotice, ...sendResult };
+    } else {
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, "pending", undefined, sendResult.error || "delivery_failed");
+      throw new Error(`Handoff notice delivery failed: ${sendResult.error || "delivery_failed"}`);
     }
-
-    return { replyText: handoffNotice, ...sendResult };
   }
 
   // 4. Entitlement & Quota Verification
@@ -346,20 +418,8 @@ export async function generateAndSendWhatsAppAIResponse(
   const bookingLabel = activePlaybook.terminology.bookingLabel;
 
   // Workspace-configured services are authoritative.
-  // Playbooks provide terminology and qualification guidance only.
-  // Only preset industry playbooks (e.g. beauty_grooming, auto_detailing) provide starter services
-  // when workspace has zero configured services. General service has no starter services.
-  let effectiveServicesList: any[] = [];
-  if (Array.isArray(botConfig.services) && botConfig.services.length > 0) {
-    effectiveServicesList = botConfig.services;
-  } else if (activePlaybook.playbookKey !== "general_service" && activePlaybook.services && activePlaybook.services.length > 0) {
-    effectiveServicesList = activePlaybook.services.map((s) => ({
-      name: s.name,
-      description: s.description || "",
-      price: s.priceDisplay || (s.price !== null && s.price !== undefined ? `$${s.price}` : "Custom Quote"),
-      duration: s.durationMinutes ? `${s.durationMinutes} mins` : undefined,
-    }));
-  }
+  // Never present invented or starter services for unconfigured workspaces.
+  const effectiveServicesList: any[] = Array.isArray(botConfig.services) ? botConfig.services : [];
 
   const formattedServices = effectiveServicesList.length > 0
     ? effectiveServicesList

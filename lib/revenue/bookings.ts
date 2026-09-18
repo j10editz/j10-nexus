@@ -202,12 +202,24 @@ export async function confirmWorkspaceBookingAtomic(
     confirmedMeetingUrl?: string | null;
     actorId?: string;
   }
-): Promise<{ success: boolean; bookingId: string; status: string; confirmedRevenue?: number | null; duplicate?: boolean; idempotent?: boolean }> {
+): Promise<{
+  success: boolean;
+  bookingId: string;
+  booking_id?: string;
+  status: string;
+  external_reservation_status?: string;
+  confirmedRevenue?: number | null;
+  confirmed_revenue?: number | null;
+  meetingUrl?: string | null;
+  meeting_url?: string | null;
+  duplicate?: boolean;
+  idempotent?: boolean;
+}> {
   if (!input.calendarProvider || !input.externalEventId) {
     throw new Error("External calendar provider and provider event ID are strictly required for confirmation.");
   }
 
-  // Call the atomic RPC which performs locking, journey transition, audit event, and revenue attribution
+  // Call the atomic RPC which performs locking, journey transition, audit event, meeting URL update, and revenue attribution
   const { data, error } = await supabase.rpc("confirm_workspace_booking_atomic", {
     p_workspace_id: input.workspaceId,
     p_booking_id: input.bookingId,
@@ -215,6 +227,7 @@ export async function confirmWorkspaceBookingAtomic(
     p_provider_event_id: input.externalEventId,
     p_confirmed_revenue: input.confirmedRevenue !== undefined && input.confirmedRevenue !== null ? input.confirmedRevenue : 0,
     p_actor_id: input.actorId || "booking_provider_callback",
+    p_confirmed_meeting_url: input.confirmedMeetingUrl || null,
   });
 
   if (error) {
@@ -226,15 +239,12 @@ export async function confirmWorkspaceBookingAtomic(
     throw new Error(`Atomic booking confirmation failed: ${result?.error || "Unknown error"}`);
   }
 
-  if (input.confirmedMeetingUrl) {
-    await supabase
-      .from("crm_bookings")
-      .update({ meeting_url: input.confirmedMeetingUrl })
-      .eq("id", input.bookingId)
-      .eq("workspace_id", input.workspaceId);
-  }
-
-  return result;
+  return {
+    ...result,
+    bookingId: result.booking_id || result.bookingId,
+    confirmedRevenue: result.confirmed_revenue !== undefined ? result.confirmed_revenue : result.confirmedRevenue,
+    meetingUrl: result.meeting_url !== undefined ? result.meeting_url : result.meetingUrl,
+  };
 }
 
 /**
