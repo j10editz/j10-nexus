@@ -309,6 +309,11 @@ export default function ConnectionsDashboardPage() {
           action: connectTab === "official" ? "activate_official" : "custom_token",
           token: connectTab === "custom" ? customToken : undefined,
           vipGroupChatId: vipGroupInput.trim() || undefined,
+          // An official cutover is never a provider-wide upsert: bind it to the
+          // exact standard Telegram integration already shown in this workspace.
+          integrationId: connectTab === "official"
+            ? connections.find((connection) => connection.provider === "telegram" && connection.mode !== "telegram_business")?.id
+            : undefined,
         }),
       });
 
