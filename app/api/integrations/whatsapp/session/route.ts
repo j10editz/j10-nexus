@@ -60,7 +60,7 @@ export async function POST() {
       graphVersion: META_WHATSAPP_GRAPH_API_VERSION,
     });
   } catch (err: any) {
-    console.error("[WhatsApp Session API] Error:", err?.message || err);
+    console.error("[WhatsApp Session API] error stage: session_init code:", err?.code || "SESSION_INIT_ERROR");
     return NextResponse.json(
       { success: false, error: "Failed to initialize WhatsApp connection session." },
       { status: 500 }

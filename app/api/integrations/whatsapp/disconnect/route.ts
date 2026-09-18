@@ -32,9 +32,9 @@ export async function POST(req: Request) {
       message: "WhatsApp integration has been disconnected safely. All historical Inbox, CRM, and message data are preserved.",
     });
   } catch (err: any) {
-    console.error("[WhatsApp Disconnect API] Error:", err?.message || err);
+    console.error("[WhatsApp Disconnect API] stage: disconnect code:", err?.code || "DISCONNECT_FAILED");
     return NextResponse.json(
-      { success: false, error: "Failed to disconnect WhatsApp integration." },
+      { success: false, error: err?.message || "Failed to disconnect WhatsApp integration." },
       { status: 500 }
     );
   }

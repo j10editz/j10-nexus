@@ -4,9 +4,9 @@ import Script from "next/script";
 import { CheckCircle2, Loader2, MessageSquareText, AlertCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type SignupSession = { wabaId: string; phoneNumberId: string };
-type FacebookLoginResponse = { authResponse?: { code?: string }; status?: string };
-type FacebookSdk = {
+export type SignupSession = { wabaId: string; phoneNumberId: string };
+export type FacebookLoginResponse = { authResponse?: { code?: string }; status?: string };
+export type FacebookSdk = {
   init(options: { appId: string; cookie: boolean; xfbml: boolean; version: string }): void;
   login(callback: (response: FacebookLoginResponse) => void, options: Record<string, unknown>): void;
 };
@@ -15,6 +15,100 @@ declare global {
   interface Window {
     FB?: FacebookSdk;
   }
+}
+
+export interface InitiateMetaSignupFlowParams {
+  sessionData: {
+    success?: boolean;
+    state?: string;
+    appId?: string;
+    configId?: string;
+    graphVersion?: string;
+  } | null;
+  fb?: FacebookSdk;
+  setWorking: (working: boolean) => void;
+  setIsError: (isError: boolean) => void;
+  setMessage: (message: string | null) => void;
+  onCodeReceived: (code: string) => void;
+}
+
+/**
+ * Initiates the Meta Embedded Signup flow in the browser.
+ * FAILS CLOSED:
+ * - Stops immediately if sessionData is missing or invalid.
+ * - If FB.init throws, catches exception, stops immediately, sets working to false,
+ *   displays sanitized configuration error, and NEVER invokes FB.login.
+ */
+export async function initiateMetaSignupFlow({
+  sessionData,
+  fb,
+  setWorking,
+  setIsError,
+  setMessage,
+  onCodeReceived,
+}: InitiateMetaSignupFlowParams): Promise<boolean> {
+  const stateToken = sessionData?.state?.trim();
+  const appId = sessionData?.appId?.trim();
+  const configId = sessionData?.configId?.trim();
+  const graphVersion = sessionData?.graphVersion?.trim() || "v26.0";
+
+  if (!sessionData?.success || !stateToken || !appId || !configId) {
+    setWorking(false);
+    setIsError(true);
+    setMessage("WhatsApp connection is not configured");
+    return false;
+  }
+
+  if (!fb) {
+    setWorking(false);
+    setIsError(true);
+    setMessage(
+      "Meta SDK is not loaded. Please check your browser connection or disable ad-blockers."
+    );
+    return false;
+  }
+
+  // Initialize FB SDK with validated server values (Fail closed if init throws)
+  try {
+    fb.init({
+      appId,
+      cookie: true,
+      xfbml: true,
+      version: graphVersion,
+    });
+  } catch {
+    setWorking(false);
+    setIsError(true);
+    setMessage(
+      "Failed to initialize Meta SDK. Please check your browser settings or try again."
+    );
+    return false;
+  }
+
+  // Launch Meta Embedded Signup
+  fb.login(
+    (response) => {
+      const code = response.authResponse?.code;
+      if (!code) {
+        setWorking(false);
+        setMessage("Meta sign-in did not return authorization. Please try again.");
+        return;
+      }
+      onCodeReceived(code);
+    },
+    {
+      config_id: configId,
+      response_type: "code",
+      override_default_response_type: true,
+      extras: {
+        setup: {},
+        featureType: "whatsapp_business_app_onboarding",
+        sessionInfoVersion: "3",
+      },
+    }
+  );
+
+  return true;
 }
 
 export interface WhatsAppEmbeddedSignupProps {
@@ -190,65 +284,17 @@ export function WhatsAppEmbeddedSignup({
     }
 
     // FAIL CLOSED: If state, appId, or configId is missing, stop immediately.
-    // Do NOT launch FB.login without a verified persisted state.
-    const stateToken = sessionData?.state?.trim();
-    const appId = sessionData?.appId?.trim();
-    const configId = sessionData?.configId?.trim();
-    const graphVersion = sessionData?.graphVersion?.trim() || "v21.0";
-
-    if (!sessionData?.success || !stateToken || !appId || !configId) {
-      setWorking(false);
-      setIsError(true);
-      setMessage("WhatsApp connection is not configured");
-      return;
-    }
-
-    stateTokenRef.current = stateToken;
-
-    if (!window.FB) {
-      setWorking(false);
-      setIsError(true);
-      setMessage(
-        "Meta SDK is not loaded. Please check your browser connection or disable ad-blockers."
-      );
-      return;
-    }
-
-    // Initialize FB SDK with validated server values
-    try {
-      window.FB.init({
-        appId,
-        cookie: true,
-        xfbml: true,
-        version: graphVersion,
-      });
-    } catch (initErr) {
-      console.error("[Meta SDK] Init error:", initErr);
-    }
-
-    // Launch Meta Embedded Signup
-    window.FB.login(
-      (response) => {
-        const code = response.authResponse?.code;
-        if (!code) {
-          setWorking(false);
-          setMessage("Meta sign-in did not return authorization. Please try again.");
-          return;
-        }
+    await initiateMetaSignupFlow({
+      sessionData,
+      fb: window.FB,
+      setWorking,
+      setIsError,
+      setMessage,
+      onCodeReceived: (code) => {
         codeRef.current = code;
         void finish();
       },
-      {
-        config_id: configId,
-        response_type: "code",
-        override_default_response_type: true,
-        extras: {
-          setup: {},
-          featureType: "whatsapp_business_app_onboarding",
-          sessionInfoVersion: "3",
-        },
-      }
-    );
+    });
   };
 
   return (

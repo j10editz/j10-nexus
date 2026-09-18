@@ -109,7 +109,7 @@ export async function POST(req: Request) {
       tokenResult = await exchangeMetaCodeForAccessToken(code, undefined, appSecret);
     } catch (exchangeErr: any) {
       return NextResponse.json(
-        { success: false, error: exchangeErr.message || "Failed to exchange authorization code with Meta." },
+        { success: false, error: "Failed to exchange authorization code with Meta." },
         { status: 400 }
       );
     }
@@ -122,7 +122,7 @@ export async function POST(req: Request) {
       verifiedDetails = await verifyWabaAndPhoneNumber(accessToken, wabaId, phoneNumberId);
     } catch (verifyErr: any) {
       return NextResponse.json(
-        { success: false, error: verifyErr.message || "Failed to verify WhatsApp account ownership." },
+        { success: false, error: "Failed to verify WhatsApp account ownership." },
         { status: 422 }
       );
     }
@@ -130,7 +130,7 @@ export async function POST(req: Request) {
     // 5. Subscribe WABA to application webhook
     const subscribed = await subscribeWabaToWebhook(accessToken, wabaId);
 
-    // 6. Create or update integration & encrypted credentials
+    // 6. Create or update integration & encrypted credentials via safe two-phase activation
     const { integrationId, endpointKey, isReconnect, status } = await upsertWhatsAppIntegration(adminSupabase, {
       workspaceId: wsId,
       userId: context.user.id,
@@ -143,8 +143,8 @@ export async function POST(req: Request) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://j10-nexus.vercel.app";
     const canonicalWebhookUrl = `${appUrl}/api/webhooks/whatsapp/${endpointKey}`;
 
-    // Requirement 9: If webhook subscription fails, do not display Active; store action_required and return 422
-    if (!subscribed) {
+    // If webhook subscription failed or degraded, do not display Active; return action_required with 422
+    if (!subscribed || status !== "connected") {
       return NextResponse.json(
         {
           success: false,
@@ -185,9 +185,9 @@ export async function POST(req: Request) {
       },
     });
   } catch (err: any) {
-    console.error("[WhatsApp Connect API] Setup failed:", err?.message || err);
+    console.error("[WhatsApp Connect API] setup_failed stage: connect code:", err?.code || "CONNECT_FAILED");
     return NextResponse.json(
-      { success: false, error: err?.message || "Failed to connect WhatsApp account." },
+      { success: false, error: "Failed to connect WhatsApp account." },
       { status: 500 }
     );
   }

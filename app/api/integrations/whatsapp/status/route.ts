@@ -22,7 +22,7 @@ export async function GET() {
       data: status,
     });
   } catch (err: any) {
-    console.error("[WhatsApp Status API] Error:", err?.message || err);
+    console.error("[WhatsApp Status API] stage: get_status code:", err?.code || "STATUS_FAILED");
     return NextResponse.json(
       { success: false, error: "Failed to load WhatsApp connection status." },
       { status: 500 }

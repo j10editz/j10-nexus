@@ -60,7 +60,53 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
       // Must check session failure and stop immediately
       expect(source).toContain("WhatsApp connection is not configured");
       expect(source).toContain("if (!sessionRes.ok)");
-      expect(source).toContain("if (!sessionData?.success || !stateToken || !appId || !configId)");
+    });
+
+    it("fails closed behaviorally when FB.init throws: stops immediately, sets working false, shows error, never invokes FB.login", async () => {
+      const { initiateMetaSignupFlow } = await import("@/components/whatsapp/WhatsAppEmbeddedSignup");
+      const setWorking = vi.fn();
+      const setIsError = vi.fn();
+      const setMessage = vi.fn();
+      const onCodeReceived = vi.fn();
+
+      const mockFb = {
+        init: vi.fn(() => {
+          throw new Error("FB.init explosion in browser");
+        }),
+        login: vi.fn(),
+      };
+
+      const sessionData = {
+        success: true,
+        state: "was_state12345678901234567890123",
+        appId: "app-id-123456",
+        configId: "config-id-654321",
+        graphVersion: "v26.0",
+      };
+
+      const result = await initiateMetaSignupFlow({
+        sessionData,
+        fb: mockFb,
+        setWorking,
+        setIsError,
+        setMessage,
+        onCodeReceived,
+      });
+
+      expect(result).toBe(false);
+      expect(mockFb.init).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: "app-id-123456",
+          version: "v26.0",
+        })
+      );
+      expect(mockFb.login).not.toHaveBeenCalled();
+      expect(setWorking).toHaveBeenCalledWith(false);
+      expect(setIsError).toHaveBeenCalledWith(true);
+      expect(setMessage).toHaveBeenCalledWith(
+        "Failed to initialize Meta SDK. Please check your browser settings or try again."
+      );
+      expect(onCodeReceived).not.toHaveBeenCalled();
     });
 
     it("always connects via the canonical /api/integrations/whatsapp/connect route", async () => {
@@ -265,18 +311,21 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
   });
 
   describe("3. Route Consolidation & CSRF Bypass Prevention", () => {
-    it("old integration-ID route cannot bypass CSRF state validation (rejects missing state)", async () => {
-      const { requireApiWorkspaceContext } = await import("@/lib/workspaces/server");
-      vi.mocked(requireApiWorkspaceContext).mockResolvedValueOnce({
-        context: {
-          workspace: { id: "ws-1" } as any,
-          user: { id: "usr-1" } as any,
-          membership: { role: "admin" } as any,
-        },
+    it("legacy duplicate route /api/integrations/[id]/whatsapp/embedded-signup is removed", async () => {
+      const { existsSync } = await import("node:fs");
+      expect(existsSync("app/api/integrations/[id]/whatsapp/embedded-signup/route.ts")).toBe(false);
+    });
+
+    it("canonical connect route rejects missing CSRF state token", async () => {
+      const { getActiveWorkspaceContext } = await import("@/lib/workspaces/server");
+      vi.mocked(getActiveWorkspaceContext).mockResolvedValueOnce({
+        workspace: { id: "ws-1", status: "active" } as any,
+        user: { id: "usr-1" } as any,
+        membership: { role: "admin" } as any,
       } as any);
 
-      const { POST } = await import("@/app/api/integrations/[id]/whatsapp/embedded-signup/route");
-      const req = new Request("http://localhost/api/integrations/int-1/whatsapp/embedded-signup", {
+      const { POST } = await import("@/app/api/integrations/whatsapp/connect/route");
+      const req = new Request("http://localhost/api/integrations/whatsapp/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -287,20 +336,18 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
         }),
       });
 
-      const res = await POST(req, { params: Promise.resolve({ id: "int-1" }) });
+      const res = await POST(req);
       expect(res.status).toBe(400);
       const body = await res.json();
       expect(body.error).toContain("Missing required CSRF state token");
     });
 
-    it("old integration-ID route rejects invalid CSRF state token", async () => {
-      const { requireApiWorkspaceContext } = await import("@/lib/workspaces/server");
-      vi.mocked(requireApiWorkspaceContext).mockResolvedValueOnce({
-        context: {
-          workspace: { id: "ws-1" } as any,
-          user: { id: "usr-1" } as any,
-          membership: { role: "admin" } as any,
-        },
+    it("canonical connect route rejects invalid CSRF state token", async () => {
+      const { getActiveWorkspaceContext } = await import("@/lib/workspaces/server");
+      vi.mocked(getActiveWorkspaceContext).mockResolvedValueOnce({
+        workspace: { id: "ws-1", status: "active" } as any,
+        user: { id: "usr-1" } as any,
+        membership: { role: "admin" } as any,
       } as any);
 
       mockAdminSupabase.rpc.mockResolvedValueOnce({
@@ -308,8 +355,8 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
         error: null,
       });
 
-      const { POST } = await import("@/app/api/integrations/[id]/whatsapp/embedded-signup/route");
-      const req = new Request("http://localhost/api/integrations/int-1/whatsapp/embedded-signup", {
+      const { POST } = await import("@/app/api/integrations/whatsapp/connect/route");
+      const req = new Request("http://localhost/api/integrations/whatsapp/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -320,7 +367,7 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
         }),
       });
 
-      const res = await POST(req, { params: Promise.resolve({ id: "int-1" }) });
+      const res = await POST(req);
       expect(res.status).toBe(403);
       const body = await res.json();
       expect(body.error).toContain("Session token not found or invalid");
@@ -328,19 +375,19 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
   });
 
   describe("4. Cross-Workspace Conflict & PostgreSQL Enforcement", () => {
-    it("RLS cannot hide cross-workspace conflict because privileged client is used after auth", async () => {
+    it("RLS cannot hide cross-workspace conflict across pending, connected, or degraded statuses", async () => {
       const { assertNoCrossWorkspaceConflict } = await import("@/lib/whatsapp/embedded-signup");
       const mockSupabase = {
         from: vi.fn().mockReturnValue({
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
+              in: vi.fn().mockReturnValue({
                 neq: vi.fn().mockResolvedValue({
                   data: [
                     {
                       id: "int-other",
                       workspace_id: "ws-OTHER",
-                      status: "connected",
+                      status: "degraded",
                       external_account_id: "phone-conflict-999",
                       public_configuration: { phone_number_id: "phone-conflict-999" },
                     },
@@ -355,14 +402,17 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
 
       await expect(
         assertNoCrossWorkspaceConflict(mockSupabase, "ws-CURRENT", "phone-conflict-999", "waba-123")
-      ).rejects.toThrow("Cross-workspace conflict: this WhatsApp phone number is already actively connected to another workspace.");
+      ).rejects.toThrow("Cross-workspace conflict: this WhatsApp phone number is already registered to another workspace.");
     });
 
-    it("migration enforces unique constraint on active phone numbers and WABAs", async () => {
+    it("migration enforces unique constraint on pending, connected, degraded phone numbers and WABAs", async () => {
       const migrationSql = await readFile("supabase/migrations/20261007_whatsapp_embedded_signup.sql", "utf8");
       expect(migrationSql).toContain("uq_active_whatsapp_phone_number_id");
       expect(migrationSql).toContain("uq_active_whatsapp_waba_id");
-      expect(migrationSql).toContain("WHERE provider = 'whatsapp-business' AND status = 'connected'");
+      expect(migrationSql).toContain("status IN ('pending', 'connected', 'degraded')");
+      expect(migrationSql).toContain("COALESCE(external_account_id, public_configuration->>'phone_number_id')");
+      expect(migrationSql).toContain("COALESCE(public_configuration->>'waba_id', public_configuration->>'business_account_id')");
+      expect(migrationSql).toContain("created_by_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE");
       expect(migrationSql).toContain("uq_whatsapp_conn_sessions_token_hash");
       expect(migrationSql).toContain("REVOKE ALL ON FUNCTION public.consume_whatsapp_connection_session(TEXT, UUID, UUID) FROM PUBLIC, anon, authenticated;");
       expect(migrationSql).toContain("GRANT EXECUTE ON FUNCTION public.consume_whatsapp_connection_session(TEXT, UUID, UUID) TO service_role;");
@@ -484,8 +534,10 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
   });
 
   describe("6. Database Mutation Integrity & Compensation", () => {
-    it("failed database insert never returns success", async () => {
+    it("two-phase activation: initial write puts status in pending, not connected", async () => {
       const { upsertWhatsAppIntegration } = await import("@/lib/whatsapp/embedded-signup");
+      let initialInsertedStatus: string | undefined;
+
       const mockSupabase = {
         from: vi.fn((table: string) => {
           if (table === "integrations") {
@@ -497,10 +549,71 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
                   }),
                 }),
               }),
-              insert: vi.fn().mockReturnValue({
-                select: vi.fn().mockReturnValue({
-                  single: vi.fn().mockResolvedValue({ data: null, error: { message: "insert failed" } }),
+              insert: vi.fn((row: any) => {
+                initialInsertedStatus = row.status;
+                return {
+                  select: vi.fn().mockReturnValue({
+                    single: vi.fn().mockResolvedValue({ data: { id: "int-new" }, error: null }),
+                  }),
+                };
+              }),
+              update: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockResolvedValue({ error: null }),
                 }),
+              }),
+            };
+          }
+          return {};
+        }),
+      } as any;
+
+      const result = await upsertWhatsAppIntegration(mockSupabase, {
+        workspaceId: "ws-1",
+        userId: "usr-1",
+        phoneNumberId: "phone-1",
+        wabaId: "waba-1",
+        accessToken: "EAAB_token",
+        appSecret: "secret",
+        webhookSubscribed: true,
+      });
+
+      expect(initialInsertedStatus).toBe("pending");
+      expect(result.status).toBe("connected");
+    });
+
+    it("failed credential storage never produces Active and triggers compensation to status error", async () => {
+      const { upsertWhatsAppIntegration } = await import("@/lib/whatsapp/embedded-signup");
+      const { storeIntegrationCredentials } = await import("@/lib/integrations/credentials");
+      vi.mocked(storeIntegrationCredentials).mockRejectedValueOnce(new Error("Vault unavailable"));
+
+      let compensatedStatus: string | undefined;
+      let compensatedErrorCode: string | undefined;
+
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === "integrations") {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { id: "int-1", status: "pending", public_configuration: {} },
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+              update: vi.fn((payload: any) => {
+                if (payload.status === "error") {
+                  compensatedStatus = payload.status;
+                  compensatedErrorCode = payload.last_error_code;
+                }
+                return {
+                  eq: vi.fn().mockReturnValue({
+                    eq: vi.fn().mockResolvedValue({ error: null }),
+                  }),
+                };
               }),
             };
           }
@@ -516,14 +629,21 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
           wabaId: "waba-1",
           accessToken: "EAAB_token",
           appSecret: "secret",
+          webhookSubscribed: true,
         })
-      ).rejects.toThrow("Failed to create WhatsApp integration in database.");
+      ).rejects.toThrow("Failed to store encrypted credentials securely.");
+
+      expect(compensatedStatus).toBe("error");
+      expect(compensatedErrorCode).toBe("CREDENTIAL_STORAGE_FAILED");
     });
 
-    it("failed credential storage never returns success", async () => {
+    it("failed endpoint creation disables endpoint and sets status to error", async () => {
       const { upsertWhatsAppIntegration } = await import("@/lib/whatsapp/embedded-signup");
-      const { storeIntegrationCredentials } = await import("@/lib/integrations/credentials");
-      vi.mocked(storeIntegrationCredentials).mockRejectedValueOnce(new Error("Vault unavailable"));
+      const { createOrEnableIntegrationWebhookEndpoint, disableIntegrationWebhookEndpoint } =
+        await import("@/lib/integrations/webhooks/database");
+      vi.mocked(createOrEnableIntegrationWebhookEndpoint).mockRejectedValueOnce(new Error("Endpoint failure"));
+
+      let compensatedStatus: string | undefined;
 
       const mockSupabase = {
         from: vi.fn((table: string) => {
@@ -533,17 +653,127 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
                 eq: vi.fn().mockReturnValue({
                   eq: vi.fn().mockReturnValue({
                     maybeSingle: vi.fn().mockResolvedValue({
-                      data: { id: "int-1", status: "connected", public_configuration: {} },
+                      data: { id: "int-1", status: "pending", public_configuration: {} },
                       error: null,
                     }),
                   }),
                 }),
               }),
-              update: vi.fn().mockReturnValue({
+              update: vi.fn((payload: any) => {
+                if (payload.status === "error") {
+                  compensatedStatus = payload.status;
+                }
+                return {
+                  eq: vi.fn().mockReturnValue({
+                    eq: vi.fn().mockResolvedValue({ error: null }),
+                  }),
+                };
+              }),
+            };
+          }
+          return {};
+        }),
+      } as any;
+
+      await expect(
+        upsertWhatsAppIntegration(mockSupabase, {
+          workspaceId: "ws-1",
+          userId: "usr-1",
+          phoneNumberId: "phone-1",
+          wabaId: "waba-1",
+          accessToken: "EAAB_token",
+          appSecret: "secret",
+          webhookSubscribed: true,
+        })
+      ).rejects.toThrow("Failed to configure integration webhook endpoint.");
+
+      expect(disableIntegrationWebhookEndpoint).toHaveBeenCalledWith(mockSupabase, "ws-1", "int-1");
+      expect(compensatedStatus).toBe("error");
+    });
+
+    it("failed Meta subscription disables endpoint, sets degraded status, and returns action_required", async () => {
+      const { upsertWhatsAppIntegration } = await import("@/lib/whatsapp/embedded-signup");
+      const { disableIntegrationWebhookEndpoint } = await import("@/lib/integrations/webhooks/database");
+
+      let compensatedStatus: string | undefined;
+
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === "integrations") {
+            return {
+              select: vi.fn().mockReturnValue({
                 eq: vi.fn().mockReturnValue({
-                  eq: vi.fn().mockResolvedValue({ error: null }),
+                  eq: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { id: "int-1", status: "pending", public_configuration: {} },
+                      error: null,
+                    }),
+                  }),
                 }),
               }),
+              update: vi.fn((payload: any) => {
+                if (payload.status === "degraded") {
+                  compensatedStatus = payload.status;
+                }
+                return {
+                  eq: vi.fn().mockReturnValue({
+                    eq: vi.fn().mockResolvedValue({ error: null }),
+                  }),
+                };
+              }),
+            };
+          }
+          return {};
+        }),
+      } as any;
+
+      const result = await upsertWhatsAppIntegration(mockSupabase, {
+        workspaceId: "ws-1",
+        userId: "usr-1",
+        phoneNumberId: "phone-1",
+        wabaId: "waba-1",
+        accessToken: "EAAB_token",
+        appSecret: "secret",
+        webhookSubscribed: false, // FAILED Meta subscription
+      });
+
+      expect(result.status).toBe("action_required");
+      expect(disableIntegrationWebhookEndpoint).toHaveBeenCalledWith(mockSupabase, "ws-1", "int-1");
+      expect(compensatedStatus).toBe("degraded");
+    });
+
+    it("compensation failure is handled and never produces Active", async () => {
+      const { upsertWhatsAppIntegration } = await import("@/lib/whatsapp/embedded-signup");
+      const { storeIntegrationCredentials } = await import("@/lib/integrations/credentials");
+      vi.mocked(storeIntegrationCredentials).mockRejectedValueOnce(new Error("Vault unreachable"));
+
+      let updateCallCount = 0;
+      const updateMock = vi.fn(() => {
+        updateCallCount++;
+        return {
+          eq: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({
+              error: updateCallCount === 1 ? null : { code: "DB_FAIL", message: "compensation error" },
+            }),
+          }),
+        };
+      });
+
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === "integrations") {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { id: "int-1", status: "pending", public_configuration: {} },
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+              update: updateMock,
             };
           }
           return {};
@@ -563,58 +793,12 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
       ).rejects.toThrow("Failed to store encrypted credentials securely.");
     });
 
-    it("failed endpoint creation never returns success", async () => {
-      const { upsertWhatsAppIntegration } = await import("@/lib/whatsapp/embedded-signup");
-      const { createOrEnableIntegrationWebhookEndpoint } = await import("@/lib/integrations/webhooks/database");
-      vi.mocked(createOrEnableIntegrationWebhookEndpoint).mockRejectedValueOnce(new Error("Endpoint failure"));
-
-      const mockSupabase = {
-        from: vi.fn((table: string) => {
-          if (table === "integrations") {
-            return {
-              select: vi.fn().mockReturnValue({
-                eq: vi.fn().mockReturnValue({
-                  eq: vi.fn().mockReturnValue({
-                    maybeSingle: vi.fn().mockResolvedValue({
-                      data: { id: "int-1", status: "connected", public_configuration: {} },
-                      error: null,
-                    }),
-                  }),
-                }),
-              }),
-              update: vi.fn().mockReturnValue({
-                eq: vi.fn().mockReturnValue({
-                  eq: vi.fn().mockResolvedValue({ error: null }),
-                }),
-              }),
-            };
-          }
-          return {};
-        }),
-      } as any;
-
-      await expect(
-        upsertWhatsAppIntegration(mockSupabase, {
-          workspaceId: "ws-1",
-          userId: "usr-1",
-          phoneNumberId: "phone-1",
-          wabaId: "waba-1",
-          accessToken: "EAAB_token",
-          appSecret: "secret",
-          webhookSubscribed: true,
-        })
-      ).rejects.toThrow("Failed to configure integration webhook endpoint.");
-    });
-
-    it("disconnect preserves Inbox, CRM, leads, jobs, and history", async () => {
+    it("disconnect fails closed when endpoint disable fails and does not claim success", async () => {
       const { disconnectWhatsAppIntegration } = await import("@/lib/whatsapp/embedded-signup");
-      const updateMock = vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          eq: vi.fn().mockResolvedValue({ error: null }),
-        }),
-      });
-      const deleteMock = vi.fn();
+      const { disableIntegrationWebhookEndpoint } = await import("@/lib/integrations/webhooks/database");
+      vi.mocked(disableIntegrationWebhookEndpoint).mockRejectedValueOnce(new Error("Endpoint service down"));
 
+      const updateMock = vi.fn();
       const mockSupabase = {
         from: vi.fn((table: string) => {
           if (table === "integrations") {
@@ -630,25 +814,104 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
                 }),
               }),
               update: updateMock,
-              delete: deleteMock,
             };
           }
-          return { delete: deleteMock };
+          return {};
         }),
       } as any;
 
-      const result = await disconnectWhatsAppIntegration(mockSupabase, "ws-1", "User requested");
-      expect(result.success).toBe(true);
-      expect(result.status).toBe("disconnected");
-      expect(deleteMock).not.toHaveBeenCalled();
+      await expect(
+        disconnectWhatsAppIntegration(mockSupabase, "ws-1", "User disconnect")
+      ).rejects.toThrow("Failed to disable webhook endpoint. Please retry disconnecting.");
+
+      expect(updateMock).not.toHaveBeenCalled();
+    });
+
+    it("disconnect reports action required if database status update fails after endpoint disable", async () => {
+      const { disconnectWhatsAppIntegration } = await import("@/lib/whatsapp/embedded-signup");
+      const { disableIntegrationWebhookEndpoint } = await import("@/lib/integrations/webhooks/database");
+      vi.mocked(disableIntegrationWebhookEndpoint).mockResolvedValueOnce({
+        endpointKey: "key-123",
+        status: "disabled",
+      } as any);
+
+      const mockSupabase = {
+        from: vi.fn((table: string) => {
+          if (table === "integrations") {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { id: "int-1", public_configuration: {} },
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+              update: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockResolvedValue({ error: { code: "DB_ERROR", message: "connection dropped" } }),
+                }),
+              }),
+            };
+          }
+          return {};
+        }),
+      } as any;
+
+      await expect(
+        disconnectWhatsAppIntegration(mockSupabase, "ws-1", "User disconnect")
+      ).rejects.toThrow("Webhook processing disabled, but failed to update status. Action required.");
+    });
+
+    it("getWhatsAppConnectionStatus distinguishes no integration from database query failure", async () => {
+      const { getWhatsAppConnectionStatus } = await import("@/lib/whatsapp/embedded-signup");
+
+      // 1. No integration found -> returns not_connected
+      const mockSupabaseEmpty = {
+        from: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+              }),
+            }),
+          }),
+        }),
+      } as any;
+
+      const emptyRes = await getWhatsAppConnectionStatus(mockSupabaseEmpty, "ws-1");
+      expect(emptyRes.status).toBe("not_connected");
+      expect(emptyRes.connected).toBe(false);
+
+      // 2. Database query error -> throws error instead of converting to not_connected
+      const mockSupabaseErr = {
+        from: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({
+                  data: null,
+                  error: { code: "PG_TIMEOUT", message: "statement timeout" },
+                }),
+              }),
+            }),
+          }),
+        }),
+      } as any;
+
+      await expect(
+        getWhatsAppConnectionStatus(mockSupabaseErr, "ws-1")
+      ).rejects.toThrow("Failed to load WhatsApp integration status.");
     });
   });
 
   describe("7. Unified Graph API Version Contract", () => {
-    it("uses uniform META_WHATSAPP_GRAPH_API_VERSION defaulting to v21.0", async () => {
+    it("uses uniform META_WHATSAPP_GRAPH_API_VERSION defaulting to v26.0", async () => {
       const { META_WHATSAPP_GRAPH_API_VERSION, GRAPH_API_VERSION } = await import("@/lib/whatsapp/embedded-signup");
-      expect(META_WHATSAPP_GRAPH_API_VERSION).toBe("v21.0");
-      expect(GRAPH_API_VERSION).toBe("v21.0");
+      expect(META_WHATSAPP_GRAPH_API_VERSION).toBe("v26.0");
+      expect(GRAPH_API_VERSION).toBe("v26.0");
     });
   });
 
@@ -721,6 +984,13 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
       expect(replayRes.rows[0].valid).toBe(false);
       expect(replayRes.rows[0].error_message).toContain("already been consumed");
 
+      // 1d. NULL / missing initiator fails closed
+      const nullInitiatorRes = await db.query<{ valid: boolean; error_message: string }>(`
+        SELECT valid, error_message FROM public.consume_whatsapp_connection_session('${tokenHash}', '${ws1}'::uuid, NULL);
+      `);
+      expect(nullInitiatorRes.rows[0].valid).toBe(false);
+      expect(nullInitiatorRes.rows[0].error_message).toContain("Initiating user mismatch");
+
       // 2. Test PostgreSQL cross-workspace partial unique index enforcement
       // Connect phone in workspace 1
       await db.query(`
@@ -728,7 +998,7 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
         VALUES ('${ws1}', '${user1}', 'whatsapp-business', 'connected', 'phone_shared_999', '{"waba_id": "waba_shared_999"}'::jsonb);
       `);
 
-      // Attempt to connect SAME phone in workspace 2 -> MUST throw unique violation in Postgres
+      // 2a. Attempt to connect SAME phone in workspace 2 -> MUST throw unique violation in Postgres
       await expect(
         db.query(`
           INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
@@ -736,7 +1006,7 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
         `)
       ).rejects.toThrow();
 
-      // Attempt to connect SAME WABA in workspace 2 -> MUST throw unique violation in Postgres
+      // 2b. Attempt to connect SAME WABA in workspace 2 -> MUST throw unique violation in Postgres
       await expect(
         db.query(`
           INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
@@ -744,7 +1014,62 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
         `)
       ).rejects.toThrow();
 
-      // Reconnect in same workspace (update) succeeds without constraint violation
+      // 2c. Legacy JSON-only phone ID conflicts are blocked
+      await db.query(`
+        INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
+        VALUES ('${ws1}', '${user1}', 'whatsapp-business', 'connected', NULL, '{"phone_number_id": "phone_legacy_777"}'::jsonb);
+      `);
+      await expect(
+        db.query(`
+          INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
+          VALUES ('${ws2}', '${user2}', 'whatsapp-business', 'connected', 'phone_legacy_777', '{}'::jsonb);
+        `)
+      ).rejects.toThrow();
+
+      // 2d. Legacy business_account_id conflicts are blocked
+      await db.query(`
+        INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
+        VALUES ('${ws1}', '${user1}', 'whatsapp-business', 'connected', 'phone_diff_888', '{"business_account_id": "legacy_waba_888"}'::jsonb);
+      `);
+      await expect(
+        db.query(`
+          INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
+          VALUES ('${ws2}', '${user2}', 'whatsapp-business', 'connected', 'phone_diff_889', '{"waba_id": "legacy_waba_888"}'::jsonb);
+        `)
+      ).rejects.toThrow();
+
+      // 2e. Two degraded/pending workspaces cannot store the same phone or WABA
+      await db.query(`
+        INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
+        VALUES ('${ws1}', '${user1}', 'whatsapp-business', 'pending', 'phone_res_111', '{"waba_id": "waba_res_111"}'::jsonb);
+      `);
+      await expect(
+        db.query(`
+          INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
+          VALUES ('${ws2}', '${user2}', 'whatsapp-business', 'degraded', 'phone_res_111', '{"waba_id": "waba_res_222"}'::jsonb);
+        `)
+      ).rejects.toThrow();
+
+      await expect(
+        db.query(`
+          INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
+          VALUES ('${ws2}', '${user2}', 'whatsapp-business', 'pending', 'phone_res_333', '{"waba_id": "waba_res_111"}'::jsonb);
+        `)
+      ).rejects.toThrow();
+
+      // 2f. A disconnected record allows a new authorized connection
+      await db.query(`
+        INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
+        VALUES ('${ws1}', '${user1}', 'whatsapp-business', 'disconnected', 'phone_disc_999', '{"waba_id": "waba_disc_999"}'::jsonb);
+      `);
+      await expect(
+        db.query(`
+          INSERT INTO public.integrations (workspace_id, user_id, provider, status, external_account_id, public_configuration)
+          VALUES ('${ws2}', '${user2}', 'whatsapp-business', 'connected', 'phone_disc_999', '{"waba_id": "waba_disc_999"}'::jsonb);
+        `)
+      ).resolves.toBeDefined();
+
+      // 2g. Reconnect in same workspace (update) succeeds without constraint violation
       await expect(
         db.query(`
           UPDATE public.integrations

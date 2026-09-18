@@ -12,7 +12,7 @@ import type { IntegrationConnection } from "@/types/integration";
 
 export const DEFAULT_SESSION_TTL_SECONDS = 15 * 60; // 15 minutes
 export const META_WHATSAPP_GRAPH_API_VERSION =
-  process.env.META_WHATSAPP_GRAPH_API_VERSION?.trim() || "v21.0";
+  process.env.META_WHATSAPP_GRAPH_API_VERSION?.trim() || "v26.0";
 export const GRAPH_API_VERSION = META_WHATSAPP_GRAPH_API_VERSION;
 
 export interface CreateWhatsAppSessionParams {
@@ -66,7 +66,7 @@ export async function createWhatsAppConnectionSession(
     .single();
 
   if (error || !data?.id) {
-    console.error("[WhatsApp Session] Failed to persist session state token:", error?.message || "No data returned");
+    console.error("[WhatsApp Session] persist_failed stage: create_session code:", error?.code || "DB_ERROR");
     throw new Error("Failed to persist WhatsApp connection session.");
   }
 
@@ -111,7 +111,7 @@ export async function validateAndConsumeWhatsAppSession(
     });
 
     if (error) {
-      console.error("[WhatsApp Session RPC] RPC invocation failed:", error.message);
+      console.error("[WhatsApp Session RPC] rpc_failed stage: consume_session code:", error.code || "RPC_ERROR");
       return { valid: false, error: "Session validation failed." };
     }
 
@@ -133,7 +133,7 @@ export async function validateAndConsumeWhatsAppSession(
       error: row.error_message || "Invalid or expired session token.",
     };
   } catch (err: any) {
-    console.error("[WhatsApp Session] Session validation exception:", err?.message || err);
+    console.error("[WhatsApp Session] validation_exception stage: validate_session code:", err?.code || "UNEXPECTED_ERROR");
     return { valid: false, error: "Session validation failed." };
   }
 }
@@ -208,9 +208,8 @@ export async function exchangeMetaCodeForAccessToken(
 
   const body = await res.json().catch(() => ({}));
   if (!res.ok || !body.access_token) {
-    const errorMsg = body?.error?.message || "Failed to exchange Meta authorization code.";
-    console.error("[Meta OAuth Token Exchange] Error:", errorMsg);
-    throw new Error(`Meta code exchange failed: ${errorMsg}`);
+    console.error("[Meta OAuth Token Exchange] exchange_failed stage: token_exchange code:", body?.error?.code || "OAUTH_EXCHANGE_ERROR");
+    throw new Error("Meta code exchange failed.");
   }
 
   return {
@@ -272,7 +271,8 @@ export async function verifyWabaAndPhoneNumber(
   const wabaData = await wabaRes.json().catch(() => null);
 
   if (!wabaRes.ok || !wabaData?.id) {
-    throw new Error(`Could not verify WhatsApp Business Account: ${wabaData?.error?.message || "Not found"}`);
+    console.error("[Meta WABA Verification] fetch_failed stage: verify_waba code:", wabaData?.error?.code || "WABA_VERIFY_ERROR");
+    throw new Error("Could not verify WhatsApp Business Account.");
   }
 
   // 2. Fetch phone numbers belonging to this WABA
@@ -288,6 +288,7 @@ export async function verifyWabaAndPhoneNumber(
   const phonesData = await phonesRes.json().catch(() => null);
 
   if (!phonesRes.ok || !Array.isArray(phonesData?.data)) {
+    console.error("[Meta Phone Verification] fetch_failed stage: verify_phones code:", phonesData?.error?.code || "PHONE_VERIFY_ERROR");
     throw new Error("Failed to retrieve phone numbers for WhatsApp Business Account.");
   }
 
@@ -335,7 +336,7 @@ export async function subscribeWabaToWebhook(
 
 /**
  * Checks for cross-workspace ownership conflicts using an authorized admin client.
- * Rejects connection if another workspace already actively owns the phone number or WABA.
+ * Rejects connection if another workspace already actively/reservedly owns the phone number or WABA.
  */
 export async function assertNoCrossWorkspaceConflict(
   supabase: SupabaseClient,
@@ -347,25 +348,25 @@ export async function assertNoCrossWorkspaceConflict(
     .from("integrations")
     .select("id, workspace_id, status, public_configuration, external_account_id")
     .eq("provider", "whatsapp-business")
-    .eq("status", "connected")
+    .in("status", ["pending", "connected", "degraded"])
     .neq("workspace_id", workspaceId);
 
   if (error) {
-    console.error("[Cross-Workspace Conflict] Query error:", error.message);
+    console.error("[Cross-Workspace Conflict] query_failed stage: conflict_check code:", error.code || "DB_ERROR");
     throw new Error("Could not verify integration availability across workspaces.");
   }
 
   if (conflicts && conflicts.length > 0) {
     for (const c of conflicts) {
       const cfg = (c.public_configuration || {}) as Record<string, any>;
-      const existingPhoneId = cfg.phone_number_id || c.external_account_id;
-      const existingWabaId = cfg.business_account_id || cfg.waba_id;
+      const existingPhoneId = c.external_account_id || cfg.phone_number_id;
+      const existingWabaId = cfg.waba_id || cfg.business_account_id;
 
-      if (existingPhoneId === phoneNumberId) {
-        throw new Error("Cross-workspace conflict: this WhatsApp phone number is already actively connected to another workspace.");
+      if (existingPhoneId && existingPhoneId === phoneNumberId) {
+        throw new Error("Cross-workspace conflict: this WhatsApp phone number is already registered to another workspace.");
       }
-      if (existingWabaId === wabaId) {
-        throw new Error("Cross-workspace conflict: this WhatsApp Business Account is already actively connected to another workspace.");
+      if (existingWabaId && existingWabaId === wabaId) {
+        throw new Error("Cross-workspace conflict: this WhatsApp Business Account is already registered to another workspace.");
       }
     }
   }
@@ -388,12 +389,19 @@ export interface UpsertWhatsAppIntegrationParams {
 }
 
 /**
- * Creates or updates exactly one active WhatsApp integration per workspace.
- * Stores access token securely in the encrypted vault.
- * Configures the canonical webhook endpoint (/api/webhooks/whatsapp/[endpointKey]).
+ * Creates or updates exactly one active WhatsApp integration per workspace using a safe Two-Phase Activation.
  *
- * Checks every database operation and throws if any mutation fails.
- * If webhookSubscribed is false, sets status to 'action_required' (never 'connected').
+ * Phase A: Insert/update the integration in a non-active state: status = "pending" or "degraded", webhook_subscribed = false, connected_at = null
+ * Phase B: Successfully store encrypted credentials.
+ * Phase C: Successfully create/enable the canonical webhook endpoint.
+ * Phase D: Confirm Meta subscribed_apps succeeded.
+ * Phase E: Only after B, C, and D succeed: status = "connected", webhook_subscribed = true, connected_at = now()
+ *
+ * If B, C, or D fails:
+ * - Never leaves status connected.
+ * - Sets status degraded/error with a sanitized error code.
+ * - Disables any endpoint created during the failed attempt.
+ * - Checks compensation mutation result.
  */
 export async function upsertWhatsAppIntegration(
   supabase: SupabaseClient,
@@ -406,7 +414,7 @@ export async function upsertWhatsAppIntegration(
   isReconnect: boolean;
   status: "connected" | "action_required";
 }> {
-  const { workspaceId, userId, accessToken, appSecret, webhookSubscribed = false } = params;
+  const { workspaceId, userId, accessToken, appSecret } = params;
 
   if (!workspaceId) throw new Error("workspaceId is required for upserting WhatsApp integration.");
   if (!userId) throw new Error("userId is required for upserting WhatsApp integration.");
@@ -430,18 +438,16 @@ export async function upsertWhatsAppIntegration(
     .maybeSingle();
 
   if (selectErr) {
-    console.error("[Upsert WhatsApp] Query existing integration failed:", selectErr.message);
+    console.error("[Upsert WhatsApp] query_failed stage: check_existing code:", selectErr.code || "DB_ERROR");
     throw new Error("Failed to check existing WhatsApp integration.");
   }
 
   const isReconnect = Boolean(existing);
   const nowIso = new Date().toISOString();
 
-  // Webhook subscription check: Active requires verified WABA, verified phone, stored credentials,
-  // canonical webhook endpoint enabled, and Meta WABA webhook subscription confirmed.
-  // If webhook subscription failed, status must be degraded/action_required.
-  const targetDbStatus: "connected" | "degraded" = webhookSubscribed ? "connected" : "degraded";
-  const targetReturnStatus: "connected" | "action_required" = webhookSubscribed ? "connected" : "action_required";
+  // Phase A: Insert or update integration in a non-active state:
+  // status = "pending" or "degraded", webhook_subscribed = false, connected_at = null
+  const initialStatus = isReconnect ? "degraded" : "pending";
 
   const publicConfig = {
     ...((existing?.public_configuration as Record<string, any>) || {}),
@@ -453,11 +459,11 @@ export async function upsertWhatsAppIntegration(
     verified_name: verifiedDetails.verifiedName,
     code_verification_status: verifiedDetails.codeVerificationStatus,
     quality_rating: verifiedDetails.qualityRating,
-    webhook_subscribed: webhookSubscribed,
+    webhook_subscribed: false,
     ai_receptionist_enabled: true,
     graph_api_version: META_WHATSAPP_GRAPH_API_VERSION,
     onboarding_method: "meta_embedded_signup",
-    last_connected_at: nowIso,
+    last_connected_at: null,
   };
 
   let integrationId: string;
@@ -467,21 +473,21 @@ export async function upsertWhatsAppIntegration(
     const { error: updateErr } = await supabase
       .from("integrations")
       .update({
-        status: targetDbStatus,
+        status: initialStatus,
         account_label: verifiedDetails.wabaName,
         external_account_id: verifiedDetails.phoneNumberId,
         external_account_label: verifiedDetails.displayPhoneNumber,
         public_configuration: publicConfig,
-        last_error_code: webhookSubscribed ? null : "WEBHOOK_SUBSCRIPTION_FAILED",
-        last_error_message: webhookSubscribed ? null : "Meta webhook subscription could not be confirmed.",
-        connected_at: webhookSubscribed ? nowIso : null,
+        connected_at: null,
+        last_error_code: null,
+        last_error_message: null,
         updated_at: nowIso,
       })
       .eq("id", integrationId)
       .eq("workspace_id", workspaceId);
 
     if (updateErr) {
-      console.error("[Upsert WhatsApp] Update failed:", updateErr.message);
+      console.error("[Upsert WhatsApp] update_failed stage: initial_upsert code:", updateErr.code || "DB_ERROR");
       throw new Error("Failed to update WhatsApp integration in database.");
     }
   } else {
@@ -491,27 +497,27 @@ export async function upsertWhatsAppIntegration(
         workspace_id: workspaceId,
         user_id: userId,
         provider: "whatsapp-business",
-        status: targetDbStatus,
+        status: initialStatus,
         environment: "production",
         account_label: verifiedDetails.wabaName,
         external_account_id: verifiedDetails.phoneNumberId,
         external_account_label: verifiedDetails.displayPhoneNumber,
         public_configuration: publicConfig,
-        connected_at: webhookSubscribed ? nowIso : null,
-        last_error_code: webhookSubscribed ? null : "WEBHOOK_SUBSCRIPTION_FAILED",
-        last_error_message: webhookSubscribed ? null : "Meta webhook subscription could not be confirmed.",
+        connected_at: null,
+        last_error_code: null,
+        last_error_message: null,
       })
       .select("id")
       .single();
 
     if (insertErr || !inserted?.id) {
-      console.error("[Upsert WhatsApp] Insert failed:", insertErr?.message);
+      console.error("[Upsert WhatsApp] insert_failed stage: initial_upsert code:", insertErr?.code || "DB_ERROR");
       throw new Error("Failed to create WhatsApp integration in database.");
     }
     integrationId = inserted.id;
   }
 
-  // 2. Persist encrypted credentials in vault
+  // Phase B: Successfully store encrypted credentials
   const verifyToken =
     process.env.META_WHATSAPP_VERIFY_TOKEN?.trim() ||
     `wa_vt_${crypto.randomBytes(16).toString("hex")}`;
@@ -530,28 +536,34 @@ export async function upsertWhatsAppIntegration(
       }
     );
   } catch (credErr: any) {
-    console.error("[Upsert WhatsApp] Credential storage failed:", credErr?.message);
-    // Compensation: revert status to error / degraded if credential storage fails
-    await supabase
+    console.error("[Upsert WhatsApp] cred_store_failed stage: vault_store code:", credErr?.code || "CRED_ERROR");
+    // Compensation: revert status to error, never leave connected
+    const { error: compErr } = await supabase
       .from("integrations")
       .update({
         status: "error",
         last_error_code: "CREDENTIAL_STORAGE_FAILED",
-        last_error_message: "Failed to store encrypted credentials.",
+        last_error_message: "Credential storage failed.",
+        connected_at: null,
+        public_configuration: { ...publicConfig, webhook_subscribed: false },
         updated_at: new Date().toISOString(),
       })
       .eq("id", integrationId)
       .eq("workspace_id", workspaceId);
+
+    if (compErr) {
+      console.error("[Upsert WhatsApp] compensation_failed stage: cred_error_compensation code:", compErr.code || "DB_ERROR");
+    }
     throw new Error("Failed to store encrypted credentials securely.");
   }
 
-  // 3. Create or enable canonical webhook endpoint
+  // Phase C: Successfully create/enable the canonical webhook endpoint
   const connectionObj: IntegrationConnection = {
     id: integrationId,
     workspaceId,
     userId,
     providerId: "whatsapp-business",
-    status: targetDbStatus,
+    status: initialStatus,
     environment: "production",
     name: verifiedDetails.wabaName,
     publicConfiguration: publicConfig,
@@ -564,10 +576,10 @@ export async function upsertWhatsAppIntegration(
     credentialReference: null,
     externalAccountId: verifiedDetails.phoneNumberId,
     externalAccountLabel: verifiedDetails.displayPhoneNumber,
-    lastConnectedAt: webhookSubscribed ? nowIso : null,
+    lastConnectedAt: null,
     lastHealthCheckAt: nowIso,
-    lastErrorCode: webhookSubscribed ? null : "WEBHOOK_SUBSCRIPTION_FAILED",
-    lastErrorMessage: webhookSubscribed ? null : "Meta webhook subscription could not be confirmed.",
+    lastErrorCode: null,
+    lastErrorMessage: null,
     createdAt: existing?.created_at || nowIso,
     updatedAt: nowIso,
   };
@@ -583,8 +595,123 @@ export async function upsertWhatsAppIntegration(
       throw new Error("Endpoint creation returned no key.");
     }
   } catch (endpointErr: any) {
-    console.error("[Upsert WhatsApp] Webhook endpoint creation failed:", endpointErr?.message);
+    console.error("[Upsert WhatsApp] endpoint_failed stage: create_endpoint code:", endpointErr?.code || "ENDPOINT_ERROR");
+    // Disable any endpoint created during failed attempt
+    try {
+      await disableIntegrationWebhookEndpoint(supabase, workspaceId, integrationId);
+    } catch (cleanupErr: any) {
+      console.error("[Upsert WhatsApp] endpoint_cleanup_failed stage: endpoint_cleanup code:", cleanupErr?.code || "CLEANUP_ERROR");
+    }
+
+    const { error: compErr } = await supabase
+      .from("integrations")
+      .update({
+        status: "error",
+        last_error_code: "ENDPOINT_CREATION_FAILED",
+        last_error_message: "Webhook endpoint configuration failed.",
+        connected_at: null,
+        public_configuration: { ...publicConfig, webhook_subscribed: false },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", integrationId)
+      .eq("workspace_id", workspaceId);
+
+    if (compErr) {
+      console.error("[Upsert WhatsApp] compensation_failed stage: endpoint_error_compensation code:", compErr.code || "DB_ERROR");
+    }
     throw new Error("Failed to configure integration webhook endpoint.");
+  }
+
+  // Phase D: Confirm Meta subscribed_apps succeeded
+  const isSubscribed =
+    typeof params.webhookSubscribed === "boolean"
+      ? params.webhookSubscribed
+      : await subscribeWabaToWebhook(accessToken, verifiedDetails.wabaId);
+
+  if (!isSubscribed) {
+    console.error("[Upsert WhatsApp] subscription_unconfirmed stage: meta_subscription code: WEBHOOK_SUBSCRIPTION_FAILED");
+    // Disable any endpoint created during the failed attempt
+    try {
+      await disableIntegrationWebhookEndpoint(supabase, workspaceId, integrationId);
+    } catch (disableErr: any) {
+      console.error("[Upsert WhatsApp] endpoint_disable_failed stage: disable_endpoint code:", disableErr?.code || "CLEANUP_ERROR");
+    }
+
+    const { error: compErr } = await supabase
+      .from("integrations")
+      .update({
+        status: "degraded",
+        last_error_code: "WEBHOOK_SUBSCRIPTION_FAILED",
+        last_error_message: "Meta webhook subscription could not be confirmed.",
+        connected_at: null,
+        public_configuration: {
+          ...publicConfig,
+          webhook_subscribed: false,
+          last_connected_at: null,
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", integrationId)
+      .eq("workspace_id", workspaceId);
+
+    if (compErr) {
+      console.error("[Upsert WhatsApp] compensation_failed stage: subscription_error_compensation code:", compErr.code || "DB_ERROR");
+    }
+
+    return {
+      integrationId,
+      endpointKey: endpoint.endpointKey,
+      webhookUrl: `/api/webhooks/whatsapp/${endpoint.endpointKey}`,
+      maskedPhone: maskPhoneNumber(verifiedDetails.displayPhoneNumber),
+      isReconnect,
+      status: "action_required",
+    };
+  }
+
+  // Phase E: Only after B, C, and D succeed:
+  // status = "connected", webhook_subscribed = true, connected_at = now()
+  const activateIso = new Date().toISOString();
+  const { error: activateErr } = await supabase
+    .from("integrations")
+    .update({
+      status: "connected",
+      connected_at: activateIso,
+      last_error_code: null,
+      last_error_message: null,
+      public_configuration: {
+        ...publicConfig,
+        webhook_subscribed: true,
+        last_connected_at: activateIso,
+      },
+      updated_at: activateIso,
+    })
+    .eq("id", integrationId)
+    .eq("workspace_id", workspaceId);
+
+  if (activateErr) {
+    console.error("[Upsert WhatsApp] activation_failed stage: final_activate code:", activateErr.code || "DB_ERROR");
+    try {
+      await disableIntegrationWebhookEndpoint(supabase, workspaceId, integrationId);
+    } catch {}
+
+    const { error: compErr } = await supabase
+      .from("integrations")
+      .update({
+        status: "degraded",
+        last_error_code: "ACTIVATION_UPDATE_FAILED",
+        last_error_message: "Failed to set connected status.",
+        connected_at: null,
+        public_configuration: { ...publicConfig, webhook_subscribed: false },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", integrationId)
+      .eq("workspace_id", workspaceId);
+
+    if (compErr) {
+      console.error("[Upsert WhatsApp] compensation_failed stage: activation_revert code:", compErr.code || "DB_ERROR");
+    }
+
+    throw new Error("Failed to activate WhatsApp integration.");
   }
 
   return {
@@ -593,13 +720,18 @@ export async function upsertWhatsAppIntegration(
     webhookUrl: `/api/webhooks/whatsapp/${endpoint.endpointKey}`,
     maskedPhone: maskPhoneNumber(verifiedDetails.displayPhoneNumber),
     isReconnect,
-    status: targetReturnStatus,
+    status: "connected",
   };
 }
 
 /**
- * Disconnects the WhatsApp integration for a workspace.
- * Disables the webhook and sets status to 'disconnected' without deleting historical data.
+ * Disconnects the WhatsApp integration for a workspace safely.
+ *
+ * Safe Order:
+ * A. Disable the webhook endpoint.
+ * B. Confirm disable succeeded.
+ * C. Update the integration to disconnected.
+ * D. Return success only after both operations succeed.
  */
 export async function disconnectWhatsAppIntegration(
   supabase: SupabaseClient,
@@ -618,7 +750,7 @@ export async function disconnectWhatsAppIntegration(
     .maybeSingle();
 
   if (selectErr) {
-    console.error("[Disconnect WhatsApp] Error querying integration:", selectErr.message);
+    console.error("[Disconnect WhatsApp] query_failed stage: select_integration code:", selectErr.code || "DB_ERROR");
     throw new Error("Failed to verify integration before disconnecting.");
   }
 
@@ -631,37 +763,51 @@ export async function disconnectWhatsAppIntegration(
     ...((integration.public_configuration as Record<string, any>) || {}),
     disconnected_at: nowIso,
     disconnect_reason: reason,
+    webhook_subscribed: false,
   };
 
-  // 1. Update status to disconnected
+  // Safe Order:
+  // A. Disable the webhook endpoint
+  let disableRes;
+  try {
+    disableRes = await disableIntegrationWebhookEndpoint(supabase, workspaceId, integration.id);
+  } catch (err: any) {
+    console.error("[Disconnect WhatsApp] endpoint_disable_failed stage: disable_endpoint code:", err?.code || "ENDPOINT_ERROR");
+    throw new Error("Failed to disable webhook endpoint. Please retry disconnecting.");
+  }
+
+  // B. Confirm disable succeeded
+  if (!disableRes || disableRes.status !== "disabled") {
+    console.error("[Disconnect WhatsApp] endpoint_disable_unconfirmed stage: check_endpoint_status code: ENDPOINT_NOT_DISABLED");
+    throw new Error("Failed to disable webhook endpoint. Please retry disconnecting.");
+  }
+
+  // C. Update the integration to disconnected
   const { error: updateErr } = await supabase
     .from("integrations")
     .update({
       status: "disconnected",
       public_configuration: publicConfig,
+      connected_at: null,
       updated_at: nowIso,
     })
     .eq("id", integration.id)
     .eq("workspace_id", workspaceId);
 
   if (updateErr) {
-    console.error("[Disconnect WhatsApp] Update failed:", updateErr.message);
-    throw new Error("Failed to update integration disconnect status.");
+    console.error("[Disconnect WhatsApp] update_failed stage: update_disconnected code:", updateErr.code || "DB_ERROR");
+    // Processing is safely disabled via endpoint, but DB update failed
+    throw new Error("Webhook processing disabled, but failed to update status. Action required.");
   }
 
-  // 2. Disable webhook endpoint
-  try {
-    await disableIntegrationWebhookEndpoint(supabase, workspaceId, integration.id);
-  } catch (err: any) {
-    console.error("[Disconnect WhatsApp] Endpoint disable warning:", err?.message);
-  }
-
+  // D. Return success only after both operations succeed
   return { success: true, status: "disconnected" };
 }
 
 /**
  * Returns sanitized WhatsApp connection status for the active workspace.
  * Never leaks access tokens, secrets, or internal keys.
+ * Distinguishes no integration from database query failure (throws on query error).
  */
 export async function getWhatsAppConnectionStatus(
   supabase: SupabaseClient,
@@ -691,7 +837,12 @@ export async function getWhatsAppConnectionStatus(
     .eq("provider", "whatsapp-business")
     .maybeSingle();
 
-  if (error || !integration) {
+  if (error) {
+    console.error("[WhatsApp Status] query_failed stage: get_status code:", error.code || "DB_ERROR");
+    throw new Error("Failed to load WhatsApp integration status.");
+  }
+
+  if (!integration) {
     return {
       connected: false,
       status: "not_connected" as const,

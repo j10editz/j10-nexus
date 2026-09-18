@@ -8,7 +8,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS public.whatsapp_connection_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  created_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_by_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   state_token_hash TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   waba_id TEXT,
@@ -86,8 +86,8 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Verify session was created by the initiating user
-  IF v_session.created_by_user_id IS NOT NULL AND (p_user_id IS NULL OR v_session.created_by_user_id != p_user_id) THEN
+  -- Verify session was created by the initiating user (NULL never validates)
+  IF p_user_id IS NULL OR v_session.created_by_user_id IS NULL OR v_session.created_by_user_id != p_user_id THEN
     RETURN QUERY SELECT v_session.id, v_session.workspace_id, v_session.created_by_user_id, FALSE, 'Initiating user mismatch'::TEXT;
     RETURN;
   END IF;
@@ -121,56 +121,58 @@ $$;
 REVOKE ALL ON FUNCTION public.consume_whatsapp_connection_session(TEXT, UUID, UUID) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.consume_whatsapp_connection_session(TEXT, UUID, UUID) TO service_role;
 
--- 5. Cross-workspace ownership enforcement for active WhatsApp integrations in Postgres
+-- 5. Cross-workspace ownership enforcement for active/reserved WhatsApp integrations in Postgres
 -- Audit existing rows before applying uniqueness constraints
 DO $$
 DECLARE
   v_dup_phones INT;
   v_dup_wabas INT;
 BEGIN
-  -- Check for existing duplicate active phone numbers across different workspaces
+  -- Check for existing duplicate active/reserved phone numbers across different workspaces
   SELECT count(*) INTO v_dup_phones
   FROM (
-    SELECT external_account_id
+    SELECT COALESCE(external_account_id, public_configuration->>'phone_number_id') AS phone_id
     FROM public.integrations
     WHERE provider = 'whatsapp-business'
-      AND status = 'connected'
-      AND external_account_id IS NOT NULL
-    GROUP BY external_account_id
+      AND status IN ('pending', 'connected', 'degraded')
+      AND COALESCE(external_account_id, public_configuration->>'phone_number_id') IS NOT NULL
+    GROUP BY COALESCE(external_account_id, public_configuration->>'phone_number_id')
     HAVING count(DISTINCT workspace_id) > 1
   ) dups;
 
   IF v_dup_phones > 0 THEN
-    RAISE EXCEPTION 'Audit failed: % active WhatsApp phone numbers are shared across multiple workspaces', v_dup_phones;
+    RAISE EXCEPTION 'Audit failed: % active/reserved WhatsApp phone numbers are shared across multiple workspaces', v_dup_phones;
   END IF;
 
-  -- Check for existing duplicate active WABA IDs across different workspaces
+  -- Check for existing duplicate active/reserved WABA IDs across different workspaces
   SELECT count(*) INTO v_dup_wabas
   FROM (
     SELECT COALESCE(public_configuration->>'waba_id', public_configuration->>'business_account_id') AS waba_id
     FROM public.integrations
     WHERE provider = 'whatsapp-business'
-      AND status = 'connected'
-      AND (public_configuration->>'waba_id' IS NOT NULL OR public_configuration->>'business_account_id' IS NOT NULL)
+      AND status IN ('pending', 'connected', 'degraded')
+      AND COALESCE(public_configuration->>'waba_id', public_configuration->>'business_account_id') IS NOT NULL
     GROUP BY COALESCE(public_configuration->>'waba_id', public_configuration->>'business_account_id')
     HAVING count(DISTINCT workspace_id) > 1
   ) dups;
 
   IF v_dup_wabas > 0 THEN
-    RAISE EXCEPTION 'Audit failed: % active WhatsApp WABA IDs are shared across multiple workspaces', v_dup_wabas;
+    RAISE EXCEPTION 'Audit failed: % active/reserved WhatsApp WABA IDs are shared across multiple workspaces', v_dup_wabas;
   END IF;
 END $$;
 
--- Enforce exactly one active workspace per phone number
+-- Enforce exactly one workspace per phone number across protected statuses (pending, connected, degraded)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_active_whatsapp_phone_number_id
-  ON public.integrations (external_account_id)
-  WHERE provider = 'whatsapp-business' AND status = 'connected';
-
--- Enforce exactly one active workspace per WABA ID
-CREATE UNIQUE INDEX IF NOT EXISTS uq_active_whatsapp_waba_id
-  ON public.integrations (((public_configuration->>'waba_id')))
+  ON public.integrations ( (COALESCE(external_account_id, public_configuration->>'phone_number_id')) )
   WHERE provider = 'whatsapp-business'
-    AND status = 'connected'
-    AND (public_configuration->>'waba_id') IS NOT NULL;
+    AND status IN ('pending', 'connected', 'degraded')
+    AND COALESCE(external_account_id, public_configuration->>'phone_number_id') IS NOT NULL;
+
+-- Enforce exactly one workspace per WABA ID across protected statuses (pending, connected, degraded)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_active_whatsapp_waba_id
+  ON public.integrations ( (COALESCE(public_configuration->>'waba_id', public_configuration->>'business_account_id')) )
+  WHERE provider = 'whatsapp-business'
+    AND status IN ('pending', 'connected', 'degraded')
+    AND COALESCE(public_configuration->>'waba_id', public_configuration->>'business_account_id') IS NOT NULL;
 
 COMMIT;
