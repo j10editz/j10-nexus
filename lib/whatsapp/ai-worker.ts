@@ -159,6 +159,7 @@ export async function processWhatsAppAiJobsOnce(
         const isSuppressed =
           aiResult.skippedReason === "human_handoff_active" ||
           aiResult.skippedReason === "human_handoff_requested" ||
+          aiResult.skippedReason === "thread_ai_disabled" ||
           aiResult.skippedReason === "master_ai_disabled" ||
           aiResult.skippedReason === "no_reply_needed" ||
           aiResult.skippedReason === "intentional_no_reply";

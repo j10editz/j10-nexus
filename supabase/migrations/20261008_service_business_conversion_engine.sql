@@ -84,6 +84,60 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_inbox_threads_ws_no_integration_sender
   ON public.inbox_threads(workspace_id, channel, external_thread_id)
   WHERE integration_id IS NULL;
 
+-- Durable outbound delivery ledger. A delivery is claimed before any Meta API call.
+-- Once dispatch begins, an expired lease is treated as ambiguous instead of being
+-- blindly resent because Meta does not provide a request idempotency primitive.
+CREATE TABLE IF NOT EXISTS public.whatsapp_outbound_deliveries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
+  thread_id UUID NOT NULL,
+  integration_id UUID,
+  idempotency_key TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  content TEXT NOT NULL,
+  recipient_phone TEXT NOT NULL,
+  inbound_wamid TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'processing'
+    CHECK (status IN ('processing', 'dispatching', 'sent', 'failed', 'ambiguous')),
+  claim_token UUID,
+  lease_expires_at TIMESTAMPTZ,
+  attempts INTEGER NOT NULL DEFAULT 1 CHECK (attempts > 0),
+  external_message_id TEXT,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uq_whatsapp_outbound_delivery_key UNIQUE (workspace_id, idempotency_key),
+  CONSTRAINT fk_whatsapp_outbound_thread
+    FOREIGN KEY (workspace_id, thread_id)
+    REFERENCES public.inbox_threads(workspace_id, id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_whatsapp_outbound_integration
+    FOREIGN KEY (workspace_id, integration_id)
+    REFERENCES public.integrations(workspace_id, id)
+    ON DELETE CASCADE
+);
+
+ALTER TABLE public.whatsapp_outbound_deliveries
+  ADD COLUMN IF NOT EXISTS integration_id UUID,
+  ADD COLUMN IF NOT EXISTS payload_hash TEXT,
+  ADD COLUMN IF NOT EXISTS content TEXT,
+  ADD COLUMN IF NOT EXISTS recipient_phone TEXT,
+  ADD COLUMN IF NOT EXISTS inbound_wamid TEXT,
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'processing',
+  ADD COLUMN IF NOT EXISTS claim_token UUID,
+  ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS external_message_id TEXT,
+  ADD COLUMN IF NOT EXISTS last_error TEXT,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE INDEX IF NOT EXISTS idx_whatsapp_outbound_delivery_claim
+  ON public.whatsapp_outbound_deliveries(status, lease_expires_at, updated_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_messages_idempotency
+  ON public.inbox_messages(workspace_id, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+
 -- 2. Universal service conversion journeys table (idempotent with safe rerun column additions)
 CREATE TABLE IF NOT EXISTS public.service_conversion_journeys (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -374,6 +428,8 @@ ALTER TABLE public.service_conversion_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.service_conversion_events FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.service_followups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.service_followups FORCE ROW LEVEL SECURITY;
+ALTER TABLE public.whatsapp_outbound_deliveries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.whatsapp_outbound_deliveries FORCE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN
@@ -432,7 +488,267 @@ REVOKE ALL ON public.service_followups FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.service_followups TO authenticated;
 GRANT ALL ON public.service_followups TO service_role;
 
--- 8. Atomic PostgreSQL RPC for exactly-once WhatsApp inbound ingestion across any service industry
+REVOKE ALL ON public.whatsapp_outbound_deliveries FROM PUBLIC, anon, authenticated;
+GRANT ALL ON public.whatsapp_outbound_deliveries TO service_role;
+
+-- 8. Durable WhatsApp outbound claim. This transaction ends before the Meta API call.
+CREATE OR REPLACE FUNCTION public.claim_whatsapp_outbound_delivery_atomic(
+  p_workspace_id UUID,
+  p_thread_id UUID,
+  p_integration_id UUID,
+  p_idempotency_key TEXT,
+  p_payload_hash TEXT,
+  p_content TEXT,
+  p_recipient_phone TEXT,
+  p_inbound_wamid TEXT,
+  p_claim_token UUID,
+  p_lease_seconds INTEGER DEFAULT 120
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_delivery public.whatsapp_outbound_deliveries%ROWTYPE;
+  v_key TEXT := nullif(trim(p_idempotency_key), '');
+  v_hash TEXT := nullif(trim(p_payload_hash), '');
+  v_lease_seconds INTEGER := greatest(30, least(coalesce(p_lease_seconds, 120), 600));
+BEGIN
+  IF p_workspace_id IS NULL OR p_thread_id IS NULL OR p_integration_id IS NULL
+     OR p_claim_token IS NULL OR v_key IS NULL OR v_hash IS NULL
+     OR nullif(trim(p_content), '') IS NULL
+     OR nullif(trim(p_recipient_phone), '') IS NULL
+     OR nullif(trim(p_inbound_wamid), '') IS NULL THEN
+    RAISE EXCEPTION 'Missing required WhatsApp outbound claim input';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_workspace_id::text || '|whatsapp-outbound|' || v_key, 42::bigint));
+
+  SELECT * INTO v_delivery
+  FROM public.whatsapp_outbound_deliveries
+  WHERE workspace_id = p_workspace_id AND idempotency_key = v_key
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    INSERT INTO public.whatsapp_outbound_deliveries (
+      workspace_id, thread_id, integration_id, idempotency_key, payload_hash,
+      content, recipient_phone, inbound_wamid, status, claim_token,
+      lease_expires_at, attempts
+    ) VALUES (
+      p_workspace_id, p_thread_id, p_integration_id, v_key, v_hash,
+      p_content, p_recipient_phone, p_inbound_wamid, 'processing', p_claim_token,
+      now() + (v_lease_seconds || ' seconds')::interval, 1
+    )
+    RETURNING * INTO v_delivery;
+
+    RETURN jsonb_build_object(
+      'success', true, 'action', 'claimed', 'delivery_id', v_delivery.id,
+      'claim_token', p_claim_token, 'attempts', v_delivery.attempts
+    );
+  END IF;
+
+  IF v_delivery.thread_id <> p_thread_id
+     OR v_delivery.integration_id IS DISTINCT FROM p_integration_id
+     OR v_delivery.payload_hash <> v_hash THEN
+    RAISE EXCEPTION 'WhatsApp outbound idempotency conflict for key %', v_key;
+  END IF;
+
+  IF v_delivery.status = 'sent' THEN
+    RETURN jsonb_build_object(
+      'success', true, 'action', 'already_sent', 'delivery_id', v_delivery.id,
+      'external_message_id', v_delivery.external_message_id,
+      'attempts', v_delivery.attempts
+    );
+  END IF;
+
+  IF v_delivery.status = 'ambiguous' THEN
+    RETURN jsonb_build_object(
+      'success', true, 'action', 'ambiguous', 'delivery_id', v_delivery.id,
+      'error', coalesce(v_delivery.last_error, 'ambiguous_delivery'),
+      'attempts', v_delivery.attempts
+    );
+  END IF;
+
+  IF v_delivery.status = 'dispatching' THEN
+    IF v_delivery.lease_expires_at IS NULL OR v_delivery.lease_expires_at <= now() THEN
+      UPDATE public.whatsapp_outbound_deliveries
+      SET status = 'ambiguous', claim_token = NULL, lease_expires_at = NULL,
+          last_error = 'dispatch_lease_expired_delivery_unknown', updated_at = now()
+      WHERE id = v_delivery.id;
+
+      RETURN jsonb_build_object(
+        'success', true, 'action', 'ambiguous', 'delivery_id', v_delivery.id,
+        'error', 'dispatch_lease_expired_delivery_unknown',
+        'attempts', v_delivery.attempts
+      );
+    END IF;
+
+    RETURN jsonb_build_object(
+      'success', true, 'action', 'busy', 'delivery_id', v_delivery.id,
+      'lease_expires_at', v_delivery.lease_expires_at,
+      'attempts', v_delivery.attempts
+    );
+  END IF;
+
+  IF v_delivery.status = 'processing'
+     AND v_delivery.claim_token = p_claim_token
+     AND v_delivery.lease_expires_at > now() THEN
+    RETURN jsonb_build_object(
+      'success', true, 'action', 'claimed', 'delivery_id', v_delivery.id,
+      'claim_token', p_claim_token, 'attempts', v_delivery.attempts
+    );
+  END IF;
+
+  IF v_delivery.status = 'processing' AND v_delivery.lease_expires_at > now() THEN
+    RETURN jsonb_build_object(
+      'success', true, 'action', 'busy', 'delivery_id', v_delivery.id,
+      'lease_expires_at', v_delivery.lease_expires_at,
+      'attempts', v_delivery.attempts
+    );
+  END IF;
+
+  UPDATE public.whatsapp_outbound_deliveries
+  SET status = 'processing', claim_token = p_claim_token,
+      lease_expires_at = now() + (v_lease_seconds || ' seconds')::interval,
+      attempts = attempts + 1, last_error = NULL, updated_at = now(),
+      content = p_content, recipient_phone = p_recipient_phone,
+      inbound_wamid = p_inbound_wamid
+  WHERE id = v_delivery.id
+  RETURNING * INTO v_delivery;
+
+  RETURN jsonb_build_object(
+    'success', true, 'action', 'claimed', 'delivery_id', v_delivery.id,
+    'claim_token', p_claim_token, 'attempts', v_delivery.attempts
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.claim_whatsapp_outbound_delivery_atomic(UUID, UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, UUID, INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_whatsapp_outbound_delivery_atomic(UUID, UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, UUID, INTEGER) TO service_role;
+
+-- Marks the point after which an expired lease must never be automatically resent.
+CREATE OR REPLACE FUNCTION public.begin_whatsapp_outbound_dispatch_atomic(
+  p_workspace_id UUID,
+  p_idempotency_key TEXT,
+  p_claim_token UUID,
+  p_lease_seconds INTEGER DEFAULT 300
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_delivery public.whatsapp_outbound_deliveries%ROWTYPE;
+  v_lease_seconds INTEGER := greatest(30, least(coalesce(p_lease_seconds, 300), 600));
+BEGIN
+  UPDATE public.whatsapp_outbound_deliveries
+  SET status = 'dispatching',
+      lease_expires_at = now() + (v_lease_seconds || ' seconds')::interval,
+      updated_at = now()
+  WHERE workspace_id = p_workspace_id
+    AND idempotency_key = trim(p_idempotency_key)
+    AND status = 'processing'
+    AND claim_token = p_claim_token
+    AND lease_expires_at > now()
+  RETURNING * INTO v_delivery;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'WhatsApp outbound dispatch claim is missing, expired, or stale';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true, 'delivery_id', v_delivery.id,
+    'status', v_delivery.status, 'claim_token', v_delivery.claim_token
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.begin_whatsapp_outbound_dispatch_atomic(UUID, TEXT, UUID, INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.begin_whatsapp_outbound_dispatch_atomic(UUID, TEXT, UUID, INTEGER) TO service_role;
+
+-- Completes the delivery and writes the Inbox audit record in the same transaction.
+CREATE OR REPLACE FUNCTION public.complete_whatsapp_outbound_delivery_atomic(
+  p_workspace_id UUID,
+  p_idempotency_key TEXT,
+  p_claim_token UUID,
+  p_status TEXT,
+  p_external_message_id TEXT DEFAULT NULL,
+  p_error TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_delivery public.whatsapp_outbound_deliveries%ROWTYPE;
+  v_status TEXT := lower(trim(p_status));
+BEGIN
+  IF v_status NOT IN ('sent', 'failed', 'ambiguous') THEN
+    RAISE EXCEPTION 'Invalid WhatsApp outbound completion status: %', p_status;
+  END IF;
+  IF v_status = 'sent' AND nullif(trim(p_external_message_id), '') IS NULL THEN
+    RAISE EXCEPTION 'A sent WhatsApp delivery requires an external message ID';
+  END IF;
+
+  SELECT * INTO v_delivery
+  FROM public.whatsapp_outbound_deliveries
+  WHERE workspace_id = p_workspace_id
+    AND idempotency_key = trim(p_idempotency_key)
+  FOR UPDATE;
+
+  IF NOT FOUND OR v_delivery.status <> 'dispatching' OR v_delivery.claim_token <> p_claim_token THEN
+    RAISE EXCEPTION 'WhatsApp outbound completion claim is missing or stale';
+  END IF;
+
+  UPDATE public.whatsapp_outbound_deliveries
+  SET status = v_status,
+      external_message_id = CASE WHEN v_status = 'sent' THEN trim(p_external_message_id) ELSE external_message_id END,
+      last_error = CASE WHEN v_status = 'sent' THEN NULL ELSE coalesce(nullif(trim(p_error), ''), v_status || '_delivery') END,
+      claim_token = NULL,
+      lease_expires_at = NULL,
+      updated_at = now()
+  WHERE id = v_delivery.id
+  RETURNING * INTO v_delivery;
+
+  INSERT INTO public.inbox_messages (
+    workspace_id, thread_id, direction, provider, external_message_id,
+    idempotency_key, content, delivery_status, last_delivery_error,
+    message_type, metadata
+  ) VALUES (
+    v_delivery.workspace_id, v_delivery.thread_id, 'outbound', 'whatsapp',
+    v_delivery.external_message_id, v_delivery.idempotency_key, v_delivery.content,
+    CASE WHEN v_status = 'sent' THEN 'sent' ELSE 'failed' END,
+    v_delivery.last_error, 'text',
+    jsonb_build_object(
+      'inbound_wamid', v_delivery.inbound_wamid,
+      'recipient_phone', v_delivery.recipient_phone,
+      'is_ai_generated', true,
+      'outbound_delivery_status', v_status
+    )
+  )
+  ON CONFLICT (workspace_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+  DO UPDATE SET
+    external_message_id = EXCLUDED.external_message_id,
+    content = EXCLUDED.content,
+    delivery_status = EXCLUDED.delivery_status,
+    last_delivery_error = EXCLUDED.last_delivery_error,
+    metadata = EXCLUDED.metadata;
+
+  RETURN jsonb_build_object(
+    'success', true, 'delivery_id', v_delivery.id, 'status', v_delivery.status,
+    'external_message_id', v_delivery.external_message_id,
+    'attempts', v_delivery.attempts
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.complete_whatsapp_outbound_delivery_atomic(UUID, TEXT, UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_whatsapp_outbound_delivery_atomic(UUID, TEXT, UUID, TEXT, TEXT, TEXT) TO service_role;
+
+-- 9. Atomic PostgreSQL RPC for exactly-once WhatsApp inbound ingestion across any service industry
 CREATE OR REPLACE FUNCTION public.record_canonical_whatsapp_inbound_atomic(
   p_workspace_id UUID,
   p_wamid TEXT,
@@ -1320,6 +1636,18 @@ REVOKE ALL ON FUNCTION public.suppress_whatsapp_ai_job(UUID, UUID, TEXT) FROM PU
 GRANT EXECUTE ON FUNCTION public.suppress_whatsapp_ai_job(UUID, UUID, TEXT) TO service_role;
 
 -- 12. Transactional Human Handoff RPC (Service-Role Only)
+-- Backfill an episode identity for handoffs that were already active before this migration revision.
+UPDATE public.inbox_threads
+SET metadata = jsonb_set(
+      coalesce(metadata, '{}'::jsonb),
+      '{humanHandoffEpisodeId}',
+      to_jsonb(gen_random_uuid()::text),
+      true
+    ),
+    updated_at = now()
+WHERE coalesce((metadata->>'humanHandoff')::boolean, false) = true
+  AND nullif(metadata->>'humanHandoffEpisodeId', '') IS NULL;
+
 CREATE OR REPLACE FUNCTION public.handoff_service_thread_atomic(
   p_workspace_id UUID,
   p_thread_id UUID,
@@ -1339,6 +1667,8 @@ DECLARE
   v_updated_meta JSONB;
   v_journey_final_status TEXT := 'none';
   v_already_sent_notice BOOLEAN;
+  v_handoff_active BOOLEAN;
+  v_handoff_episode_id UUID;
 BEGIN
   -- 1. Lock workspace-scoped thread
   SELECT * INTO v_thread
@@ -1350,8 +1680,16 @@ BEGIN
     RAISE EXCEPTION 'Thread % not found in workspace %', p_thread_id, p_workspace_id;
   END IF;
 
-  -- Check existing notice status
-  v_already_sent_notice := (
+  v_handoff_active := coalesce((v_thread.metadata->>'humanHandoff')::boolean, false);
+  IF v_handoff_active
+     AND coalesce(v_thread.metadata->>'humanHandoffEpisodeId', '') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    v_handoff_episode_id := (v_thread.metadata->>'humanHandoffEpisodeId')::uuid;
+  ELSE
+    v_handoff_episode_id := gen_random_uuid();
+  END IF;
+
+  -- A sent notice belongs only to the currently active handoff episode.
+  v_already_sent_notice := v_handoff_active AND (
     coalesce(v_thread.metadata->>'humanHandoffNoticeStatus', '') = 'sent'
     OR coalesce((v_thread.metadata->>'humanHandoffNoticeSent')::boolean, false) = true
   );
@@ -1437,6 +1775,7 @@ BEGIN
     'aiBotEnabled', false,
     'humanHandoff', true,
     'humanRequestedAt', now(),
+    'humanHandoffEpisodeId', v_handoff_episode_id,
     'humanHandoffNoticeStatus', CASE WHEN v_already_sent_notice THEN 'sent' ELSE 'pending' END
   );
 
@@ -1451,7 +1790,8 @@ BEGIN
     'thread_id', p_thread_id,
     'journey_id', v_journey.id,
     'journey_status', v_journey_final_status,
-    'already_sent_notice', v_already_sent_notice
+    'already_sent_notice', v_already_sent_notice,
+    'handoff_episode_id', v_handoff_episode_id
   );
 END;
 $$;
@@ -1462,10 +1802,12 @@ GRANT EXECUTE ON FUNCTION public.handoff_service_thread_atomic(UUID, UUID, TEXT,
 -- 12b. Transactional Handoff Notice Status Recorder (Service-Role Only)
 DROP FUNCTION IF EXISTS public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT);
 DROP FUNCTION IF EXISTS public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.record_thread_handoff_notice_atomic(UUID, UUID, UUID, TEXT, TEXT, TEXT);
 
 CREATE OR REPLACE FUNCTION public.record_thread_handoff_notice_atomic(
   p_workspace_id UUID,
   p_thread_id UUID,
+  p_handoff_episode_id UUID,
   p_status TEXT,
   p_wamid TEXT DEFAULT NULL,
   p_error TEXT DEFAULT NULL
@@ -1494,6 +1836,15 @@ BEGIN
   END IF;
 
   v_meta := coalesce(v_thread.metadata, '{}'::jsonb);
+
+  IF NOT coalesce((v_meta->>'humanHandoff')::boolean, false) THEN
+    RAISE EXCEPTION 'Thread % does not have an active human handoff', p_thread_id;
+  END IF;
+
+  IF p_handoff_episode_id IS NULL
+     OR v_meta->>'humanHandoffEpisodeId' IS DISTINCT FROM p_handoff_episode_id::text THEN
+    RAISE EXCEPTION 'Stale or mismatched handoff episode for thread %', p_thread_id;
+  END IF;
 
   IF p_status = 'sent' THEN
     v_wamid := coalesce(p_wamid, v_meta->>'humanHandoffNoticeWamid');
@@ -1525,14 +1876,15 @@ BEGIN
   RETURN jsonb_build_object(
     'success', true,
     'thread_id', p_thread_id,
+    'handoff_episode_id', p_handoff_episode_id,
     'status', p_status,
     'wamid', v_wamid
   );
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT, TEXT) TO service_role;
+REVOKE ALL ON FUNCTION public.record_thread_handoff_notice_atomic(UUID, UUID, UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_thread_handoff_notice_atomic(UUID, UUID, UUID, TEXT, TEXT, TEXT) TO service_role;
 
 -- 13. Transactional Operator Resume RPC (Service-Role Only)
 CREATE OR REPLACE FUNCTION public.resume_service_thread_atomic(
@@ -1610,7 +1962,7 @@ BEGIN
   END IF;
 
   -- 3. Update thread: remove handoff notice markers, re-enable AI
-  v_updated_meta := (coalesce(v_thread.metadata, '{}'::jsonb) - 'humanHandoffNoticeSent' - 'humanHandoffNoticeStatus' - 'humanHandoffNoticeError' - 'humanHandoffNoticeWamid' - 'humanHandoffNoticeSentAt' - 'humanHandoffNoticeAttemptedAt') || jsonb_build_object(
+  v_updated_meta := (coalesce(v_thread.metadata, '{}'::jsonb) - 'humanHandoffEpisodeId' - 'humanHandoffNoticeSent' - 'humanHandoffNoticeStatus' - 'humanHandoffNoticeError' - 'humanHandoffNoticeWamid' - 'humanHandoffNoticeSentAt' - 'humanHandoffNoticeAttemptedAt') || jsonb_build_object(
     'aiBotEnabled', true,
     'humanHandoff', false,
     'resumedByUserId', p_operator_user_id,

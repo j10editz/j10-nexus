@@ -148,6 +148,7 @@ async function setupDatabase() {
       unique(workspace_id, id)
     );
     CREATE UNIQUE INDEX idx_inbox_messages_ws_ext_id ON public.inbox_messages (workspace_id, external_message_id) WHERE external_message_id IS NOT NULL;
+    CREATE UNIQUE INDEX idx_inbox_messages_idempotency ON public.inbox_messages (workspace_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
     CREATE TABLE public.integrations (
       id uuid primary key default gen_random_uuid(),
       workspace_id uuid not null references public.workspaces(id) on delete cascade,
@@ -510,17 +511,62 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
         if (fn === "record_thread_handoff_notice_atomic") {
           const res = await db.query<{ record_thread_handoff_notice_atomic: any }>(
             `SELECT public.record_thread_handoff_notice_atomic(
-              $1::uuid, $2::uuid, $3, $4, $5
+              $1::uuid, $2::uuid, $3::uuid, $4, $5, $6
             )`,
             [
               params.p_workspace_id,
               params.p_thread_id,
+              params.p_handoff_episode_id,
               params.p_status,
               params.p_wamid || null,
               params.p_error || null,
             ]
           );
           return { data: res.rows[0].record_thread_handoff_notice_atomic, error: null };
+        }
+
+        if (fn === "claim_whatsapp_outbound_delivery_atomic") {
+          const res = await db.query<{ claim_whatsapp_outbound_delivery_atomic: any }>(
+            `SELECT public.claim_whatsapp_outbound_delivery_atomic(
+              $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9::uuid, $10::int
+            )`,
+            [
+              params.p_workspace_id,
+              params.p_thread_id,
+              params.p_integration_id,
+              params.p_idempotency_key,
+              params.p_payload_hash,
+              params.p_content,
+              params.p_recipient_phone,
+              params.p_inbound_wamid,
+              params.p_claim_token,
+              params.p_lease_seconds,
+            ]
+          );
+          return { data: res.rows[0].claim_whatsapp_outbound_delivery_atomic, error: null };
+        }
+
+        if (fn === "begin_whatsapp_outbound_dispatch_atomic") {
+          const res = await db.query<{ begin_whatsapp_outbound_dispatch_atomic: any }>(
+            `SELECT public.begin_whatsapp_outbound_dispatch_atomic($1::uuid, $2, $3::uuid, $4::int)`,
+            [params.p_workspace_id, params.p_idempotency_key, params.p_claim_token, params.p_lease_seconds]
+          );
+          return { data: res.rows[0].begin_whatsapp_outbound_dispatch_atomic, error: null };
+        }
+
+        if (fn === "complete_whatsapp_outbound_delivery_atomic") {
+          const res = await db.query<{ complete_whatsapp_outbound_delivery_atomic: any }>(
+            `SELECT public.complete_whatsapp_outbound_delivery_atomic($1::uuid, $2, $3::uuid, $4, $5, $6)`,
+            [
+              params.p_workspace_id,
+              params.p_idempotency_key,
+              params.p_claim_token,
+              params.p_status,
+              params.p_external_message_id || null,
+              params.p_error || null,
+            ]
+          );
+          return { data: res.rows[0].complete_whatsapp_outbound_delivery_atomic, error: null };
         }
 
         if (fn === "resume_service_thread_atomic") {
@@ -1738,6 +1784,8 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
       [workspaceBeauty, threadId]
     );
     expect(handoffRes.rows[0].handoff_service_thread_atomic.already_sent_notice).toBe(false);
+    const handoffEpisodeId = handoffRes.rows[0].handoff_service_thread_atomic.handoff_episode_id;
+    expect(handoffEpisodeId).toMatch(/^[0-9a-f-]{36}$/i);
 
     // Verify thread metadata has humanHandoff: true, noticeStatus: 'pending'
     let threadRow = await db.query<any>("SELECT metadata FROM public.inbox_threads WHERE id = $1", [threadId]);
@@ -1804,7 +1852,7 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
     // Verify stable idempotency: exactly 1 outbound notice message recorded in inbox_messages
     const noticeMsgs = await db.query<any>(
       "SELECT id, external_message_id, delivery_status FROM public.inbox_messages WHERE workspace_id = $1 AND thread_id = $2 AND idempotency_key = $3",
-      [workspaceBeauty, threadId, `handoff_notice_${threadId}`]
+      [workspaceBeauty, threadId, `handoff_notice_${threadId}_${handoffEpisodeId}`]
     );
     expect(noticeMsgs.rows.length).toBe(1);
     expect(noticeMsgs.rows[0].delivery_status).toBe("sent");
@@ -1826,7 +1874,7 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
     // Notice count remains strictly 1
     const noticeMsgsAfter = await db.query<any>(
       "SELECT count(*)::int as cnt FROM public.inbox_messages WHERE workspace_id = $1 AND thread_id = $2 AND idempotency_key = $3",
-      [workspaceBeauty, threadId, `handoff_notice_${threadId}`]
+      [workspaceBeauty, threadId, `handoff_notice_${threadId}_${handoffEpisodeId}`]
     );
     expect(noticeMsgsAfter.rows[0].cnt).toBe(1);
   });
@@ -2104,16 +2152,16 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
 
     // Verify key functions still exist and are executable
     const checkFunc = await db.query<any>(
-      "SELECT proname FROM pg_proc WHERE proname IN ('confirm_workspace_booking_atomic', 'record_canonical_whatsapp_inbound_atomic', 'handoff_service_thread_atomic', 'record_thread_handoff_notice_atomic')"
+      "SELECT proname FROM pg_proc WHERE proname IN ('confirm_workspace_booking_atomic', 'record_canonical_whatsapp_inbound_atomic', 'handoff_service_thread_atomic', 'record_thread_handoff_notice_atomic', 'claim_whatsapp_outbound_delivery_atomic', 'begin_whatsapp_outbound_dispatch_atomic', 'complete_whatsapp_outbound_delivery_atomic')"
     );
-    expect(checkFunc.rows.length).toBe(4);
+    expect(checkFunc.rows.length).toBe(7);
 
-    // Verify exact 5-parameter signature in pg_proc
+    // Verify exact 6-parameter signature in pg_proc
     const procSig = await db.query<{ proname: string; pronargs: number }>(
       "SELECT proname, pronargs FROM pg_proc WHERE proname = 'record_thread_handoff_notice_atomic'"
     );
     expect(procSig.rows.length).toBe(1);
-    expect(procSig.rows[0].pronargs).toBe(5);
+    expect(procSig.rows[0].pronargs).toBe(6);
   });
 
   // 30. Direct recordThreadHandoffNoticeDelivery Helper & Signature Validation
@@ -2126,12 +2174,18 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
       [workspaceBeauty, integrationBeauty]
     );
     const { thread_id: testThreadId } = inb.rows[0].record_canonical_whatsapp_inbound_atomic;
+    const helperHandoff = await db.query<{ handoff_service_thread_atomic: any }>(
+      "SELECT public.handoff_service_thread_atomic($1::uuid, $2::uuid, 'Helper lifecycle test')",
+      [workspaceBeauty, testThreadId]
+    );
+    const helperEpisodeId = helperHandoff.rows[0].handoff_service_thread_atomic.handoff_episode_id;
 
     // 1. Call real TypeScript helper with 'pending' and error
     const pendingRes = await recordThreadHandoffNoticeDelivery(
       supabase,
       workspaceBeauty,
       testThreadId,
+      helperEpisodeId,
       "pending",
       undefined,
       "simulated_upstream_gateway_timeout"
@@ -2150,6 +2204,7 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
       supabase,
       workspaceBeauty,
       testThreadId,
+      helperEpisodeId,
       "sent",
       "wamid_outbound_real_proven_888"
     );
@@ -2174,7 +2229,7 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
       }),
     } as any;
     await expect(
-      recordThreadHandoffNoticeDelivery(brokenRpcClient, workspaceBeauty, testThreadId, "pending")
+      recordThreadHandoffNoticeDelivery(brokenRpcClient, workspaceBeauty, testThreadId, helperEpisodeId, "pending")
     ).rejects.toThrow(/Failed to record handoff notice delivery state via atomic RPC/i);
 
     // B. Direct PostgreSQL query with invalid parameter count fails signature check
@@ -2188,9 +2243,221 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
     // C. Direct PostgreSQL query with invalid status fails validation
     await expect(
       db.query(
-        "SELECT public.record_thread_handoff_notice_atomic($1::uuid, $2::uuid, 'invalid_status')",
-        [workspaceBeauty, testThreadId]
+        "SELECT public.record_thread_handoff_notice_atomic($1::uuid, $2::uuid, $3::uuid, 'invalid_status')",
+        [workspaceBeauty, testThreadId, helperEpisodeId]
       )
     ).rejects.toThrow(/Invalid notice status/i);
+  });
+
+  it("31. operator resume followed by a new handoff creates a distinct episode and outbound idempotency key", async () => {
+    const inbound = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_episode_cycle', '+15550004444', 'Episode User', 'text', 'human please', '{}'::jsonb, 'episode-cycle', $2::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, integrationBeauty]
+    );
+    const threadId = inbound.rows[0].record_canonical_whatsapp_inbound_atomic.thread_id;
+
+    const first = await db.query<{ handoff_service_thread_atomic: any }>(
+      "SELECT public.handoff_service_thread_atomic($1::uuid, $2::uuid, 'first handoff')",
+      [workspaceBeauty, threadId]
+    );
+    const firstEpisode = first.rows[0].handoff_service_thread_atomic.handoff_episode_id;
+    await db.query(
+      "SELECT public.record_thread_handoff_notice_atomic($1::uuid, $2::uuid, $3::uuid, 'sent', 'wamid_first_episode')",
+      [workspaceBeauty, threadId, firstEpisode]
+    );
+
+    await db.query(
+      "SELECT public.resume_service_thread_atomic($1::uuid, $2::uuid, $3, 'resume between handoffs')",
+      [workspaceBeauty, threadId, userOwner]
+    );
+
+    const second = await db.query<{ handoff_service_thread_atomic: any }>(
+      "SELECT public.handoff_service_thread_atomic($1::uuid, $2::uuid, 'second handoff')",
+      [workspaceBeauty, threadId]
+    );
+    const secondEpisode = second.rows[0].handoff_service_thread_atomic.handoff_episode_id;
+
+    expect(secondEpisode).not.toBe(firstEpisode);
+    expect(second.rows[0].handoff_service_thread_atomic.already_sent_notice).toBe(false);
+    expect(`handoff_notice_${threadId}_${secondEpisode}`).not.toBe(`handoff_notice_${threadId}_${firstEpisode}`);
+
+    const thread = await db.query<any>("SELECT metadata FROM public.inbox_threads WHERE id = $1", [threadId]);
+    expect(thread.rows[0].metadata.humanHandoffEpisodeId).toBe(secondEpisode);
+    expect(thread.rows[0].metadata.humanHandoffNoticeStatus).toBe("pending");
+  });
+
+  it("32. concurrent workers reserve one outbound dispatch and produce exactly one Meta call", async () => {
+    await db.query(
+      "UPDATE public.integrations SET public_configuration = '{\"phone_number_id\": \"11223344\"}'::jsonb WHERE id = $1",
+      [integrationBeauty]
+    );
+    vi.spyOn(credentialsModule, "getIntegrationCredentials").mockResolvedValue({
+      values: { access_token: "mock_access_token_concurrency" },
+    } as any);
+
+    const inbound = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_concurrent_handoff', '+15550005555', 'Concurrent User', 'text', 'human', '{}'::jsonb, 'concurrent-handoff', $2::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, integrationBeauty]
+    );
+    const threadId = inbound.rows[0].record_canonical_whatsapp_inbound_atomic.thread_id;
+    const handoff = await db.query<{ handoff_service_thread_atomic: any }>(
+      "SELECT public.handoff_service_thread_atomic($1::uuid, $2::uuid, 'concurrent handoff')",
+      [workspaceBeauty, threadId]
+    );
+    const episodeId = handoff.rows[0].handoff_service_thread_atomic.handoff_episode_id;
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: [{ id: "wamid_concurrent_exactly_once" }] }),
+    } as any);
+
+    const invoke = (inboundWamid: string) => generateAndSendWhatsAppAIResponse({
+      supabase,
+      workspaceId: workspaceBeauty,
+      integrationId: integrationBeauty,
+      threadId,
+      recipientPhone: "+15550005555",
+      inboundText: "human",
+      senderName: "Concurrent User",
+      inboundWamid,
+    });
+
+    await Promise.allSettled([invoke("wamid_worker_a"), invoke("wamid_worker_b")]);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const key = `handoff_notice_${threadId}_${episodeId}`;
+    const deliveries = await db.query<any>(
+      "SELECT status, external_message_id FROM public.whatsapp_outbound_deliveries WHERE workspace_id = $1 AND idempotency_key = $2",
+      [workspaceBeauty, key]
+    );
+    expect(deliveries.rows).toHaveLength(1);
+    expect(deliveries.rows[0].status).toBe("sent");
+    expect(deliveries.rows[0].external_message_id).toBe("wamid_concurrent_exactly_once");
+  });
+
+  it("33. processing leases are reclaimable, dispatching leases become ambiguous, and stale claims cannot complete", async () => {
+    const inbound = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_lease_test', '+15550006666', 'Lease User', 'text', 'hello', '{}'::jsonb, 'lease-test', $2::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, integrationBeauty]
+    );
+    const threadId = inbound.rows[0].record_canonical_whatsapp_inbound_atomic.thread_id;
+    const token1 = "11111111-1111-4111-8111-111111111111";
+    const token2 = "22222222-2222-4222-8222-222222222222";
+    const token3 = "33333333-3333-4333-8333-333333333333";
+    const key = `lease_${threadId}`;
+    const claimSql = `SELECT public.claim_whatsapp_outbound_delivery_atomic(
+      $1::uuid, $2::uuid, $3::uuid, $4, 'payload-hash', 'message', '15550006666', 'wamid_lease_test', $5::uuid, 120
+    )`;
+
+    const first = await db.query<any>(claimSql, [workspaceBeauty, threadId, integrationBeauty, key, token1]);
+    expect(first.rows[0].claim_whatsapp_outbound_delivery_atomic.action).toBe("claimed");
+    await db.query(
+      "UPDATE public.whatsapp_outbound_deliveries SET lease_expires_at = now() - interval '1 second' WHERE workspace_id = $1 AND idempotency_key = $2",
+      [workspaceBeauty, key]
+    );
+
+    const reclaimed = await db.query<any>(claimSql, [workspaceBeauty, threadId, integrationBeauty, key, token2]);
+    expect(reclaimed.rows[0].claim_whatsapp_outbound_delivery_atomic.action).toBe("claimed");
+    expect(reclaimed.rows[0].claim_whatsapp_outbound_delivery_atomic.attempts).toBe(2);
+
+    await expect(
+      db.query(
+        "SELECT public.begin_whatsapp_outbound_dispatch_atomic($1::uuid, $2, $3::uuid, 300)",
+        [workspaceBeauty, key, token1]
+      )
+    ).rejects.toThrow(/missing, expired, or stale/i);
+
+    await db.query(
+      "SELECT public.begin_whatsapp_outbound_dispatch_atomic($1::uuid, $2, $3::uuid, 300)",
+      [workspaceBeauty, key, token2]
+    );
+    await db.query(
+      "UPDATE public.whatsapp_outbound_deliveries SET lease_expires_at = now() - interval '1 second' WHERE workspace_id = $1 AND idempotency_key = $2",
+      [workspaceBeauty, key]
+    );
+
+    const ambiguous = await db.query<any>(claimSql, [workspaceBeauty, threadId, integrationBeauty, key, token3]);
+    expect(ambiguous.rows[0].claim_whatsapp_outbound_delivery_atomic.action).toBe("ambiguous");
+    expect(ambiguous.rows[0].claim_whatsapp_outbound_delivery_atomic.error).toBe("dispatch_lease_expired_delivery_unknown");
+  });
+
+  it("34. Meta success plus completion persistence failure is surfaced as ambiguous and is not blindly resent", async () => {
+    await db.query(
+      "UPDATE public.integrations SET public_configuration = '{\"phone_number_id\": \"11223344\"}'::jsonb WHERE id = $1",
+      [integrationBeauty]
+    );
+    vi.spyOn(credentialsModule, "getIntegrationCredentials").mockResolvedValue({
+      values: { access_token: "mock_access_token_ambiguous" },
+    } as any);
+    const inbound = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_ambiguous_completion', '+15550007777', 'Ambiguous User', 'text', 'human', '{}'::jsonb, 'ambiguous-completion', $2::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, integrationBeauty]
+    );
+    const threadId = inbound.rows[0].record_canonical_whatsapp_inbound_atomic.thread_id;
+    const handoff = await db.query<{ handoff_service_thread_atomic: any }>(
+      "SELECT public.handoff_service_thread_atomic($1::uuid, $2::uuid, 'ambiguous completion')",
+      [workspaceBeauty, threadId]
+    );
+    const episodeId = handoff.rows[0].handoff_service_thread_atomic.handoff_episode_id;
+    const realRpc = (supabase as any).rpc.bind(supabase);
+    const faultClient = {
+      ...(supabase as any),
+      from: (supabase as any).from.bind(supabase),
+      rpc: async (fn: string, params: any) => {
+        if (fn === "complete_whatsapp_outbound_delivery_atomic") {
+          return { data: null, error: { message: "simulated database completion outage" } };
+        }
+        return realRpc(fn, params);
+      },
+    } as SupabaseClient;
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: [{ id: "wamid_meta_accepted_before_db_failure" }] }),
+    } as any);
+
+    await expect(generateAndSendWhatsAppAIResponse({
+      supabase: faultClient,
+      workspaceId: workspaceBeauty,
+      integrationId: integrationBeauty,
+      threadId,
+      recipientPhone: "+15550007777",
+      inboundText: "human",
+      senderName: "Ambiguous User",
+      inboundWamid: "wamid_ambiguous_attempt",
+    })).rejects.toThrow(/AMBIGUOUS_DELIVERY_PERSISTENCE_FAILED/);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const key = `handoff_notice_${threadId}_${episodeId}`;
+    await db.query(
+      "UPDATE public.whatsapp_outbound_deliveries SET lease_expires_at = now() - interval '1 second' WHERE workspace_id = $1 AND idempotency_key = $2",
+      [workspaceBeauty, key]
+    );
+
+    await expect(generateAndSendWhatsAppAIResponse({
+      supabase,
+      workspaceId: workspaceBeauty,
+      integrationId: integrationBeauty,
+      threadId,
+      recipientPhone: "+15550007777",
+      inboundText: "human again",
+      senderName: "Ambiguous User",
+      inboundWamid: "wamid_ambiguous_retry",
+    })).rejects.toThrow(/ambiguous_delivery/);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const row = await db.query<any>(
+      "SELECT status, last_error FROM public.whatsapp_outbound_deliveries WHERE workspace_id = $1 AND idempotency_key = $2",
+      [workspaceBeauty, key]
+    );
+    expect(row.rows[0].status).toBe("ambiguous");
   });
 });

@@ -74,6 +74,7 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
   const TEST_VERIFY_TOKEN = "nexus_verify_token_12345";
 
   function createMockSupabase(overrides: Record<string, any> = {}) {
+    const outboundDeliveries = new Map<string, any>();
     const createQueryBuilder = (table: string) => {
       const builder: any = {
         select: () => builder,
@@ -191,6 +192,88 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
         if (fn === "claim_lead_event_outbox") return { data: { claimed: false, deduplicated: true }, error: null };
         if (fn === "assert_workspace_entitlement") return { data: { allowed: true }, error: null };
         if (fn === "record_verified_workspace_usage") return { data: { success: true }, error: null };
+        if (fn === "claim_whatsapp_outbound_delivery_atomic") {
+          const existing = outboundDeliveries.get(args.p_idempotency_key);
+          if (existing?.status === "sent") {
+            return {
+              data: {
+                success: true,
+                action: "already_sent",
+                delivery_id: existing.id,
+                external_message_id: existing.external_message_id,
+                attempts: existing.attempts,
+              },
+              error: null,
+            };
+          }
+          const delivery = existing || {
+            id: "outbound-delivery-1",
+            attempts: 1,
+            content: args.p_content,
+            inbound_wamid: args.p_inbound_wamid,
+            recipient_phone: args.p_recipient_phone,
+          };
+          delivery.status = "processing";
+          delivery.claim_token = args.p_claim_token;
+          outboundDeliveries.set(args.p_idempotency_key, delivery);
+          return {
+            data: {
+              success: true,
+              action: "claimed",
+              delivery_id: delivery.id,
+              claim_token: args.p_claim_token,
+              attempts: delivery.attempts,
+            },
+            error: null,
+          };
+        }
+        if (fn === "begin_whatsapp_outbound_dispatch_atomic") {
+          const delivery = outboundDeliveries.get(args.p_idempotency_key);
+          if (!delivery || delivery.claim_token !== args.p_claim_token) {
+            return { data: null, error: { message: "stale delivery claim" } };
+          }
+          delivery.status = "dispatching";
+          return {
+            data: {
+              success: true,
+              delivery_id: delivery.id,
+              status: "dispatching",
+              claim_token: args.p_claim_token,
+            },
+            error: null,
+          };
+        }
+        if (fn === "complete_whatsapp_outbound_delivery_atomic") {
+          const delivery = outboundDeliveries.get(args.p_idempotency_key);
+          if (!delivery || delivery.claim_token !== args.p_claim_token) {
+            return { data: null, error: { message: "stale delivery completion" } };
+          }
+          delivery.status = args.p_status;
+          delivery.external_message_id = args.p_external_message_id;
+          delivery.last_error = args.p_error;
+          if (overrides.onInsert) {
+            overrides.onInsert("inbox_messages", {
+              workspace_id: TEST_WORKSPACE_ID,
+              thread_id: "th-1",
+              direction: "outbound",
+              provider: "whatsapp",
+              external_message_id: args.p_external_message_id,
+              idempotency_key: args.p_idempotency_key,
+              content: delivery.content,
+              delivery_status: args.p_status === "sent" ? "sent" : "failed",
+            });
+          }
+          return {
+            data: {
+              success: true,
+              delivery_id: delivery.id,
+              status: args.p_status,
+              external_message_id: args.p_external_message_id,
+              attempts: delivery.attempts,
+            },
+            error: null,
+          };
+        }
         if (fn === "record_canonical_whatsapp_inbound_atomic") {
           if (overrides.rpc) {
             const custom = await overrides.rpc(fn, args);

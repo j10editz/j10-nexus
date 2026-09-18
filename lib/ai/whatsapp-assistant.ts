@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import https from "node:https";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getWorkspaceBotConfig, redactPii } from "@/lib/ai/telegram-assistant";
@@ -142,13 +142,15 @@ export async function recordThreadHandoffNoticeDelivery(
   supabase: SupabaseClient,
   workspaceId: string,
   threadId: string,
+  handoffEpisodeId: string,
   status: "pending" | "sent",
   outboundWamid?: string,
   error?: string
-): Promise<{ success: boolean; threadId: string; status: string; wamid?: string | null }> {
+): Promise<{ success: boolean; threadId: string; handoffEpisodeId: string; status: string; wamid?: string | null }> {
   const { data, error: rpcErr } = await supabase.rpc("record_thread_handoff_notice_atomic", {
     p_workspace_id: workspaceId,
     p_thread_id: threadId,
+    p_handoff_episode_id: handoffEpisodeId,
     p_status: status,
     p_wamid: outboundWamid || null,
     p_error: error || null,
@@ -167,6 +169,10 @@ export async function recordThreadHandoffNoticeDelivery(
     throw new Error(`Thread ID mismatch in handoff notice recording: expected ${threadId}, got ${result.thread_id}`);
   }
 
+  if (result.handoff_episode_id !== handoffEpisodeId) {
+    throw new Error(`Handoff episode mismatch: expected ${handoffEpisodeId}, got ${result.handoff_episode_id}`);
+  }
+
   if (result.status !== status) {
     throw new Error(`Status mismatch in handoff notice recording: expected ${status}, got ${result.status}`);
   }
@@ -178,6 +184,7 @@ export async function recordThreadHandoffNoticeDelivery(
   return {
     success: true,
     threadId: result.thread_id,
+    handoffEpisodeId: result.handoff_episode_id,
     status: result.status,
     wamid: result.wamid,
   };
@@ -218,8 +225,12 @@ export async function generateAndSendWhatsAppAIResponse(
   }
 
   const threadMeta = (thread?.metadata || {}) as Record<string, any>;
-  const isHandoffActive = threadMeta.aiBotEnabled === false || threadMeta.humanHandoff === true;
+  const isHandoffActive = threadMeta.humanHandoff === true;
+  const isThreadAiDisabled = threadMeta.aiBotEnabled === false && !isHandoffActive;
   const rawNoticeStatus = threadMeta.humanHandoffNoticeStatus || (threadMeta.humanHandoffNoticeSent ? "sent" : null);
+  const activeHandoffEpisodeId = typeof threadMeta.humanHandoffEpisodeId === "string"
+    ? threadMeta.humanHandoffEpisodeId
+    : undefined;
 
   // If handoff is active and notice has already been delivered, suppress AI response without duplicating notice
   if (isHandoffActive && rawNoticeStatus === "sent") {
@@ -233,10 +244,13 @@ export async function generateAndSendWhatsAppAIResponse(
   // If handoff is active but notice delivery is pending (or not yet recorded as sent),
   // do NOT suppress the job! Deliver / retry delivering the handoff notice.
   if (isHandoffActive && (rawNoticeStatus === "pending" || !rawNoticeStatus)) {
+    if (!activeHandoffEpisodeId) {
+      throw new Error(`Active human handoff on thread ${threadId} is missing its episode ID`);
+    }
     const { config: botConfig, brandName } = await getWorkspaceBotConfig(supabase, workspaceId);
     const businessName = botConfig.business_name || brandName;
     const handoffNotice = `Our team at ${businessName} has been alerted. A specialist will respond to you directly here shortly.`;
-    const handoffNoticeKey = `handoff_notice_${threadId}`;
+    const handoffNoticeKey = `handoff_notice_${threadId}_${activeHandoffEpisodeId}`;
 
     const sendResult = await sendWhatsAppOutbound({
       supabase,
@@ -250,12 +264,20 @@ export async function generateAndSendWhatsAppAIResponse(
     });
 
     if (sendResult.deliveryStatus === "sent") {
-      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, "sent", sendResult.outboundWamid);
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, activeHandoffEpisodeId, "sent", sendResult.outboundWamid);
       return { replyText: handoffNotice, ...sendResult };
     } else {
-      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, "pending", undefined, sendResult.error || "delivery_failed");
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, activeHandoffEpisodeId, "pending", undefined, sendResult.error || "delivery_failed");
       throw new Error(`Handoff notice delivery failed: ${sendResult.error || "delivery_failed"}`);
     }
+  }
+
+  if (isThreadAiDisabled) {
+    return {
+      replyText: "",
+      deliveryStatus: "failed",
+      skippedReason: "thread_ai_disabled",
+    };
   }
 
   // 2. Resolve Bot Configuration & Master Switch
@@ -297,6 +319,12 @@ export async function generateAndSendWhatsAppAIResponse(
     }
 
     const handoffRes = typeof handoffData === "string" ? JSON.parse(handoffData) : handoffData;
+    const handoffEpisodeId = typeof handoffRes?.handoff_episode_id === "string"
+      ? handoffRes.handoff_episode_id
+      : undefined;
+    if (!handoffEpisodeId) {
+      throw new Error("Handoff transaction did not return an episode ID");
+    }
     const alreadySentNotice = handoffRes?.already_sent_notice === true || handoffRes?.notice_status === "sent";
     if (alreadySentNotice) {
       return {
@@ -307,7 +335,7 @@ export async function generateAndSendWhatsAppAIResponse(
     }
 
     const handoffNotice = `Our team at ${businessName} has been alerted. A specialist will respond to you directly here shortly.`;
-    const handoffNoticeKey = `handoff_notice_${threadId}`;
+    const handoffNoticeKey = `handoff_notice_${threadId}_${handoffEpisodeId}`;
     const sendResult = await sendWhatsAppOutbound({
       supabase,
       workspaceId,
@@ -320,10 +348,10 @@ export async function generateAndSendWhatsAppAIResponse(
     });
 
     if (sendResult.deliveryStatus === "sent") {
-      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, "sent", sendResult.outboundWamid);
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, handoffEpisodeId, "sent", sendResult.outboundWamid);
       return { replyText: handoffNotice, ...sendResult };
     } else {
-      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, "pending", undefined, sendResult.error || "delivery_failed");
+      await recordThreadHandoffNoticeDelivery(supabase, workspaceId, threadId, handoffEpisodeId, "pending", undefined, sendResult.error || "delivery_failed");
       throw new Error(`Handoff notice delivery failed: ${sendResult.error || "delivery_failed"}`);
     }
   }
@@ -698,29 +726,21 @@ async function sendWhatsAppOutbound(args: {
   } = args;
 
   const outboundIdempotencyKey = idempotencyKey || `reply_${inboundWamid}`;
+  const payloadHash = createHash("sha256")
+    .update(JSON.stringify({ workspaceId, integrationId, threadId, recipientPhone, text, outboundIdempotencyKey }))
+    .digest("hex");
 
-  // Check if outbound reply already recorded for this idempotency key
-  const { data: existingOutbound } = await supabase
-    .from("inbox_messages")
-    .select("id, external_message_id, delivery_status")
-    .eq("workspace_id", workspaceId)
-    .eq("idempotency_key", outboundIdempotencyKey)
-    .maybeSingle();
-
-  if (existingOutbound?.external_message_id && existingOutbound.delivery_status === "sent") {
-    return {
-      deliveryStatus: "sent",
-      outboundWamid: existingOutbound.external_message_id,
-    };
-  }
-
-  // Resolve integration credentials & config
-  const { data: integrationRow } = await supabase
+  // Resolve integration credentials and configuration before reserving a delivery.
+  const { data: integrationRow, error: integrationError } = await supabase
     .from("integrations")
     .select("id, workspace_id, public_configuration, environment")
     .eq("id", integrationId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
+
+  if (integrationError) {
+    throw new Error(`Failed to resolve WhatsApp integration: ${integrationError.message}`);
+  }
 
   if (!integrationRow) {
     return { deliveryStatus: "failed", error: "integration_not_found" };
@@ -748,6 +768,72 @@ async function sendWhatsAppOutbound(args: {
   }
 
   const digits = recipientPhone.replace(/\D/g, "");
+  const claimToken = randomUUID();
+  const { data: claimData, error: claimError } = await supabase.rpc(
+    "claim_whatsapp_outbound_delivery_atomic",
+    {
+      p_workspace_id: workspaceId,
+      p_thread_id: threadId,
+      p_integration_id: integrationId,
+      p_idempotency_key: outboundIdempotencyKey,
+      p_payload_hash: payloadHash,
+      p_content: text,
+      p_recipient_phone: digits,
+      p_inbound_wamid: inboundWamid,
+      p_claim_token: claimToken,
+      p_lease_seconds: 120,
+    }
+  );
+
+  if (claimError) {
+    throw new Error(`Failed to claim WhatsApp outbound delivery: ${claimError.message}`);
+  }
+
+  const claim = typeof claimData === "string" ? JSON.parse(claimData) : claimData;
+  if (!claim || claim.success !== true) {
+    throw new Error(`WhatsApp outbound claim failed: ${claim?.error || "unknown_claim_failure"}`);
+  }
+
+  if (claim.action === "already_sent") {
+    if (!claim.external_message_id) {
+      throw new Error("WhatsApp outbound ledger reported sent without an external message ID");
+    }
+    return { deliveryStatus: "sent", outboundWamid: claim.external_message_id };
+  }
+
+  if (claim.action === "ambiguous") {
+    return { deliveryStatus: "failed", error: `ambiguous_delivery:${claim.error || "delivery_unknown"}` };
+  }
+
+  if (claim.action === "busy") {
+    return { deliveryStatus: "failed", error: "outbound_delivery_claim_busy" };
+  }
+
+  if (claim.action !== "claimed" || claim.claim_token !== claimToken) {
+    throw new Error("WhatsApp outbound claim returned an invalid action or claim token");
+  }
+
+  // Persist the dispatch boundary before the external HTTP request. An expired
+  // dispatching lease becomes ambiguous and is never automatically resent.
+  const { data: dispatchData, error: dispatchError } = await supabase.rpc(
+    "begin_whatsapp_outbound_dispatch_atomic",
+    {
+      p_workspace_id: workspaceId,
+      p_idempotency_key: outboundIdempotencyKey,
+      p_claim_token: claimToken,
+      p_lease_seconds: 300,
+    }
+  );
+
+  if (dispatchError) {
+    throw new Error(`Failed to begin WhatsApp outbound dispatch: ${dispatchError.message}`);
+  }
+
+  const dispatch = typeof dispatchData === "string" ? JSON.parse(dispatchData) : dispatchData;
+  if (!dispatch || dispatch.success !== true || dispatch.status !== "dispatching" || dispatch.claim_token !== claimToken) {
+    throw new Error("WhatsApp outbound dispatch reservation could not be verified");
+  }
+
   const version = publicConfig.graph_api_version || process.env.META_WHATSAPP_GRAPH_API_VERSION || "v26.0";
   const url = `https://graph.facebook.com/${version}/${phoneNumberId}/messages`;
 
@@ -764,7 +850,7 @@ async function sendWhatsAppOutbound(args: {
 
   let outboundWamid: string | undefined = undefined;
   let deliveryError: string | null = null;
-  let isDelivered = false;
+  let completionStatus: "sent" | "failed" | "ambiguous" = "failed";
 
   try {
     const res = await fetch(url, {
@@ -779,68 +865,62 @@ async function sendWhatsAppOutbound(args: {
     const data = await res.json().catch(() => null);
 
     if (res.ok && data?.messages?.[0]?.id) {
-      isDelivered = true;
+      completionStatus = "sent";
       outboundWamid = String(data.messages[0].id);
+    } else if (res.ok) {
+      completionStatus = "ambiguous";
+      deliveryError = "meta_success_response_missing_wamid";
     } else {
+      completionStatus = "failed";
       deliveryError = data?.error?.message || `HTTP ${res.status}`;
     }
   } catch (networkErr: any) {
+    completionStatus = "ambiguous";
     deliveryError = networkErr?.message || "network_send_failure";
   }
 
-  // Insert or update outbound message in inbox_messages
-  try {
-    if (existingOutbound?.id) {
-      await supabase
-        .from("inbox_messages")
-        .update({
-          external_message_id: outboundWamid || existingOutbound.external_message_id || null,
-          content: text,
-          delivery_status: isDelivered ? "sent" : "failed",
-          last_delivery_error: deliveryError,
-          metadata: {
-            inbound_wamid: inboundWamid,
-            recipient_phone: digits,
-            is_ai_generated: true,
-          },
-        })
-        .eq("id", existingOutbound.id)
-        .eq("workspace_id", workspaceId);
-    } else {
-      await supabase.from("inbox_messages").insert({
-        workspace_id: workspaceId,
-        thread_id: threadId,
-        direction: "outbound",
-        provider: "whatsapp",
-        external_message_id: outboundWamid || null,
-        idempotency_key: outboundIdempotencyKey,
-        content: text,
-        delivery_status: isDelivered ? "sent" : "failed",
-        last_delivery_error: deliveryError,
-        message_type: "text",
-        metadata: {
-          inbound_wamid: inboundWamid,
-          recipient_phone: digits,
-          is_ai_generated: true,
-        },
-      });
+  const { data: completionData, error: completionError } = await supabase.rpc(
+    "complete_whatsapp_outbound_delivery_atomic",
+    {
+      p_workspace_id: workspaceId,
+      p_idempotency_key: outboundIdempotencyKey,
+      p_claim_token: claimToken,
+      p_status: completionStatus,
+      p_external_message_id: outboundWamid || null,
+      p_error: deliveryError,
     }
+  );
 
-    // Update thread last_message_at
-    await supabase
-      .from("inbox_threads")
-      .update({
-        last_message_at: new Date().toISOString(),
-      })
-      .eq("id", threadId)
-      .eq("workspace_id", workspaceId);
-  } catch (dbErr) {
-    // Database record notice
+  if (completionError) {
+    const prefix = completionStatus === "sent" || completionStatus === "ambiguous"
+      ? "AMBIGUOUS_DELIVERY_PERSISTENCE_FAILED"
+      : "DELIVERY_COMPLETION_PERSISTENCE_FAILED";
+    throw new Error(`${prefix}: ${completionError.message}`);
   }
 
-  if (isDelivered && outboundWamid) {
+  const completion = typeof completionData === "string" ? JSON.parse(completionData) : completionData;
+  if (!completion || completion.success !== true || completion.status !== completionStatus) {
+    throw new Error("WhatsApp outbound completion could not be verified");
+  }
+
+  const { error: threadUpdateError } = await supabase
+    .from("inbox_threads")
+    .update({ last_message_at: new Date().toISOString() })
+    .eq("id", threadId)
+    .eq("workspace_id", workspaceId);
+
+  if (threadUpdateError) {
+    throw new Error(`WhatsApp delivery was durably recorded but thread timestamp update failed: ${threadUpdateError.message}`);
+  }
+
+  if (completionStatus === "sent" && outboundWamid) {
     return { deliveryStatus: "sent", outboundWamid };
   }
 
-  return { deliveryStatus: "failed", error: deliveryError || "send_failed" };
+  return {
+    deliveryStatus: "failed",
+    error: completionStatus === "ambiguous"
+      ? `ambiguous_delivery:${deliveryError || "delivery_unknown"}`
+      : deliveryError || "send_failed",
+  };
 }

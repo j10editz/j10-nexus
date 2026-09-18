@@ -374,32 +374,26 @@ export async function handleDeterministicCommands(
 
   // /contact command
   if (cleanCmd === "/contact") {
+    const privacyNotice = botConfig.privacy_policy_url
+      ? `Privacy policy: <a href="${botConfig.privacy_policy_url}">${botConfig.privacy_policy_url}</a>`
+      : `Consent and privacy language is not configured. Use <b>/human</b> before sharing personal information.`;
     return `📞 <b>Direct Contact for ${botConfig.business_name || brandName}</b>\n\n` +
       `Please reply with your:\n` +
       `1. Full Name\n` +
       `2. Phone Number\n` +
       `3. Email Address\n\n` +
-      `<i>By replying, you consent to being contacted by our executive team regarding your inquiry.</i>`;
+      `<i>${privacyNotice}</i>`;
   }
 
   // /privacy command
   if (cleanCmd === "/privacy") {
     const url = botConfig.privacy_policy_url;
     if (!url) {
-      return `🔒 <b>Privacy Policy & Subprocessor Disclosure</b>\n\n` +
-        `<b>${botConfig.business_name || brandName}</b> values your privacy and data security.\n\n` +
-        `• <b>AI Processing Subprocessor:</b> Customer messages are processed by our configured AI provider (Google Gemini) strictly for automated customer assistance and conversational support.\n` +
-        `• <b>PII Protection:</b> Personal details (phone numbers, emails, payment cards) are automatically redacted before sending prompts to AI models.\n` +
-        `• <b>AI Tier Policy:</b> Free Gemini tiers are restricted to internal testing/demos. Production client conversations utilize paid API tiers to ensure customer content is not used for model training.\n` +
-        `• <b>Human Escalation:</b> Type <b>/human</b> or <b>/agent</b> at any time to pause AI and speak with a team member.\n\n` +
-        `A dedicated privacy policy is not currently configured for ${botConfig.business_name || brandName}. Please contact our team directly via <b>/contact</b> or <b>/human</b> for privacy inquiries.`;
+      return `🔒 <b>Privacy Information</b>\n\n` +
+        `A privacy policy is not currently configured for ${botConfig.business_name || brandName}. ` +
+        `Please use <b>/human</b> to contact a representative before sharing personal or sensitive information.`;
     }
-    return `🔒 <b>Privacy Policy & Subprocessor Disclosure</b>\n\n` +
-      `<b>${botConfig.business_name || brandName}</b> values your privacy and data security.\n\n` +
-      `• <b>AI Processing Subprocessor:</b> Customer messages are processed by our configured AI provider (Google Gemini) strictly for automated customer assistance and conversational support.\n` +
-      `• <b>PII Protection:</b> Personal details (phone numbers, emails, payment cards) are automatically redacted before sending prompts to AI models.\n` +
-      `• <b>AI Tier Policy:</b> Free Gemini tiers are restricted to internal testing/demos. Production client conversations utilize paid API tiers to ensure customer content is not used for model training.\n` +
-      `• <b>Human Escalation:</b> Type <b>/human</b> or <b>/agent</b> at any time to pause AI and speak with a team member.\n\n` +
+    return `🔒 <b>Privacy Policy</b>\n\n` +
       `Full privacy policy:\n<a href="${url}">${url}</a>`;
   }
 
