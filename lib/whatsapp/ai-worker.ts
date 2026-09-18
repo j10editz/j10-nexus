@@ -156,14 +156,45 @@ export async function processWhatsAppAiJobsOnce(
         result.jobDetails.push({ jobId, success: true });
       } else {
         // AI execution skipped or failed
-        const isPermanent =
+        const isSuppressed =
+          aiResult.skippedReason === "human_handoff_active" ||
           aiResult.skippedReason === "human_handoff_requested" ||
+          aiResult.skippedReason === "master_ai_disabled" ||
           aiResult.skippedReason === "no_reply_needed" ||
+          aiResult.skippedReason === "intentional_no_reply";
+
+        const isPermanent =
+          isSuppressed ||
           aiResult.error?.includes("400") ||
           aiResult.error?.includes("403") ||
           aiResult.error?.includes("404");
 
         const errorMessage = aiResult.error || aiResult.skippedReason || "Unknown execution failure";
+
+        if (isSuppressed) {
+          try {
+            await supabase.rpc("suppress_whatsapp_ai_job", {
+              p_job_id: jobId,
+              p_claim_token: workerId,
+              p_reason: errorMessage,
+            });
+          } catch {
+            await supabase
+              .from("whatsapp_ai_jobs")
+              .update({
+                status: "suppressed",
+                last_error: errorMessage,
+                claim_token: null,
+                lease_expires_at: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", jobId);
+          }
+
+          result.successCount++;
+          result.jobDetails.push({ jobId, success: true, suppressed: true, reason: errorMessage } as any);
+          continue;
+        }
 
         try {
           await supabase.rpc("fail_whatsapp_ai_job", {

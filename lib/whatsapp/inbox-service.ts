@@ -79,8 +79,7 @@ export function extractMessageContent(message: Record<string, unknown>): { body:
 }
 
 /**
- * Merges inbound webhook events and outbound action executions for a specific sender
- * into a single chronological message thread.
+ * Reads canonical message thread for a specific sender phone within workspace.
  */
 export async function getWhatsAppMessageThread(
   supabase: SupabaseClient,
@@ -88,40 +87,71 @@ export async function getWhatsAppMessageThread(
   integrationId: string,
   senderPhone: string,
 ): Promise<WhatsAppMessageThreadItem[]> {
-  const cleanSender = senderPhone.replace(/[\s()+.-]/g, "");
   const workspaceId = typeof scope === "string" ? scope : scope.workspaceId;
+  if (!workspaceId) return [];
 
-  // 1. Inbound messages from webhook events
-  const inboundQuery = supabase
+  const cleanSender = senderPhone.replace(/[\s()+.-]/g, "");
+
+  // 1. Resolve canonical thread
+  const { data: thread } = await supabase
+    .from("inbox_threads")
+    .select("id, external_thread_id")
+    .eq("workspace_id", workspaceId)
+    .eq("channel", "whatsapp")
+    .or(`external_thread_id.eq.${senderPhone},external_thread_id.eq.${cleanSender}`)
+    .order("last_message_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (thread?.id) {
+    const { data: canonicalMsgs } = await supabase
+      .from("inbox_messages")
+      .select("id, direction, content, metadata, delivery_status, created_at")
+      .eq("workspace_id", workspaceId)
+      .eq("thread_id", thread.id)
+      .order("created_at", { ascending: true })
+      .limit(100);
+
+    if (canonicalMsgs && canonicalMsgs.length > 0) {
+      return canonicalMsgs.map((m) => {
+        const meta = (m.metadata || {}) as Record<string, any>;
+        const isOutbound = m.direction === "outbound";
+        return {
+          id: m.id,
+          direction: isOutbound ? "outbound" : "inbound",
+          sender: isOutbound ? "business" : senderPhone,
+          recipient: isOutbound ? senderPhone : undefined,
+          body: m.content || "",
+          messageType: meta.messageType || "text",
+          timestamp: m.created_at,
+          status: (m.delivery_status as any) || (isOutbound ? "sent" : "delivered"),
+          actorName: isOutbound ? "AI Receptionist" : undefined,
+        };
+      });
+    }
+  }
+
+  // Fallback to webhook events if migration transition is in flight
+  const { data: inboundRows } = await supabase
     .from("integration_webhook_events")
     .select("id,normalized_event,received_at,processing_status")
-    .eq("integration_id", integrationId);
+    .eq("integration_id", integrationId)
+    .order("received_at", { ascending: true })
+    .limit(50);
 
-  const { data: inboundRows } = await (workspaceId
-    ? inboundQuery.eq("workspace_id", workspaceId)
-    : inboundQuery)
-    .order("received_at", { ascending: false })
-    .limit(100);
-
-  const messages: WhatsAppMessageThreadItem[] = [];
-
+  const fallbackMessages: WhatsAppMessageThreadItem[] = [];
   for (const row of inboundRows ?? []) {
     const normalized = record(row.normalized_event);
     if (normalized?.capabilityId !== "whatsapp.message.received") continue;
-
     const actor = record(normalized.actor);
     const payload = record(normalized.data);
     const message = record(payload?.message);
     const from = text(actor?.externalId) ?? text(message?.from);
-
     if (!from) continue;
-    const cleanFrom = from.replace(/[\s()+.-]/g, "");
-    if (cleanFrom !== cleanSender) continue;
-
+    if (from.replace(/[\s()+.-]/g, "") !== cleanSender) continue;
     if (!message) continue;
     const { body, type } = extractMessageContent(message);
-
-    messages.push({
+    fallbackMessages.push({
       id: row.id,
       direction: "inbound",
       sender: from,
@@ -133,43 +163,5 @@ export async function getWhatsAppMessageThread(
     });
   }
 
-  // 2. Outbound messages from action executions
-  const outboundQuery = supabase
-    .from("integration_action_executions")
-    .select("id,input,status,executed_at,created_at")
-    .eq("integration_id", integrationId);
-
-  const { data: outboundRows } = await (workspaceId
-    ? outboundQuery.eq("workspace_id", workspaceId)
-    : outboundQuery)
-    .eq("capability_id", "whatsapp.message.send")
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  for (const row of outboundRows ?? []) {
-    const input = record(row.input);
-    const to = text(input?.to);
-    if (!to) continue;
-    const cleanTo = to.replace(/[\s()+.-]/g, "");
-    if (cleanTo !== cleanSender) continue;
-
-    const body = text(input?.message) ?? "[Outbound message]";
-    const timestamp = row.executed_at || row.created_at || new Date().toISOString();
-
-    messages.push({
-      id: row.id,
-      direction: "outbound",
-      sender: "business",
-      recipient: to,
-      body,
-      messageType: "text",
-      timestamp,
-      status: row.status === "completed" ? "delivered" : row.status === "failed" ? "failed" : "sent",
-    });
-  }
-
-  // Sort ascending by timestamp (oldest first, newest at the bottom)
-  messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-  return messages;
+  return fallbackMessages;
 }

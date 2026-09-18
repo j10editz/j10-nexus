@@ -8,6 +8,7 @@ import { assertWorkspaceEntitlement, recordVerifiedWorkspaceUsage } from "@/lib/
 import { WHATSAPP_RUNTIME_ADAPTER } from "@/lib/integrations/providers/whatsapp/adapter";
 import { WHATSAPP_ACTION_CAPABILITY_IDS } from "@/types/integration-whatsapp";
 import { getIntegrationCredentials } from "@/lib/integrations/credentials";
+import { extractBeautyIntent, updateBeautyLifecycleState } from "@/lib/beauty/conversion-service";
 
 export interface WhatsAppAIMessageInput {
   supabase: SupabaseClient;
@@ -194,7 +195,28 @@ export async function generateAndSendWhatsAppAIResponse(
       .eq("id", threadId)
       .eq("workspace_id", workspaceId);
 
-    const handoffNotice = `Our team at ${businessName} has been alerted. An executive specialist will respond to you directly here shortly.`;
+    // Update beauty conversion lifecycle state to human_takeover
+    try {
+      await updateBeautyLifecycleState(supabase, {
+        workspaceId,
+        threadId,
+        status: "human_takeover",
+        humanTakeoverReason: "Customer requested human representative",
+        actorType: "ai_assistant",
+        reason: "Customer escalation keyword detected",
+      });
+    } catch {}
+
+    const alreadySentNotice = threadMeta.humanHandoffNoticeSent === true;
+    if (alreadySentNotice) {
+      return {
+        replyText: "",
+        deliveryStatus: "failed",
+        skippedReason: "human_handoff_active",
+      };
+    }
+
+    const handoffNotice = `Our team at ${businessName} has been alerted. A specialist will respond to you directly here shortly.`;
     const sendResult = await sendWhatsAppOutbound({
       supabase,
       workspaceId,
@@ -204,6 +226,21 @@ export async function generateAndSendWhatsAppAIResponse(
       text: handoffNotice,
       inboundWamid,
     });
+
+    await supabase
+      .from("inbox_threads")
+      .update({
+        metadata: {
+          ...threadMeta,
+          aiBotEnabled: false,
+          humanHandoff: true,
+          humanRequestedAt: new Date().toISOString(),
+          humanHandoffNoticeSent: true,
+        },
+      })
+      .eq("id", threadId)
+      .eq("workspace_id", workspaceId);
+
     return { replyText: handoffNotice, ...sendResult };
   }
 
@@ -277,34 +314,26 @@ export async function generateAndSendWhatsAppAIResponse(
     .map((f) => `Q: ${f.question}\nA: ${f.answer}`)
     .join("\n\n");
 
-  const systemInstruction = `You are the official 24/7 AI Receptionist & Business Assistant representing "${businessName}" on WhatsApp.
+  const systemInstruction = `You are the official 24/7 AI Receptionist & Beauty Booking Assistant representing "${businessName}" on WhatsApp.
+Your role is to help clients with inquiries, consultations, and appointment scheduling for salons, barbershops, nail technicians, lash technicians, braiders, and makeup artists.
 
-CRITICAL IDENTITY RULES:
+CRITICAL SAFETY & GROUNDING RULES:
 1. You represent "${businessName}". You MUST NOT mention J10 NEXUS unless "${businessName}" is explicitly J10 NEXUS.
 2. Answer questions accurately and exclusively about "${businessName}", its services, pricing, business hours, and policies.
 3. If a question is in Spanish, answer in natural fluent Spanish. If in French, answer in French. Match the user's language automatically.
-4. Tone: ${botConfig.tone.toUpperCase()} (professional, helpful, concise).
-5. Never invent or hallucinate prices, availability, or policies not provided in the knowledge base below.
-6. If you are uncertain or the user asks for something outside your knowledge, politely offer to connect them with a human specialist.
+4. Tone: ${botConfig.tone.toUpperCase()} (warm, professional, helpful, concise).
+5. NEVER invent or hallucinate service prices, discounts, or availability not provided in the knowledge base below.
+6. NEVER claim an appointment is booked or confirmed unless explicitly confirmed by external calendar/system. If the customer wants to book, provide the booking link or take their preferred service, date, and time.
+7. NEVER invent synthetic meeting or calendar URLs (e.g. meet.j10nexus.com). Only provide the configured booking link.
+8. NEVER diagnose skin, hair, scalp, or nail medical conditions. Advise clients to consult a licensed medical professional for medical issues.
+9. NEVER claim a deposit was paid or charge cards over text.
+10. If you are uncertain or the client asks for custom requests outside your knowledge, politely offer to connect them with a human specialist.
 
-BUSINESS PROFILE:
-- Business Name: ${businessName}
-- Overview: ${botConfig.description || "Premium business services and solutions."}
-- Business Hours: ${botConfig.business_hours || "Monday - Friday 9:00 AM - 6:00 PM"}
-- Booking Link: ${botConfig.booking_link || "Available upon request"}
-- Escalation: ${botConfig.escalation_instructions}
-
-SERVICES & PRICING:
-${formattedServices || "Custom services available on request."}
-${botConfig.pricing_details ? `Additional Pricing Notes: ${botConfig.pricing_details}` : ""}
-
-FREQUENTLY ASKED QUESTIONS (FAQS):
-${formattedFaqs || "No specific FAQs provided."}
-
-RESPONSE GUIDELINES:
-- Keep WhatsApp messages concise (2 to 4 punchy sentences or clear bullet points).
-- Do not use markdown headers (###). Simple bolding (*word*) is acceptable on WhatsApp.
-- Proactively guide the customer to book an appointment or speak with a specialist when relevant.`;
+CONVERSION WORKFLOW:
+- Inquire which service the client is looking for if not already specified.
+- Ask for their preferred date and time or time window (e.g., morning/afternoon).
+- If configured service requires reference photos (e.g., hair color, braiding, lash style, nail art), politely invite them to send a reference photo.
+- When service and preference are discussed, offer the official booking link: ${botConfig.booking_link || "Please let us know your preferred time and our team will lock it in."}`;
 
   let replyText = "";
   if (geminiKey) {
@@ -352,6 +381,32 @@ RESPONSE GUIDELINES:
     } catch {
       // Usage recording notice
     }
+  }
+
+  // 10. Update beauty conversion lifecycle state
+  try {
+    const extracted = extractBeautyIntent({
+      text: inboundText,
+      configuredServices: botConfig.services || [],
+      bookingLink: botConfig.booking_link,
+      replyText,
+    });
+
+    await updateBeautyLifecycleState(supabase, {
+      workspaceId,
+      threadId,
+      status: extracted.suggestedStatus,
+      requestedService: extracted.requestedService,
+      preferredDate: extracted.preferredDate,
+      preferredTime: extracted.preferredTime,
+      estimatedServiceValue: extracted.estimatedServiceValue,
+      qualificationCompleteness: extracted.qualificationCompleteness,
+      bookingOfferedAt: extracted.offeredBookingLink ? new Date().toISOString() : undefined,
+      actorType: "ai_assistant",
+      reason: "Automated beauty service qualification and response",
+    });
+  } catch (lifecycleErr) {
+    console.warn("[WhatsApp Assistant] Lifecycle update notice:", lifecycleErr);
   }
 
   return {

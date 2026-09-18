@@ -1,12 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { randomUUID } from "node:crypto";
 
 export type BookingType =
   | "executive_walkthrough"
   | "discovery_call"
   | "technical_demo"
   | "closing_call"
-  | "onboarding";
+  | "onboarding"
+  | "beauty_service"
+  | "salon_appointment"
+  | "consultation";
 
 export type BookingStatus =
   | "scheduled"
@@ -52,23 +54,25 @@ export interface CreateBookingInput {
   bookingType?: BookingType;
   scheduledAt: string;
   durationMinutes?: number;
-  meetingUrl?: string;
+  meetingUrl?: string | null;
+  confirmationSource?: string | null;
   notes?: string;
   hostUserId?: string;
   metadata?: Record<string, unknown>;
 }
 
 /**
- * Creates a scheduled meeting/booking for a contact and workspace,
- * auto-generating a conference URL if omitted.
+ * Creates a booking record for a contact and workspace.
+ * Never invents synthetic conference URLs. Distinguishes tentative requests from confirmed bookings.
  */
 export async function createWorkspaceBooking(
   supabase: SupabaseClient,
   input: CreateBookingInput
 ): Promise<BookingRecord> {
   const duration = input.durationMinutes || 30;
-  const meetingUrl = input.meetingUrl?.trim() || `https://meet.j10nexus.com/exec-${randomUUID().slice(0, 8)}`;
+  const meetingUrl = input.meetingUrl?.trim() || null;
   const bookingType: BookingType = input.bookingType || "executive_walkthrough";
+  const isConfirmed = Boolean(input.confirmationSource);
 
   const { data: booking, error } = await supabase
     .from("crm_bookings")
@@ -82,13 +86,15 @@ export async function createWorkspaceBooking(
       scheduled_at: input.scheduledAt,
       duration_minutes: duration,
       meeting_url: meetingUrl,
-      status: "scheduled",
+      status: isConfirmed ? "scheduled" : "scheduled",
       notes: input.notes?.trim() || null,
       host_user_id: input.hostUserId || null,
       metadata: {
         ...(input.metadata || {}),
-        external_reservation_status: "pending_confirmation",
-        is_external_calendar_confirmed: false,
+        external_reservation_status: isConfirmed ? "confirmed_external_calendar" : "pending_confirmation",
+        is_external_calendar_confirmed: isConfirmed,
+        booking_confirmation_source: input.confirmationSource || null,
+        display_status: isConfirmed ? "Booked" : "Booking requested (Awaiting confirmation)",
       },
     })
     .select("*")
@@ -100,7 +106,7 @@ export async function createWorkspaceBooking(
 
   return {
     ...(booking as BookingRecord),
-    external_reservation_status: "pending_confirmation",
+    external_reservation_status: isConfirmed ? "confirmed_external_calendar" : "pending_confirmation",
   };
 }
 
@@ -240,3 +246,6 @@ export async function confirmExternalCalendarReservation(
     external_calendar_event_id: input.externalEventId,
   };
 }
+
+export const createBooking = createWorkspaceBooking;
+export const getBookings = getWorkspaceBookings;
