@@ -1460,10 +1460,14 @@ REVOKE ALL ON FUNCTION public.handoff_service_thread_atomic(UUID, UUID, TEXT, TE
 GRANT EXECUTE ON FUNCTION public.handoff_service_thread_atomic(UUID, UUID, TEXT, TEXT, TEXT) TO service_role;
 
 -- 12b. Transactional Handoff Notice Status Recorder (Service-Role Only)
+DROP FUNCTION IF EXISTS public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT, TEXT);
+
 CREATE OR REPLACE FUNCTION public.record_thread_handoff_notice_atomic(
   p_workspace_id UUID,
   p_thread_id UUID,
   p_status TEXT,
+  p_wamid TEXT DEFAULT NULL,
   p_error TEXT DEFAULT NULL
 )
 RETURNS JSONB
@@ -1474,7 +1478,12 @@ AS $$
 DECLARE
   v_thread RECORD;
   v_meta JSONB;
+  v_wamid TEXT;
 BEGIN
+  IF p_status NOT IN ('pending', 'sent') THEN
+    RAISE EXCEPTION 'Invalid notice status: %. Must be pending or sent.', p_status;
+  END IF;
+
   SELECT * INTO v_thread
   FROM public.inbox_threads
   WHERE id = p_thread_id AND workspace_id = p_workspace_id
@@ -1484,29 +1493,46 @@ BEGIN
     RAISE EXCEPTION 'Thread % not found in workspace %', p_thread_id, p_workspace_id;
   END IF;
 
-  v_meta := coalesce(v_thread.metadata, '{}'::jsonb) || jsonb_build_object(
-    'humanHandoffNoticeStatus', p_status,
-    'humanHandoffNoticeAt', now()
-  );
+  v_meta := coalesce(v_thread.metadata, '{}'::jsonb);
 
   IF p_status = 'sent' THEN
-    v_meta := v_meta || jsonb_build_object('humanHandoffNoticeSent', true);
-  END IF;
-
-  IF p_error IS NOT NULL THEN
-    v_meta := v_meta || jsonb_build_object('humanHandoffNoticeError', p_error);
+    v_wamid := coalesce(p_wamid, v_meta->>'humanHandoffNoticeWamid');
+    v_meta := (v_meta - 'humanHandoffNoticeError') || jsonb_build_object(
+      'humanHandoffNoticeStatus', 'sent',
+      'humanHandoffNoticeSent', true,
+      'humanHandoffNoticeSentAt', now()
+    );
+    IF v_wamid IS NOT NULL THEN
+      v_meta := v_meta || jsonb_build_object('humanHandoffNoticeWamid', v_wamid);
+    END IF;
+  ELSE
+    -- p_status = 'pending'
+    v_wamid := v_meta->>'humanHandoffNoticeWamid';
+    v_meta := v_meta || jsonb_build_object(
+      'humanHandoffNoticeStatus', 'pending',
+      'humanHandoffNoticeSent', false,
+      'humanHandoffNoticeAttemptedAt', now()
+    );
+    IF p_error IS NOT NULL THEN
+      v_meta := v_meta || jsonb_build_object('humanHandoffNoticeError', p_error);
+    END IF;
   END IF;
 
   UPDATE public.inbox_threads
   SET metadata = v_meta, updated_at = now()
   WHERE id = p_thread_id;
 
-  RETURN jsonb_build_object('success', true, 'status', p_status);
+  RETURN jsonb_build_object(
+    'success', true,
+    'thread_id', p_thread_id,
+    'status', p_status,
+    'wamid', v_wamid
+  );
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT) TO service_role;
+REVOKE ALL ON FUNCTION public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_thread_handoff_notice_atomic(UUID, UUID, TEXT, TEXT, TEXT) TO service_role;
 
 -- 13. Transactional Operator Resume RPC (Service-Role Only)
 CREATE OR REPLACE FUNCTION public.resume_service_thread_atomic(
@@ -1584,7 +1610,7 @@ BEGIN
   END IF;
 
   -- 3. Update thread: remove handoff notice markers, re-enable AI
-  v_updated_meta := (coalesce(v_thread.metadata, '{}'::jsonb) - 'humanHandoffNoticeSent' - 'humanHandoffNoticeStatus' - 'humanHandoffNoticeError') || jsonb_build_object(
+  v_updated_meta := (coalesce(v_thread.metadata, '{}'::jsonb) - 'humanHandoffNoticeSent' - 'humanHandoffNoticeStatus' - 'humanHandoffNoticeError' - 'humanHandoffNoticeWamid' - 'humanHandoffNoticeSentAt' - 'humanHandoffNoticeAttemptedAt') || jsonb_build_object(
     'aiBotEnabled', true,
     'humanHandoff', false,
     'resumedByUserId', p_operator_user_id,

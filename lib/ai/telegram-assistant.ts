@@ -328,14 +328,14 @@ export async function handleDeterministicCommands(
       services.forEach((s, idx) => {
         text += `<b>${idx + 1}. ${s.name}</b>\n`;
         if (s.description) text += `   ${s.description}\n`;
-        text += `   💵 <b>Rate:</b> ${s.price || "Custom Quote"}`;
+        text += `   💵 <b>Rate:</b> ${s.price || "Not configured (inquire with team)"}`;
         if (s.duration) text += ` | ⏱ <b>Duration:</b> ${s.duration}`;
         text += `\n\n`;
       });
     } else if (botConfig.description) {
       text += `${botConfig.description}\n\n`;
     } else {
-      text += `Services and pricing are not currently configured. Please inquire for details or request to speak with our team.\n\n`;
+      text += `Services and pricing are not currently configured for ${botConfig.business_name || brandName}. Please type <b>/contact</b> or <b>/human</b> to speak with our team for details.\n\n`;
     }
     if (botConfig.pricing_details) {
       text += `📌 <i>${botConfig.pricing_details}</i>\n\n`;
@@ -384,7 +384,16 @@ export async function handleDeterministicCommands(
 
   // /privacy command
   if (cleanCmd === "/privacy") {
-    const url = botConfig.privacy_policy_url || "https://j10-nexus.vercel.app/privacy";
+    const url = botConfig.privacy_policy_url;
+    if (!url) {
+      return `🔒 <b>Privacy Policy & Subprocessor Disclosure</b>\n\n` +
+        `<b>${botConfig.business_name || brandName}</b> values your privacy and data security.\n\n` +
+        `• <b>AI Processing Subprocessor:</b> Customer messages are processed by our configured AI provider (Google Gemini) strictly for automated customer assistance and conversational support.\n` +
+        `• <b>PII Protection:</b> Personal details (phone numbers, emails, payment cards) are automatically redacted before sending prompts to AI models.\n` +
+        `• <b>AI Tier Policy:</b> Free Gemini tiers are restricted to internal testing/demos. Production client conversations utilize paid API tiers to ensure customer content is not used for model training.\n` +
+        `• <b>Human Escalation:</b> Type <b>/human</b> or <b>/agent</b> at any time to pause AI and speak with a team member.\n\n` +
+        `A dedicated privacy policy is not currently configured for ${botConfig.business_name || brandName}. Please contact our team directly via <b>/contact</b> or <b>/human</b> for privacy inquiries.`;
+    }
     return `🔒 <b>Privacy Policy & Subprocessor Disclosure</b>\n\n` +
       `<b>${botConfig.business_name || brandName}</b> values your privacy and data security.\n\n` +
       `• <b>AI Processing Subprocessor:</b> Customer messages are processed by our configured AI provider (Google Gemini) strictly for automated customer assistance and conversational support.\n` +
@@ -588,7 +597,7 @@ export async function generateAndSendTelegramAIResponse(input: TelegramAIMessage
 
   // 8. Construct Guarded System Instruction Grounded in Client Knowledge Base
   const formattedServices = (botConfig.services || [])
-    .map((s, idx) => `${idx + 1}. ${s.name}: ${s.description} (Price: ${s.price}${s.duration ? `, Duration: ${s.duration}` : ""})`)
+    .map((s, idx) => `${idx + 1}. ${s.name}: ${s.description} (Price: ${s.price || "Not configured, inquire with team"}${s.duration ? `, Duration: ${s.duration}` : ""})`)
     .join("\n");
 
   const formattedFaqs = (botConfig.faqs || [])
@@ -607,13 +616,13 @@ CRITICAL IDENTITY RULES:
 
 BUSINESS PROFILE:
 - Business Name: ${businessName}
-- Overview: ${botConfig.description || "Premium business services and solutions."}
-- Business Hours: ${botConfig.business_hours || "Monday - Friday 9:00 AM - 6:00 PM"}
-- Booking Link: ${botConfig.booking_link || "Available upon request via /book"}
-- Escalation: ${botConfig.escalation_instructions}
+- Overview: ${botConfig.description || "Not configured."}
+- Business Hours: ${botConfig.business_hours || "Not configured."}
+- Booking Link: ${botConfig.booking_link || "Not configured (ask user for preferred date/time or suggest /contact)."}
+- Escalation: ${botConfig.escalation_instructions || "Type /human to reach our team."}
 
 SERVICES & PRICING:
-${formattedServices || "Custom services available on request."}
+${formattedServices || "No services or pricing configured. If asked about services or pricing, inform the user that details are not configured and invite them to speak with our team via /contact or /human."}
 ${botConfig.pricing_details ? `Additional Pricing Notes: ${botConfig.pricing_details}` : ""}
 
 FREQUENTLY ASKED QUESTIONS (FAQS):

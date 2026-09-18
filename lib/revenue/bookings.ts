@@ -187,9 +187,14 @@ export async function updateBookingStatus(
 }
 
 /**
- * Transactionally confirms a booking via trusted provider callback,
- * updating the booking status to scheduled, transitioning the associated conversion journey to booked,
- * logging an immutable audit event, and safely attributing confirmed revenue.
+ * Transactionally confirms a booking via trusted provider callback.
+ *
+ * NOTE: Booking confirmation infrastructure implemented but not operational until a signature-verified calendar provider callback is connected.
+ * Do not claim end-to-end provider confirmation is live.
+ *
+ * Confirms the booking in status 'scheduled' (the correct confirmed booking status prior to service delivery),
+ * transitions the associated conversion journey to 'booked', logs an immutable audit event,
+ * and safely attributes confirmed revenue under row-level lock and idempotency guards.
  */
 export async function confirmWorkspaceBookingAtomic(
   supabase: SupabaseClient,
@@ -284,6 +289,7 @@ export async function confirmExternalCalendarReservation(
 
   return {
     ...(updated as BookingRecord),
+    meeting_url: (updated as any).meeting_url || input.confirmedMeetingUrl || null,
     external_reservation_status: "confirmed_external_calendar",
     external_calendar_provider: input.calendarProvider,
     external_calendar_event_id: input.externalEventId,

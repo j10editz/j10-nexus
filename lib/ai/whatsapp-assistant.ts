@@ -145,8 +145,8 @@ export async function recordThreadHandoffNoticeDelivery(
   status: "pending" | "sent",
   outboundWamid?: string,
   error?: string
-): Promise<void> {
-  const { error: rpcErr } = await supabase.rpc("record_thread_handoff_notice_atomic", {
+): Promise<{ success: boolean; threadId: string; status: string; wamid?: string | null }> {
+  const { data, error: rpcErr } = await supabase.rpc("record_thread_handoff_notice_atomic", {
     p_workspace_id: workspaceId,
     p_thread_id: threadId,
     p_status: status,
@@ -155,31 +155,32 @@ export async function recordThreadHandoffNoticeDelivery(
   });
 
   if (rpcErr) {
-    console.warn("[WhatsApp Assistant] record_thread_handoff_notice_atomic error, falling back to merge query:", rpcErr.message);
-    const { data: freshThread } = await supabase
-      .from("inbox_threads")
-      .select("metadata")
-      .eq("id", threadId)
-      .eq("workspace_id", workspaceId)
-      .maybeSingle();
-
-    const freshMeta = (freshThread?.metadata || {}) as Record<string, any>;
-    await supabase
-      .from("inbox_threads")
-      .update({
-        metadata: {
-          ...freshMeta,
-          aiBotEnabled: false,
-          humanHandoff: true,
-          humanHandoffNoticeStatus: status,
-          humanHandoffNoticeSent: status === "sent",
-          humanHandoffNoticeWamid: outboundWamid || freshMeta.humanHandoffNoticeWamid || null,
-          humanHandoffNoticeLastError: error || null,
-        },
-      })
-      .eq("id", threadId)
-      .eq("workspace_id", workspaceId);
+    throw new Error(`Failed to record handoff notice delivery state via atomic RPC: ${rpcErr.message}`);
   }
+
+  const result = typeof data === "string" ? JSON.parse(data) : data;
+  if (!result || result.success !== true) {
+    throw new Error(`Atomic handoff notice recording failed: ${result?.error || "Unknown RPC failure"}`);
+  }
+
+  if (result.thread_id !== threadId) {
+    throw new Error(`Thread ID mismatch in handoff notice recording: expected ${threadId}, got ${result.thread_id}`);
+  }
+
+  if (result.status !== status) {
+    throw new Error(`Status mismatch in handoff notice recording: expected ${status}, got ${result.status}`);
+  }
+
+  if (status === "sent" && outboundWamid && result.wamid !== outboundWamid) {
+    throw new Error(`WAMID mismatch in handoff notice recording: expected ${outboundWamid}, got ${result.wamid}`);
+  }
+
+  return {
+    success: true,
+    threadId: result.thread_id,
+    status: result.status,
+    wamid: result.wamid,
+  };
 }
 
 /**
@@ -235,6 +236,7 @@ export async function generateAndSendWhatsAppAIResponse(
     const { config: botConfig, brandName } = await getWorkspaceBotConfig(supabase, workspaceId);
     const businessName = botConfig.business_name || brandName;
     const handoffNotice = `Our team at ${businessName} has been alerted. A specialist will respond to you directly here shortly.`;
+    const handoffNoticeKey = `handoff_notice_${threadId}`;
 
     const sendResult = await sendWhatsAppOutbound({
       supabase,
@@ -244,6 +246,7 @@ export async function generateAndSendWhatsAppAIResponse(
       recipientPhone,
       text: handoffNotice,
       inboundWamid,
+      idempotencyKey: handoffNoticeKey,
     });
 
     if (sendResult.deliveryStatus === "sent") {
@@ -304,6 +307,7 @@ export async function generateAndSendWhatsAppAIResponse(
     }
 
     const handoffNotice = `Our team at ${businessName} has been alerted. A specialist will respond to you directly here shortly.`;
+    const handoffNoticeKey = `handoff_notice_${threadId}`;
     const sendResult = await sendWhatsAppOutbound({
       supabase,
       workspaceId,
@@ -312,6 +316,7 @@ export async function generateAndSendWhatsAppAIResponse(
       recipientPhone,
       text: handoffNotice,
       inboundWamid,
+      idempotencyKey: handoffNoticeKey,
     });
 
     if (sendResult.deliveryStatus === "sent") {
@@ -679,6 +684,7 @@ async function sendWhatsAppOutbound(args: {
   recipientPhone: string;
   text: string;
   inboundWamid: string;
+  idempotencyKey?: string;
 }): Promise<{ deliveryStatus: "sent" | "failed"; outboundWamid?: string; error?: string }> {
   const {
     supabase,
@@ -688,11 +694,12 @@ async function sendWhatsAppOutbound(args: {
     recipientPhone,
     text,
     inboundWamid,
+    idempotencyKey,
   } = args;
 
-  const outboundIdempotencyKey = `reply_${inboundWamid}`;
+  const outboundIdempotencyKey = idempotencyKey || `reply_${inboundWamid}`;
 
-  // Check if outbound reply already recorded for this inbound wamid
+  // Check if outbound reply already recorded for this idempotency key
   const { data: existingOutbound } = await supabase
     .from("inbox_messages")
     .select("id, external_message_id, delivery_status")
@@ -700,9 +707,9 @@ async function sendWhatsAppOutbound(args: {
     .eq("idempotency_key", outboundIdempotencyKey)
     .maybeSingle();
 
-  if (existingOutbound?.external_message_id) {
+  if (existingOutbound?.external_message_id && existingOutbound.delivery_status === "sent") {
     return {
-      deliveryStatus: existingOutbound.delivery_status === "sent" ? "sent" : "failed",
+      deliveryStatus: "sent",
       outboundWamid: existingOutbound.external_message_id,
     };
   }
@@ -781,25 +788,43 @@ async function sendWhatsAppOutbound(args: {
     deliveryError = networkErr?.message || "network_send_failure";
   }
 
-  // Insert outbound message into inbox_messages
+  // Insert or update outbound message in inbox_messages
   try {
-    await supabase.from("inbox_messages").insert({
-      workspace_id: workspaceId,
-      thread_id: threadId,
-      direction: "outbound",
-      provider: "whatsapp",
-      external_message_id: outboundWamid || null,
-      idempotency_key: outboundIdempotencyKey,
-      content: text,
-      delivery_status: isDelivered ? "sent" : "failed",
-      last_delivery_error: deliveryError,
-      message_type: "text",
-      metadata: {
-        inbound_wamid: inboundWamid,
-        recipient_phone: digits,
-        is_ai_generated: true,
-      },
-    });
+    if (existingOutbound?.id) {
+      await supabase
+        .from("inbox_messages")
+        .update({
+          external_message_id: outboundWamid || existingOutbound.external_message_id || null,
+          content: text,
+          delivery_status: isDelivered ? "sent" : "failed",
+          last_delivery_error: deliveryError,
+          metadata: {
+            inbound_wamid: inboundWamid,
+            recipient_phone: digits,
+            is_ai_generated: true,
+          },
+        })
+        .eq("id", existingOutbound.id)
+        .eq("workspace_id", workspaceId);
+    } else {
+      await supabase.from("inbox_messages").insert({
+        workspace_id: workspaceId,
+        thread_id: threadId,
+        direction: "outbound",
+        provider: "whatsapp",
+        external_message_id: outboundWamid || null,
+        idempotency_key: outboundIdempotencyKey,
+        content: text,
+        delivery_status: isDelivered ? "sent" : "failed",
+        last_delivery_error: deliveryError,
+        message_type: "text",
+        metadata: {
+          inbound_wamid: inboundWamid,
+          recipient_phone: digits,
+          is_ai_generated: true,
+        },
+      });
+    }
 
     // Update thread last_message_at
     await supabase

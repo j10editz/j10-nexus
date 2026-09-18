@@ -1,8 +1,9 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import * as credentialsModule from "@/lib/integrations/credentials";
 import {
   extractServiceIntent,
   updateServiceJourneyLifecycleState,
@@ -15,7 +16,11 @@ import { getPlaybook, defaultPlaybook, isValidPlaybookKey, resolveAuthoritativeP
 import { createWorkspaceBooking, confirmWorkspaceBookingAtomic } from "@/lib/revenue/bookings";
 import { processWhatsAppPayload } from "@/lib/whatsapp/webhook-handler";
 import { getWorkspaceBotConfig } from "@/lib/ai/telegram-assistant";
-import { buildAssistantSystemInstruction, generateAndSendWhatsAppAIResponse } from "@/lib/ai/whatsapp-assistant";
+import {
+  buildAssistantSystemInstruction,
+  generateAndSendWhatsAppAIResponse,
+  recordThreadHandoffNoticeDelivery,
+} from "@/lib/ai/whatsapp-assistant";
 import type { IntegrationConnection } from "@/types/integration";
 
 const stage1Migration = readFileSync(
@@ -135,6 +140,8 @@ async function setupDatabase() {
       external_message_id text,
       content text not null,
       delivery_status text not null default 'pending',
+      last_delivery_error text,
+      message_type text default 'text',
       idempotency_key text,
       metadata jsonb not null default '{}'::jsonb,
       created_at timestamptz default now(),
@@ -328,8 +335,11 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
         },
         single: async () => {
           if (insertedData) {
-            const keys = Object.keys(insertedData);
-            const vals = Object.values(insertedData);
+            const row = Array.isArray(insertedData) ? insertedData[0] : insertedData;
+            const keys = Object.keys(row);
+            const vals = Object.values(row).map((v) =>
+              v !== null && typeof v === "object" && !(v instanceof Date) ? JSON.stringify(v) : v
+            );
             const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
             const cols = keys.map((k) => `"${k}"`).join(", ");
             const res = await db.query(
@@ -340,7 +350,9 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
           }
           if (updatedData) {
             const keys = Object.keys(updatedData);
-            const vals = Object.values(updatedData);
+            const vals = Object.values(updatedData).map((v) =>
+              v !== null && typeof v === "object" && !(v instanceof Date) ? JSON.stringify(v) : v
+            );
             const sets = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
             const { whereSql, params: whereParams } = buildWhere();
             let adjustedWhere = whereSql;
@@ -368,9 +380,25 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
             const res = await db.query(`DELETE FROM public.${table} ${whereSql} RETURNING *`, params);
             return resolve({ data: res.rows, error: null });
           }
+          if (insertedData) {
+            const row = Array.isArray(insertedData) ? insertedData[0] : insertedData;
+            const keys = Object.keys(row);
+            const vals = Object.values(row).map((v) =>
+              v !== null && typeof v === "object" && !(v instanceof Date) ? JSON.stringify(v) : v
+            );
+            const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
+            const cols = keys.map((k) => `"${k}"`).join(", ");
+            const res = await db.query(
+              `INSERT INTO public.${table} (${cols}) VALUES (${placeholders}) RETURNING *`,
+              vals
+            );
+            return resolve({ data: res.rows, error: null });
+          }
           if (updatedData) {
             const keys = Object.keys(updatedData);
-            const vals = Object.values(updatedData);
+            const vals = Object.values(updatedData).map((v) =>
+              v !== null && typeof v === "object" && !(v instanceof Date) ? JSON.stringify(v) : v
+            );
             const sets = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
             const { whereSql, params: whereParams } = buildWhere();
             let adjustedWhere = whereSql;
@@ -482,12 +510,13 @@ function createPgliteSupabaseAdapter(db: PGlite): SupabaseClient {
         if (fn === "record_thread_handoff_notice_atomic") {
           const res = await db.query<{ record_thread_handoff_notice_atomic: any }>(
             `SELECT public.record_thread_handoff_notice_atomic(
-              $1::uuid, $2::uuid, $3, $4
+              $1::uuid, $2::uuid, $3, $4, $5
             )`,
             [
               params.p_workspace_id,
               params.p_thread_id,
               params.p_status,
+              params.p_wamid || null,
               params.p_error || null,
             ]
           );
@@ -1681,8 +1710,19 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
     ).rejects.toThrow(/not found in workspace/i);
   });
 
-  // 23. Handoff Notice Retry Lifecycle
-  it("23. Handoff notice delivers when pending, retries on failure, and suppresses when sent", async () => {
+  // 23. Real Handoff Failure and Retry Lifecycle
+  it("23. Real handoff notice delivery failure leaves notice pending and job retryable, subsequent retry succeeds and sets sent + WAMID, and later calls suppress", async () => {
+    // Configure integration with phone_number_id
+    await db.query(
+      "UPDATE public.integrations SET public_configuration = '{\"phone_number_id\": \"11223344\"}'::jsonb WHERE id = $1",
+      [integrationBeauty]
+    );
+
+    // Mock credentials to return valid access token
+    vi.spyOn(credentialsModule, "getIntegrationCredentials").mockResolvedValue({
+      values: { access_token: "mock_access_token_123" },
+    } as any);
+
     // Ingest thread
     const inb = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
       `SELECT public.record_canonical_whatsapp_inbound_atomic(
@@ -1704,18 +1744,73 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
     expect(threadRow.rows[0].metadata.humanHandoff).toBe(true);
     expect(threadRow.rows[0].metadata.humanHandoffNoticeStatus).toBe("pending");
 
-    // Next invocation: notice status is 'pending', so it delivers notice and transitions to 'sent'
-    // Call record_thread_handoff_notice_atomic directly to simulate successful delivery
-    await db.query(
-      `SELECT public.record_thread_handoff_notice_atomic($1::uuid, $2::uuid, 'sent')`,
-      [workspaceBeauty, threadId]
-    );
+    // 1. Inject outbound delivery failure through generateAndSendWhatsAppAIResponse
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: { message: "Meta API upstream failure 500" } }),
+    } as any);
 
+    await expect(
+      generateAndSendWhatsAppAIResponse({
+        supabase,
+        workspaceId: workspaceBeauty,
+        integrationId: integrationBeauty,
+        threadId,
+        recipientPhone: "+15559876543",
+        inboundText: "Hello human?",
+        senderName: "Handoff User",
+        inboundWamid: "wamid_attempt_1",
+      })
+    ).rejects.toThrow(/Handoff notice delivery failed/);
+
+    // Prove: handoff stays active, notice status stays pending, last error persisted, AI job remains retryable
+    threadRow = await db.query<any>("SELECT metadata FROM public.inbox_threads WHERE id = $1", [threadId]);
+    expect(threadRow.rows[0].metadata.humanHandoff).toBe(true);
+    expect(threadRow.rows[0].metadata.humanHandoffNoticeStatus).toBe("pending");
+    expect(threadRow.rows[0].metadata.humanHandoffNoticeSent).toBe(false);
+    expect(threadRow.rows[0].metadata.humanHandoffNoticeError).toBe("Meta API upstream failure 500");
+
+    // 2. Next invocation: retry succeeds with mocked 200 response and outbound WAMID
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        messages: [{ id: "wamid_outbound_retry_success_999" }],
+      }),
+    } as any);
+
+    const retryResult = await generateAndSendWhatsAppAIResponse({
+      supabase,
+      workspaceId: workspaceBeauty,
+      integrationId: integrationBeauty,
+      threadId,
+      recipientPhone: "+15559876543",
+      inboundText: "Hello again?",
+      senderName: "Handoff User",
+      inboundWamid: "wamid_attempt_2",
+    });
+
+    expect(retryResult.deliveryStatus).toBe("sent");
+    expect(retryResult.outboundWamid).toBe("wamid_outbound_retry_success_999");
+
+    // Verify thread metadata has transitioned to sent, WAMID persisted, and previous error cleared
     threadRow = await db.query<any>("SELECT metadata FROM public.inbox_threads WHERE id = $1", [threadId]);
     expect(threadRow.rows[0].metadata.humanHandoffNoticeStatus).toBe("sent");
     expect(threadRow.rows[0].metadata.humanHandoffNoticeSent).toBe(true);
+    expect(threadRow.rows[0].metadata.humanHandoffNoticeWamid).toBe("wamid_outbound_retry_success_999");
+    expect(threadRow.rows[0].metadata.humanHandoffNoticeError).toBeUndefined();
 
-    // Next invocation with noticeStatus: 'sent' -> suppresses AI cleanly without resending notice
+    // Verify stable idempotency: exactly 1 outbound notice message recorded in inbox_messages
+    const noticeMsgs = await db.query<any>(
+      "SELECT id, external_message_id, delivery_status FROM public.inbox_messages WHERE workspace_id = $1 AND thread_id = $2 AND idempotency_key = $3",
+      [workspaceBeauty, threadId, `handoff_notice_${threadId}`]
+    );
+    expect(noticeMsgs.rows.length).toBe(1);
+    expect(noticeMsgs.rows[0].delivery_status).toBe("sent");
+    expect(noticeMsgs.rows[0].external_message_id).toBe("wamid_outbound_retry_success_999");
+
+    // 3. Later invocation with noticeStatus: 'sent' -> suppresses AI cleanly without resending notice
     const suppressedResult = await generateAndSendWhatsAppAIResponse({
       supabase,
       workspaceId: workspaceBeauty,
@@ -1727,6 +1822,13 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
       inboundWamid: "wamid_after_handoff",
     });
     expect(suppressedResult.skippedReason).toBe("human_handoff_active");
+
+    // Notice count remains strictly 1
+    const noticeMsgsAfter = await db.query<any>(
+      "SELECT count(*)::int as cnt FROM public.inbox_messages WHERE workspace_id = $1 AND thread_id = $2 AND idempotency_key = $3",
+      [workspaceBeauty, threadId, `handoff_notice_${threadId}`]
+    );
+    expect(noticeMsgsAfter.rows[0].cnt).toBe(1);
   });
 
   // 24. Stage 1 Identity Ambiguity Preservation
@@ -1995,7 +2097,7 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
     ).rejects.toThrow(/Attributed revenue cannot be updated via transition_service_journey_atomic/i);
   });
 
-  // 29. Migration Idempotency (double-apply)
+  // 29. Migration Idempotency (double-apply) & pg_proc Signature Verification
   it("29. 20261008_service_business_conversion_engine.sql is fully idempotent and succeeds on double apply", async () => {
     // Execute the entire migration a second time on the already-migrated database
     await expect(db.exec(serviceEngineMigration)).resolves.not.toThrow();
@@ -2005,5 +2107,90 @@ describe("J10 Service Business Conversion Engine - Production Path Invariants", 
       "SELECT proname FROM pg_proc WHERE proname IN ('confirm_workspace_booking_atomic', 'record_canonical_whatsapp_inbound_atomic', 'handoff_service_thread_atomic', 'record_thread_handoff_notice_atomic')"
     );
     expect(checkFunc.rows.length).toBe(4);
+
+    // Verify exact 5-parameter signature in pg_proc
+    const procSig = await db.query<{ proname: string; pronargs: number }>(
+      "SELECT proname, pronargs FROM pg_proc WHERE proname = 'record_thread_handoff_notice_atomic'"
+    );
+    expect(procSig.rows.length).toBe(1);
+    expect(procSig.rows[0].pronargs).toBe(5);
+  });
+
+  // 30. Direct recordThreadHandoffNoticeDelivery Helper & Signature Validation
+  it("30. recordThreadHandoffNoticeDelivery persists pending with error, sent with WAMID, clears error, and rejects invalid signature", async () => {
+    // Create thread
+    const inb = await db.query<{ record_canonical_whatsapp_inbound_atomic: any }>(
+      `SELECT public.record_canonical_whatsapp_inbound_atomic(
+        $1::uuid, 'wamid_adapter_test', '+15550003344', 'Adapter User', 'text', 'Help me', '{}'::jsonb, 'hadapter', $2::uuid, 'beauty_grooming'
+      )`,
+      [workspaceBeauty, integrationBeauty]
+    );
+    const { thread_id: testThreadId } = inb.rows[0].record_canonical_whatsapp_inbound_atomic;
+
+    // 1. Call real TypeScript helper with 'pending' and error
+    const pendingRes = await recordThreadHandoffNoticeDelivery(
+      supabase,
+      workspaceBeauty,
+      testThreadId,
+      "pending",
+      undefined,
+      "simulated_upstream_gateway_timeout"
+    );
+    expect(pendingRes.success).toBe(true);
+    expect(pendingRes.status).toBe("pending");
+    expect(pendingRes.threadId).toBe(testThreadId);
+
+    let threadDb = await db.query<any>("SELECT metadata FROM public.inbox_threads WHERE id = $1", [testThreadId]);
+    expect(threadDb.rows[0].metadata.humanHandoffNoticeStatus).toBe("pending");
+    expect(threadDb.rows[0].metadata.humanHandoffNoticeSent).toBe(false);
+    expect(threadDb.rows[0].metadata.humanHandoffNoticeError).toBe("simulated_upstream_gateway_timeout");
+
+    // 2. Call real TypeScript helper with 'sent' and outbound WAMID
+    const sentRes = await recordThreadHandoffNoticeDelivery(
+      supabase,
+      workspaceBeauty,
+      testThreadId,
+      "sent",
+      "wamid_outbound_real_proven_888"
+    );
+    expect(sentRes.success).toBe(true);
+    expect(sentRes.status).toBe("sent");
+    expect(sentRes.threadId).toBe(testThreadId);
+    expect(sentRes.wamid).toBe("wamid_outbound_real_proven_888");
+
+    threadDb = await db.query<any>("SELECT metadata FROM public.inbox_threads WHERE id = $1", [testThreadId]);
+    expect(threadDb.rows[0].metadata.humanHandoffNoticeStatus).toBe("sent");
+    expect(threadDb.rows[0].metadata.humanHandoffNoticeSent).toBe(true);
+    expect(threadDb.rows[0].metadata.humanHandoffNoticeWamid).toBe("wamid_outbound_real_proven_888");
+    // Prior error is cleared after successful delivery!
+    expect(threadDb.rows[0].metadata.humanHandoffNoticeError).toBeUndefined();
+
+    // 3. Prove that incorrect RPC signature causes the test to fail
+    // A. Real helper rejects when RPC signature / RPC call fails
+    const brokenRpcClient = {
+      rpc: async () => ({
+        data: null,
+        error: { message: "function public.record_thread_handoff_notice_atomic does not exist" },
+      }),
+    } as any;
+    await expect(
+      recordThreadHandoffNoticeDelivery(brokenRpcClient, workspaceBeauty, testThreadId, "pending")
+    ).rejects.toThrow(/Failed to record handoff notice delivery state via atomic RPC/i);
+
+    // B. Direct PostgreSQL query with invalid parameter count fails signature check
+    await expect(
+      db.query(
+        "SELECT public.record_thread_handoff_notice_atomic($1::uuid, $2::uuid)",
+        [workspaceBeauty, testThreadId]
+      )
+    ).rejects.toThrow(/function public\.record_thread_handoff_notice_atomic\(uuid, uuid\) does not exist/i);
+
+    // C. Direct PostgreSQL query with invalid status fails validation
+    await expect(
+      db.query(
+        "SELECT public.record_thread_handoff_notice_atomic($1::uuid, $2::uuid, 'invalid_status')",
+        [workspaceBeauty, testThreadId]
+      )
+    ).rejects.toThrow(/Invalid notice status/i);
   });
 });
