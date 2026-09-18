@@ -1212,6 +1212,37 @@ describe("WhatsApp Inbound → CRM → AI → Outbound Vertical Slice", () => {
     expect(res2.status).toBe(401);
   });
 
+  it("24b. Worker authorization fails closed when no worker secret is configured", async () => {
+    const { POST: workerPOST } = await import("@/app/api/workers/whatsapp-ai/route");
+    const previousWhatsAppSecret = process.env.WHATSAPP_WORKER_SECRET;
+    const previousTelegramSecret = process.env.TELEGRAM_WORKER_SECRET;
+
+    try {
+      delete process.env.WHATSAPP_WORKER_SECRET;
+      delete process.env.TELEGRAM_WORKER_SECRET;
+
+      const response = await workerPOST(
+        new Request("https://j10nexus.com/api/workers/whatsapp-ai", {
+          method: "POST",
+          headers: { Authorization: "Bearer legacy_source_fallback" },
+        })
+      );
+
+      expect(response.status).toBe(401);
+    } finally {
+      if (previousWhatsAppSecret === undefined) {
+        delete process.env.WHATSAPP_WORKER_SECRET;
+      } else {
+        process.env.WHATSAPP_WORKER_SECRET = previousWhatsAppSecret;
+      }
+      if (previousTelegramSecret === undefined) {
+        delete process.env.TELEGRAM_WORKER_SECRET;
+      } else {
+        process.env.TELEGRAM_WORKER_SECRET = previousTelegramSecret;
+      }
+    }
+  });
+
   // 25. Outbound Meta retry cannot create duplicate inbox messages
   it("25. Outbound Meta retry cannot create duplicate inbox messages", async () => {
     let outboundInsertAttempts = 0;
