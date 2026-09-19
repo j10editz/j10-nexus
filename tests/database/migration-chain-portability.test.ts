@@ -29,6 +29,7 @@ describe("Supabase migration-chain portability", () => {
     expect(new Set(versions).size).toBe(versions.length);
     expect(migrationNames).toContain("20261009_migration_chain_reconciliation.sql");
     expect(migrationNames).toContain("20261010_workspace_subscriptions_tenantization_reconciliation.sql");
+    expect(migrationNames).toContain("20261011_tenantization_contract_reconciliation.sql");
     expect(migrationNames).not.toContain("20260915b_atomic_founder_ownership_transfer.sql");
     expect(migrationNames).not.toContain("20260918b_restrict_tier0g_rpc_execute.sql");
     expect(migrationNames).not.toContain("20260919b_restrict_tier1_authenticated_table_privileges.sql");
@@ -57,6 +58,20 @@ describe("Supabase migration-chain portability", () => {
     expect(tenantization).toContain("ALTER COLUMN user_id DROP NOT NULL");
     expect(reconciliation).toContain("workspace_subscriptions reconciliation failed: unresolved workspace_id.");
     expect(reconciliation).toContain("uq_workspace_subscriptions_workspace_id");
+  });
+
+  it("reconciles every legacy tenant column before tenant-scoped indexes and RLS", () => {
+    const sql = readFileSync(resolve(migrationsDir, "20260916_global_tenantization_launch_integrity.sql"), "utf8");
+    const reconciliation = readFileSync(resolve(migrationsDir, "20261011_tenantization_contract_reconciliation.sql"), "utf8");
+    const guard = sql.indexOf("Earlier product migrations created several of these relations user-scoped.");
+    expect(guard).toBeGreaterThan(0);
+    for (const table of ["company_knowledge_documents", "marketing_campaigns", "finance_invoices", "workforce_members", "website_funnels", "commerce_products", "commerce_orders", "notifications", "provider_subscriptions", "webhook_endpoints"]) {
+      expect(sql.indexOf(`'${table}'`)).toBeGreaterThanOrEqual(guard);
+      expect(sql.indexOf(`CREATE TABLE IF NOT EXISTS public.${table}`)).toBeGreaterThan(guard);
+      expect(reconciliation).toContain(`'${table}'`);
+    }
+    expect(sql).toContain("Backfill assertion failed: %.workspace_id is unresolved.");
+    expect(reconciliation).toContain("Tenantization reconciliation failed: %.workspace_id is unresolved.");
   });
 
   it("creates every canonical pre-tenant core table before a later migration references it", () => {
