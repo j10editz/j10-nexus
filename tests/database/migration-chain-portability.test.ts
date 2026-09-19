@@ -30,6 +30,7 @@ describe("Supabase migration-chain portability", () => {
     expect(migrationNames).toContain("20261009_migration_chain_reconciliation.sql");
     expect(migrationNames).toContain("20261010_workspace_subscriptions_tenantization_reconciliation.sql");
     expect(migrationNames).toContain("20261011_tenantization_contract_reconciliation.sql");
+    expect(migrationNames).toContain("20261012_crm_contacts_tenantization_reconciliation.sql");
     expect(migrationNames).not.toContain("20260915b_atomic_founder_ownership_transfer.sql");
     expect(migrationNames).not.toContain("20260918b_restrict_tier0g_rpc_execute.sql");
     expect(migrationNames).not.toContain("20260919b_restrict_tier1_authenticated_table_privileges.sql");
@@ -72,6 +73,17 @@ describe("Supabase migration-chain portability", () => {
     }
     expect(sql).toContain("Backfill assertion failed: %.workspace_id is unresolved.");
     expect(reconciliation).toContain("Tenantization reconciliation failed: %.workspace_id is unresolved.");
+  });
+
+  it("keeps multi-workspace CRM ownership unresolved instead of choosing a tenant", () => {
+    const sql = readFileSync(resolve(migrationsDir, "20260917_tier0f_runtime_tenant_certification.sql"), "utf8");
+    const crmBackfill = sql.slice(sql.indexOf("UPDATE public.crm_contacts legacy"), sql.indexOf("ALTER TABLE public.crm_contacts ALTER COLUMN workspace_id SET NOT NULL"));
+    expect(crmBackfill).toContain("HAVING count(DISTINCT workspace_id) = 1");
+    expect(crmBackfill).toContain("CRM consolidation aborted: crm_contacts.workspace_id is unresolved.");
+    expect(crmBackfill).not.toContain("ORDER BY");
+    const reconciliation = readFileSync(resolve(migrationsDir, "20261012_crm_contacts_tenantization_reconciliation.sql"), "utf8");
+    expect(reconciliation).toContain("HAVING count(DISTINCT workspace_id)=1");
+    expect(reconciliation).toContain("CRM reconciliation aborted: crm_contacts.workspace_id is unresolved.");
   });
 
   it("creates every canonical pre-tenant core table before a later migration references it", () => {
