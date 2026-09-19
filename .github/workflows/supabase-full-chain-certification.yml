@@ -26,7 +26,10 @@ jobs:
       - name: Verify the migration ledger contains every local migration
         run: |
           local_count=$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)
-          remote_count=$(supabase migration list --local --output json | jq '.migrations | map(select(.remote != "")) | length')
+          db_container=$(docker ps --filter 'name=supabase_db_' --format '{{.ID}}' | head -n 1)
+          test -n "$db_container"
+          remote_count=$(docker exec "$db_container" psql -U postgres -d postgres -tAc \
+            'select count(*) from supabase_migrations.schema_migrations')
           test "$local_count" -eq "$remote_count"
       - name: Stop local Supabase
         if: always()
