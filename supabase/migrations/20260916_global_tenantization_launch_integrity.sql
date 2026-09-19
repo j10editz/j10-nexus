@@ -49,7 +49,7 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'employees' AND column_name = 'workspace_id'
   ) THEN
-    ALTER TABLE public.employees ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
   END IF;
 END;
 $$;
@@ -68,7 +68,7 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'ai_tasks' AND column_name = 'workspace_id'
   ) THEN
-    ALTER TABLE public.ai_tasks ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ALTER TABLE public.ai_tasks ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
   END IF;
 END;
 $$;
@@ -87,7 +87,7 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'automations' AND column_name = 'workspace_id'
   ) THEN
-    ALTER TABLE public.automations ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ALTER TABLE public.automations ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
   END IF;
 END;
 $$;
@@ -106,7 +106,7 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'automation_runs' AND column_name = 'workspace_id'
   ) THEN
-    ALTER TABLE public.automation_runs ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ALTER TABLE public.automation_runs ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
   END IF;
 END;
 $$;
@@ -124,7 +124,7 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'automation_steps' AND column_name = 'workspace_id'
   ) THEN
-    ALTER TABLE public.automation_steps ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ALTER TABLE public.automation_steps ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
   END IF;
 END;
 $$;
@@ -142,7 +142,7 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'automation_versions' AND column_name = 'workspace_id'
   ) THEN
-    ALTER TABLE public.automation_versions ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ALTER TABLE public.automation_versions ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
   END IF;
 END;
 $$;
@@ -160,7 +160,7 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'integrations' AND column_name = 'workspace_id'
   ) THEN
-    ALTER TABLE public.integrations ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ALTER TABLE public.integrations ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
   END IF;
 END;
 $$;
@@ -179,7 +179,7 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'integration_credentials' AND column_name = 'workspace_id'
   ) THEN
-    ALTER TABLE public.integration_credentials ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ALTER TABLE public.integration_credentials ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
   END IF;
 END;
 $$;
@@ -197,7 +197,7 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'activity_logs' AND column_name = 'workspace_id'
   ) THEN
-    ALTER TABLE public.activity_logs ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
   END IF;
 END;
 $$;

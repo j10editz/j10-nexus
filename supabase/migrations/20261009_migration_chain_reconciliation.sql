@@ -285,43 +285,41 @@ begin
 end;
 $$;
 
-create or replace function public.get_integration_credential_envelope(
+-- PostgreSQL does not permit CREATE OR REPLACE to change a function's OUT
+-- row type.  Replace only this exact UUID signature; do not cascade to any
+-- dependent objects.
+drop function if exists public.get_integration_credential_envelope(uuid);
+
+create function public.get_integration_credential_envelope(
   p_integration_id uuid
 )
 returns table (
   credential_id uuid,
   integration_id uuid,
+  workspace_id uuid,
   provider text,
   encrypted_payload text,
   initialization_vector text,
   authentication_tag text,
   algorithm text,
-  key_version integer,
-  rotated_at timestamptz,
-  last_used_at timestamptz
+  key_version integer
 )
 language plpgsql
 security definer
-stable
 set search_path = pg_catalog, public
 as $$
 declare
-  connection_record public.integrations%rowtype;
-  caller_is_service_role boolean;
+  v_integration public.integrations%rowtype;
+  v_caller_is_service_role boolean;
 begin
-  caller_is_service_role =
-    coalesce(
-      current_setting(
-        'request.jwt.claim.role',
-        true
-      ),
-      ''
-    ) = 'service_role';
+  v_caller_is_service_role := coalesce(
+    current_setting('request.jwt.claim.role', true),
+    ''
+  ) = 'service_role';
 
-  select integration_record.*
-  into connection_record
-  from public.integrations as integration_record
-  where integration_record.id = p_integration_id;
+  select * into v_integration
+  from public.integrations
+  where id = p_integration_id;
 
   if not found then
     raise exception using
@@ -329,34 +327,29 @@ begin
       message = 'Integration connection was not found.';
   end if;
 
-  if (
-    not caller_is_service_role
-    and (
-      auth.uid() is null
-      or auth.uid() <> connection_record.user_id
-    )
-  ) then
-    raise exception using
-      errcode = '42501',
-      message = 'Integration credential access is forbidden.';
+  if not v_caller_is_service_role then
+    if auth.uid() is null or not public.has_workspace_role(v_integration.workspace_id, array['owner', 'admin']) then
+      raise exception 'Forbidden: workspace admin role required.' using errcode = '42501';
+    end if;
   end if;
 
   return query
   select
     credential_record.id,
     credential_record.integration_id,
-    credential_record.provider,
+    credential_record.workspace_id,
+    v_integration.provider,
     credential_record.encrypted_payload,
     credential_record.initialization_vector,
     credential_record.authentication_tag,
     credential_record.algorithm,
-    credential_record.key_version,
-    credential_record.rotated_at,
-    credential_record.last_used_at
+    credential_record.key_version
   from public.integration_credentials as credential_record
   where credential_record.integration_id = p_integration_id;
 end;
 $$;
+
+alter function public.get_integration_credential_envelope(uuid) owner to postgres;
 
 create or replace function public.mark_integration_credential_used(
   p_integration_id uuid
@@ -504,7 +497,7 @@ revoke execute
   )
   from public, anon;
 
-revoke execute
+revoke all
   on function public.get_integration_credential_envelope(uuid)
   from public, anon;
 

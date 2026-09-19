@@ -1,0 +1,33 @@
+name: Supabase full migration-chain certification
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - '.github/workflows/supabase-full-chain-certification.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+
+jobs:
+  fresh-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start disposable local Supabase and apply the complete chain
+        run: |
+          supabase start
+          supabase db reset --local --no-seed
+      - name: Verify the migration ledger contains every local migration
+        run: |
+          local_count=$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)
+          remote_count=$(supabase migration list --local --output json | jq '.migrations | map(select(.remote != "")) | length')
+          test "$local_count" -eq "$remote_count"
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
