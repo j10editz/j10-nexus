@@ -23,6 +23,7 @@ const columns = [
     [
       ["Privacy Policy", "/privacy"],
       ["Terms of Service", "/terms"],
+      ["Data Deletion", "/data-deletion"],
       ["Responsible Disclosure", "/security#disclosure"],
     ],
   ],
