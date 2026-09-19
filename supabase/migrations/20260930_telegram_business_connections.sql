@@ -4,6 +4,88 @@
 
 BEGIN;
 
+-- A linked reset can clear the migration ledger while leaving a standalone
+-- composite type behind. PostgreSQL gives a table and its row type the same
+-- name, so CREATE TABLE would otherwise fail before IF NOT EXISTS can help.
+-- Only remove a known Telegram table-name type when no table exists, the
+-- type is composite, and it has no non-internal dependents. The bare DROP
+-- TYPE (without CASCADE) is a second database-enforced safety check.
+DO $$
+DECLARE
+  v_table_name text;
+  v_type_oid oid;
+  v_type_relkind "char";
+  v_has_table boolean;
+  v_has_external_dependents boolean;
+BEGIN
+  FOREACH v_table_name IN ARRAY ARRAY[
+    'telegram_connection_sessions',
+    'telegram_business_connections',
+    'telegram_connection_consents',
+    'telegram_deletion_intents',
+    'telegram_ai_jobs',
+    'telegram_worker_locks'
+  ] LOOP
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = v_table_name
+        AND c.relkind IN ('r', 'p')
+    ) INTO v_has_table;
+
+    IF v_has_table THEN
+      CONTINUE;
+    END IF;
+
+    SELECT t.oid, c.relkind
+      INTO v_type_oid, v_type_relkind
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    LEFT JOIN pg_class c ON c.oid = t.typrelid
+    WHERE n.nspname = 'public'
+      AND t.typname = v_table_name;
+
+    IF v_type_oid IS NULL THEN
+      CONTINUE;
+    END IF;
+
+    -- A standalone composite (or its internal composite relation) is the
+    -- only residual type shape this migration recognizes. Any other type is
+    -- unexpected and must remain untouched.
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_type t
+      WHERE t.oid = v_type_oid
+        AND t.typtype = 'c'
+    ) OR v_type_relkind IS NOT NULL AND v_type_relkind <> 'c' THEN
+      RAISE EXCEPTION
+        'Unexpected residual type public.% for Telegram migration; refusing to drop it',
+        v_table_name;
+    END IF;
+
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_depend d
+      WHERE d.refclassid = 'pg_type'::regclass
+        AND d.refobjid = v_type_oid
+        -- The generated array type and composite implementation relation are
+        -- internal to the type and are removed by DROP TYPE itself.
+        AND d.deptype <> 'i'
+    ) INTO v_has_external_dependents;
+
+    IF v_has_external_dependents THEN
+      RAISE EXCEPTION
+        'Residual type public.% has dependent objects; refusing to drop it',
+        v_table_name;
+    END IF;
+
+    EXECUTE format('DROP TYPE public.%I', v_table_name);
+  END LOOP;
+END;
+$$;
+
 -- 1. Telegram Connection Sessions (Zernio-Style pending browser-to-bot handshake)
 CREATE TABLE IF NOT EXISTS public.telegram_connection_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
