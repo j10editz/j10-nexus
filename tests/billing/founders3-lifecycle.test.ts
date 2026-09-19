@@ -258,6 +258,25 @@ describe("J10 Founder’s 3 Billing & Entitlements Certification (PGlite Engine)
     db = await setupDatabase();
   });
 
+  it("reapplies the strict invitation hash migration without restoring plaintext", async () => {
+    const strictMigration = readFileSync(
+      resolve(__dirname, "../../supabase/migrations/20261004_founders3_strict_state_and_hash_isolation.sql"),
+      "utf-8",
+    );
+
+    await expect(db.exec(strictMigration)).resolves.not.toThrow();
+    const legacyColumn = await db.query<{ present: boolean }>(`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'founders3_invitations'
+          AND column_name = 'invitation_code'
+      ) AS present
+    `);
+    expect(legacyColumn.rows[0].present).toBe(false);
+  });
+
   // --------------------------------------------------------------------------
   // TEST CASES 1 - 4: SHA-256 INVITATION HASHING & ATOMIC 3-SLOT CONTROL
   // --------------------------------------------------------------------------
