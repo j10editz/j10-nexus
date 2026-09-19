@@ -216,4 +216,33 @@ describe("Supabase migration-chain portability", () => {
       expect(envelope).toContain("has_workspace_role");
     }
   });
+
+  it("removes only verified orphan Telegram composite types before creating their tables", () => {
+    const telegramMigration = readFileSync(
+      resolve(migrationsDir, "20260930_telegram_business_connections.sql"),
+      "utf8",
+    );
+    const guardStart = telegramMigration.indexOf("A linked reset can clear the migration ledger");
+    const firstTable = telegramMigration.indexOf("CREATE TABLE IF NOT EXISTS public.telegram_connection_sessions");
+    const guard = telegramMigration.slice(guardStart, firstTable);
+
+    expect(guardStart).toBeGreaterThanOrEqual(0);
+    expect(firstTable).toBeGreaterThan(guardStart);
+    expect(guard).toMatch(/t\.typtype = 'c'/i);
+    expect(guard).toMatch(/v_has_table/i);
+    expect(guard).toMatch(/v_has_external_dependents/i);
+    expect(guard).toMatch(/execute format\('DROP TYPE public\.%I'/i);
+    expect(guard).not.toMatch(/drop\s+type[^;]*\bcascade\b/i);
+
+    for (const table of [
+      "telegram_connection_sessions",
+      "telegram_business_connections",
+      "telegram_connection_consents",
+      "telegram_deletion_intents",
+      "telegram_ai_jobs",
+      "telegram_worker_locks",
+    ]) {
+      expect(guard).toContain(`'${table}'`);
+    }
+  });
 });
