@@ -21,6 +21,10 @@ vi.mock("@/lib/integrations/credentials", () => ({
   getIntegrationCredentials: vi.fn(),
 }));
 
+vi.mock("@/lib/integrations/observability", () => ({
+  writeIntegrationOperationLog: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("@/lib/integrations/webhooks/database", () => ({
   createOrEnableIntegrationWebhookEndpoint: vi.fn().mockResolvedValue({
     endpointKey: "canonical-endpoint-key-123",
@@ -654,6 +658,38 @@ describe("WhatsApp Embedded Signup Flow - CTO Security Hardened", () => {
       expect(status.connected).toBe(false);
       expect(status.status).toBe("action_required");
       expect(status.webhookSubscribed).toBe(false);
+    });
+
+    it("surfaces an expired credential as action_required without exposing credential material", async () => {
+      const { getWhatsAppConnectionStatus } = await import("@/lib/whatsapp/embedded-signup");
+      const mockSupabase = {
+        from: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                maybeSingle: vi.fn().mockResolvedValue({
+                  data: {
+                    id: "int-expired",
+                    status: "connected",
+                    public_configuration: {
+                      webhook_subscribed: true,
+                      credential_issued_at: "2026-01-01T00:00:00.000Z",
+                      credential_expires_at: "2026-01-02T00:00:00.000Z",
+                    },
+                  },
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        }),
+      } as any;
+
+      const status = await getWhatsAppConnectionStatus(mockSupabase, "ws-1");
+      expect(status.connected).toBe(false);
+      expect(status.status).toBe("action_required");
+      expect(status.credentialState).toBe("expired");
+      expect(JSON.stringify(status)).not.toMatch(/access_token|app_secret|webhook_verify_token/);
     });
 
     it("authorized second workspace admin can read the integration status", async () => {

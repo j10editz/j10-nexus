@@ -3,6 +3,12 @@ import "server-only";
 import crypto from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { storeIntegrationCredentials } from "@/lib/integrations/credentials";
+import { writeIntegrationOperationLog } from "@/lib/integrations/observability";
+import {
+  buildWhatsAppCredentialLifecycleMetadata,
+  getWhatsAppCredentialLifecycleState,
+  type WhatsAppCredentialLifecycleMetadata,
+} from "@/lib/whatsapp/credential-lifecycle";
 import {
   createOrEnableIntegrationWebhookEndpoint,
   disableIntegrationWebhookEndpoint,
@@ -163,7 +169,12 @@ export async function exchangeMetaCodeForAccessToken(
   codeOrParams: string | { code: string; appId?: string; appSecret?: string },
   appId?: string,
   appSecret?: string
-): Promise<{ accessToken: string; tokenType?: string }> {
+): Promise<{
+  accessToken: string;
+  tokenType?: string;
+  issuedAt: string;
+  expiresAt: string | null;
+}> {
   let cleanCode: string;
   let cleanAppId: string | undefined;
   let cleanAppSecret: string | undefined;
@@ -218,6 +229,13 @@ export async function exchangeMetaCodeForAccessToken(
   return {
     accessToken: String(body.access_token).trim(),
     tokenType: body.token_type ? String(body.token_type) : "bearer",
+    issuedAt: new Date().toISOString(),
+    expiresAt:
+      typeof body.expires_in === "number" &&
+      Number.isFinite(body.expires_in) &&
+      body.expires_in > 0
+        ? new Date(Date.now() + body.expires_in * 1000).toISOString()
+        : null,
   };
 }
 
@@ -388,7 +406,41 @@ export interface UpsertWhatsAppIntegrationParams {
   codeVerificationStatus?: string;
   accessToken: string;
   appSecret: string;
+  credentialLifecycle?: WhatsAppCredentialLifecycleMetadata;
   webhookSubscribed?: boolean;
+}
+
+async function auditWhatsAppCredentialLifecycleAction(
+  supabase: SupabaseClient,
+  input: {
+    workspaceId: string;
+    userId: string;
+    integrationId: string;
+    action: "connected" | "rotated" | "disconnected";
+    credentialExpiresAt?: string | null;
+  },
+): Promise<void> {
+  await writeIntegrationOperationLog(supabase, {
+    userId: input.userId,
+    integrationId: input.integrationId,
+    providerId: "whatsapp-business",
+    source: "system",
+    eventType: `whatsapp.credential.${input.action}`,
+    severity: "info",
+    status: "succeeded",
+    correlationId: `whatsapp-credential-${input.action}-${input.integrationId}`,
+    message:
+      input.action === "rotated"
+        ? "Workspace owner or admin reconnected WhatsApp and rotated its credential."
+        : input.action === "disconnected"
+          ? "Workspace owner or admin disconnected WhatsApp."
+          : "Workspace owner or admin connected WhatsApp.",
+    metadata: {
+      workspaceId: input.workspaceId,
+      credentialExpiresAt: input.credentialExpiresAt ?? null,
+      credentialLifecycleAction: input.action,
+    },
+  });
 }
 
 /**
@@ -448,6 +500,9 @@ export async function upsertWhatsAppIntegration(
 
   const isReconnect = Boolean(existing);
   const nowIso = new Date().toISOString();
+  const credentialLifecycle =
+    params.credentialLifecycle ||
+    buildWhatsAppCredentialLifecycleMetadata({ issuedAt: nowIso });
 
   // Phase A: Insert or update integration in a non-active state:
   // status = "pending" or "degraded", webhook_subscribed = false, connected_at = null
@@ -468,6 +523,7 @@ export async function upsertWhatsAppIntegration(
     graph_api_version: META_WHATSAPP_GRAPH_API_VERSION,
     onboarding_method: "meta_embedded_signup",
     last_connected_at: null,
+    ...credentialLifecycle,
   };
 
   let integrationId: string;
@@ -744,6 +800,14 @@ export async function upsertWhatsAppIntegration(
     throw new Error("Failed to activate WhatsApp integration.");
   }
 
+  await auditWhatsAppCredentialLifecycleAction(supabase, {
+    workspaceId,
+    userId,
+    integrationId,
+    action: isReconnect ? "rotated" : "connected",
+    credentialExpiresAt: credentialLifecycle.credential_expires_at,
+  });
+
   return {
     integrationId,
     endpointKey: endpoint.endpointKey,
@@ -767,7 +831,8 @@ export async function upsertWhatsAppIntegration(
 export async function disconnectWhatsAppIntegration(
   supabase: SupabaseClient,
   workspaceId: string,
-  reason: string = "user_initiated"
+  reason: string = "user_initiated",
+  actorUserId?: string,
 ): Promise<{ success: boolean; status: "disconnected" }> {
   if (!workspaceId) {
     throw new Error("workspaceId is required to disconnect WhatsApp integration.");
@@ -838,6 +903,15 @@ export async function disconnectWhatsAppIntegration(
     throw new Error("Webhook processing disabled, but failed to update status. Action required.");
   }
 
+  if (actorUserId) {
+    await auditWhatsAppCredentialLifecycleAction(supabase, {
+      workspaceId,
+      userId: actorUserId,
+      integrationId: integration.id,
+      action: "disconnected",
+    });
+  }
+
   // D. Return success only after both operations succeed
   return { success: true, status: "disconnected" };
 }
@@ -866,6 +940,9 @@ export async function getWhatsAppConnectionStatus(
       endpointKey: null,
       callbackUrl: META_WHATSAPP_CALLBACK_URL,
       lastConnectedAt: null,
+      credentialState: null,
+      credentialIssuedAt: null,
+      credentialExpiresAt: null,
     };
   }
 
@@ -896,10 +973,14 @@ export async function getWhatsAppConnectionStatus(
       endpointKey: null,
       callbackUrl: META_WHATSAPP_CALLBACK_URL,
       lastConnectedAt: null,
+      credentialState: null,
+      credentialIssuedAt: null,
+      credentialExpiresAt: null,
     };
   }
 
   const cfg = (integration.public_configuration || {}) as Record<string, any>;
+  const credentialState = getWhatsAppCredentialLifecycleState(cfg);
   const endpoint = await getIntegrationWebhookEndpointByConnection(supabase, workspaceId, integration.id);
 
   const statusMap: Record<string, "active" | "connecting" | "action_required" | "disconnected" | "not_connected"> = {
@@ -912,12 +993,23 @@ export async function getWhatsAppConnectionStatus(
     error: "action_required",
   };
 
-  const isConnected = integration.status === "connected" && Boolean(cfg.webhook_subscribed);
+  const credentialBlocksUse =
+    credentialState === "expired" ||
+    credentialState === "revoked" ||
+    credentialState === "reconnect_required";
+  const isConnected =
+    integration.status === "connected" &&
+    Boolean(cfg.webhook_subscribed) &&
+    !credentialBlocksUse;
 
   return {
     id: integration.id,
     connected: isConnected,
-    status: isConnected ? "active" : (statusMap[integration.status] || "disconnected"),
+    status: credentialBlocksUse
+      ? "action_required"
+      : isConnected
+        ? "active"
+        : (statusMap[integration.status] || "disconnected"),
     wabaName: cfg.waba_name || integration.account_label || "WhatsApp Business Account",
     maskedPhone: maskPhoneNumber(cfg.display_phone_number || integration.external_account_label),
     phoneNumberId: cfg.phone_number_id || integration.external_account_id,
@@ -929,5 +1021,8 @@ export async function getWhatsAppConnectionStatus(
     endpointKey: endpoint?.endpointKey || null,
     callbackUrl: META_WHATSAPP_CALLBACK_URL,
     lastConnectedAt: cfg.last_connected_at || integration.connected_at,
+    credentialState,
+    credentialIssuedAt: cfg.credential_issued_at || null,
+    credentialExpiresAt: cfg.credential_expires_at || null,
   };
 }

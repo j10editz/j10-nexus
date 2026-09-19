@@ -8,6 +8,7 @@ import {
   validateAndConsumeWhatsAppSession,
   verifyWabaAndPhoneNumber,
 } from "@/lib/whatsapp/embedded-signup";
+import { buildWhatsAppCredentialLifecycleMetadata } from "@/lib/whatsapp/credential-lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +115,10 @@ export async function POST(req: Request) {
     }
 
     const { accessToken } = tokenResult;
+    const credentialLifecycle = buildWhatsAppCredentialLifecycleMetadata({
+      issuedAt: tokenResult.issuedAt,
+      expiresAt: tokenResult.expiresAt,
+    });
 
     // 4. Verify WABA and phone number ownership
     let verifiedDetails;
@@ -133,6 +138,7 @@ export async function POST(req: Request) {
       verifiedDetails,
       accessToken,
       appSecret,
+      credentialLifecycle,
     });
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://j10-nexus.vercel.app";

@@ -25,7 +25,7 @@ export async function POST(req: Request) {
 
     // Privileged client used strictly after owner/admin authorization
     const adminSupabase = createAdminSupabaseClient();
-    await disconnectWhatsAppIntegration(adminSupabase, wsId, reason);
+    await disconnectWhatsAppIntegration(adminSupabase, wsId, reason, context.user.id);
 
     return NextResponse.json({
       success: true,
