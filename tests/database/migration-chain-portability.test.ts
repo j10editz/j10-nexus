@@ -21,6 +21,53 @@ describe("Supabase migration-chain portability", () => {
       .toBeGreaterThan(ordered.indexOf("20261007_whatsapp_embedded_signup.sql"));
   });
 
+  it("creates every canonical pre-tenant core table before a later migration references it", () => {
+    const migrations = readdirSync(migrationsDir)
+      .filter((name) => name.endsWith(".sql"))
+      .sort()
+      .map((name) => ({ name, sql: readFileSync(resolve(migrationsDir, name), "utf8") }));
+    const foundation = migrations.find((migration) => migration.name === "20260820_day14b_integrations.sql");
+
+    expect(foundation).toBeDefined();
+    for (const table of [
+      "automations",
+      "automation_runs",
+      "automation_steps",
+      "automation_run_steps",
+      "crm_contacts",
+      "employees",
+      "ai_tasks",
+      "activity_logs",
+    ]) {
+      expect(foundation!.sql).toMatch(new RegExp(`create\\s+table\\s+if\\s+not\\s+exists\\s+public\\.${table}\\b`, "i"));
+      const firstReference = migrations.findIndex((migration) =>
+        new RegExp(`public\\.${table}\\b`, "i").test(migration.sql),
+      );
+      expect(firstReference).toBeGreaterThanOrEqual(0);
+      expect(migrations[firstReference].name >= foundation!.name).toBe(true);
+    }
+
+    const createdAt = new Map<string, number>();
+    const firstTableUse = new Map<string, number>();
+    for (const [index, migration] of migrations.entries()) {
+      for (const match of migration.sql.matchAll(/\bcreate\s+table\s+(?:if\s+not\s+exists\s+)?public\.([a-z_][a-z0-9_]*)/gi)) {
+        createdAt.set(match[1], createdAt.get(match[1]) ?? index);
+      }
+      for (const match of migration.sql.matchAll(/\b(?:alter\s+table|insert\s+into|update|delete\s+from|references|on)\s+public\.([a-z_][a-z0-9_]*)\b/gi)) {
+        firstTableUse.set(match[1], firstTableUse.get(match[1]) ?? index);
+      }
+    }
+
+    // This relation is intentionally created by a guarded legacy-table rename
+    // inside the same migration, so it has no standalone CREATE TABLE statement.
+    const dynamicLegacyRelations = new Set(["crm_contacts_legacy_archive_tier0f"]);
+    for (const [table, useIndex] of firstTableUse) {
+      if (dynamicLegacyRelations.has(table)) continue;
+      expect(createdAt.get(table), `${table} is referenced without a migration creation`).toBeDefined();
+      expect(createdAt.get(table)!, `${table} is referenced before creation`).toBeLessThanOrEqual(useIndex);
+    }
+  });
+
   it("preserves consolidated behavior and makes reconciliation safe to rerun", () => {
     const identityMigration = readFileSync(
       resolve(migrationsDir, "20260915_identity_platform_roles_invitations.sql"),

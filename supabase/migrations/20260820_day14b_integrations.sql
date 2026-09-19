@@ -1443,6 +1443,128 @@ begin;
 
 create extension if not exists pgcrypto;
 
+/*
+  Fresh-install core foundation.
+  The Day 14–16 migrations historically ran against an existing J10 workflow
+  schema.  Keep that schema explicit for a new database; later tenantization
+  adds workspace_id and the corresponding composite integrity constraints.
+*/
+create table if not exists public.automations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  trigger_type text not null default 'manual',
+  trigger_config jsonb not null default '{}'::jsonb,
+  status text not null default 'active',
+  schedule_expression text,
+  timezone text not null default 'UTC',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint automations_trigger_type_check check (trigger_type = any (array['manual','new_crm_contact','crm_status_changed','new_ai_task','ai_task_completed','schedule','integration_event']::text[]))
+);
+
+create table if not exists public.automation_runs (
+  id uuid primary key default gen_random_uuid(),
+  automation_id uuid not null references public.automations(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete set null,
+  trigger_type text not null default 'manual',
+  trigger_payload jsonb not null default '{}'::jsonb,
+  status text not null default 'queued',
+  current_step_order integer not null default 1,
+  result_summary text,
+  error_message text,
+  execution_mode text not null default 'live',
+  api_called boolean not null default false,
+  total_cost_usd numeric(10,4) not null default 0,
+  started_at timestamptz not null default now(),
+  completed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.automation_steps (
+  id uuid primary key default gen_random_uuid(),
+  automation_id uuid not null references public.automations(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete set null,
+  step_order integer not null,
+  name text,
+  step_type text not null default 'action',
+  action_type text,
+  employee_id uuid,
+  employee_name text,
+  task_type text,
+  instructions text,
+  config jsonb not null default '{}'::jsonb,
+  condition_config jsonb not null default '{}'::jsonb,
+  requires_approval boolean not null default false,
+  approval_type text,
+  on_success_step_id uuid,
+  on_failure_step_id uuid,
+  is_enabled boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.automation_run_steps (
+  id uuid primary key default gen_random_uuid(),
+  run_id uuid not null references public.automation_runs(id) on delete cascade,
+  automation_id uuid not null references public.automations(id) on delete cascade,
+  automation_step_id uuid references public.automation_steps(id) on delete set null,
+  user_id uuid references auth.users(id) on delete set null,
+  step_order integer not null,
+  step_type text not null default 'action',
+  action_type text,
+  employee_id uuid,
+  employee_name text,
+  ai_task_id uuid,
+  status text not null default 'queued',
+  requires_approval boolean not null default false,
+  approval_status text not null default 'not_required',
+  input_payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.crm_contacts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  first_name text,
+  last_name text,
+  email text,
+  phone text,
+  company text,
+  job_title text,
+  type text not null default 'Lead',
+  status text not null default 'New',
+  source text not null default 'crm',
+  estimated_value numeric(10,2) not null default 0,
+  notes text,
+  last_contacted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.employees (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  name text not null,
+  role text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.ai_tasks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  title text not null,
+  status text not null default 'pending',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.activity_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  action text not null,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.integration_action_executions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
