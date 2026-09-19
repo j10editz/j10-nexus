@@ -757,7 +757,13 @@ begin
 end;
 $$;
 
-create or replace function public.get_integration_credential_envelope(
+-- A linked remote reset preserves functions that are not represented in its
+-- migration ledger. PostgreSQL cannot change a RETURNS TABLE row type through
+-- CREATE OR REPLACE, so replace only this exact signature without cascading
+-- to any dependent object.
+drop function if exists public.get_integration_credential_envelope(uuid);
+
+create function public.get_integration_credential_envelope(
   p_integration_id uuid
 )
 returns table (
@@ -829,6 +835,8 @@ begin
   where credential_record.integration_id = p_integration_id;
 end;
 $$;
+
+alter function public.get_integration_credential_envelope(uuid) owner to postgres;
 
 create or replace function public.mark_integration_credential_used(
   p_integration_id uuid
@@ -976,7 +984,7 @@ revoke execute
   )
   from public, anon;
 
-revoke execute
+revoke all
   on function public.get_integration_credential_envelope(uuid)
   from public, anon;
 

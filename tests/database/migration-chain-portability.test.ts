@@ -179,6 +179,10 @@ describe("Supabase migration-chain portability", () => {
   });
 
   it("replaces the credential envelope signature without cascade and restores tenant-safe access", () => {
+    const foundation = readFileSync(
+      resolve(migrationsDir, "20260820_day14b_integrations.sql"),
+      "utf8",
+    );
     const freshReconciliation = readFileSync(
       resolve(migrationsDir, "20261009_migration_chain_reconciliation.sql"),
       "utf8",
@@ -188,7 +192,7 @@ describe("Supabase migration-chain portability", () => {
       "utf8",
     );
 
-    for (const sql of [freshReconciliation, ledgeredReconciliation]) {
+    for (const sql of [foundation, freshReconciliation, ledgeredReconciliation]) {
       const start = sql.indexOf("drop function if exists public.get_integration_credential_envelope(uuid);");
       const definitionEnd = sql.indexOf("$$;", start) + 3;
       const securityEnd = sql.indexOf("grant execute on function public.get_integration_credential_envelope(uuid)", start);
@@ -197,14 +201,19 @@ describe("Supabase migration-chain portability", () => {
 
       expect(start).toBeGreaterThanOrEqual(0);
       expect(envelope).not.toMatch(/drop\s+function[^;]*\bcascade\b/i);
+      expect(envelope).toMatch(/security definer/i);
+      expect(envelope).toMatch(/set search_path = pg_catalog, public/i);
+      expect(security).toMatch(/owner to postgres/i);
+      expect(security).toMatch(/revoke all[\s\S]*from public, anon/i);
+    }
+
+    for (const sql of [freshReconciliation, ledgeredReconciliation]) {
+      const start = sql.indexOf("drop function if exists public.get_integration_credential_envelope(uuid);");
+      const envelope = sql.slice(start, sql.indexOf("$$;", start) + 3);
       expect(envelope).toContain("workspace_id uuid");
       expect(envelope).not.toContain("rotated_at");
       expect(envelope).not.toContain("last_used_at");
-      expect(envelope).toMatch(/security definer/i);
-      expect(envelope).toMatch(/set search_path = pg_catalog, public/i);
       expect(envelope).toContain("has_workspace_role");
-      expect(security).toMatch(/owner to postgres/i);
-      expect(security).toMatch(/revoke all[\s\S]*from public, anon/i);
     }
   });
 });
