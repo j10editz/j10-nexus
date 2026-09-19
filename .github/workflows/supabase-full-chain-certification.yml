@@ -34,3 +34,30 @@ jobs:
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup
+
+  legacy-credential-envelope-residue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start disposable local Supabase and preload linked-reset residue
+        run: |
+          supabase start
+          supabase db query --local --file supabase/tests/legacy-integration-credential-envelope-residue.sql
+      - name: Apply the complete chain over legacy credential residue
+        run: supabase db reset --local --no-seed
+      - name: Verify ledger and restored credential-envelope contract
+        run: |
+          local_count=$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)
+          db_container=$(docker ps --filter 'name=supabase_db_' --format '{{.ID}}' | head -n 1)
+          test -n "$db_container"
+          remote_count=$(docker exec "$db_container" psql -U postgres -d postgres -tAc \
+            'select count(*) from supabase_migrations.schema_migrations')
+          test "$local_count" -eq "$remote_count"
+          supabase db query --local --file supabase/tests/verify-integration-credential-envelope.sql
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
