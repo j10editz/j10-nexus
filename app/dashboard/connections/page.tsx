@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 import { WhatsAppEmbeddedSignup } from "@/components/whatsapp/WhatsAppEmbeddedSignup";
+import { getOfficialTelegramBindingLink } from "@/lib/telegram/official-binding-link";
 
 interface ConnectionItem {
   id: string;
@@ -55,6 +56,10 @@ interface TelegramBusinessSessionData {
   consentVersion: string;
 }
 
+interface OfficialTelegramBindingData {
+  shareLink: string;
+}
+
 export default function ConnectionsDashboardPage() {
   const [connections, setConnections] = useState<ConnectionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,6 +79,7 @@ export default function ConnectionsDashboardPage() {
   const [vipGroupInput, setVipGroupInput] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
+  const [officialBinding, setOfficialBinding] = useState<OfficialTelegramBindingData | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Disconnect modal state
@@ -319,6 +325,21 @@ export default function ConnectionsDashboardPage() {
 
       const data = await res.json();
       if (res.ok && data.success) {
+        if (connectTab === "official") {
+          const shareLink = getOfficialTelegramBindingLink(data);
+          if (!shareLink) {
+            setStatusMessage("The secure Telegram binding link could not be verified. No link was opened.");
+            return;
+          }
+
+          // Keep this single-use link in memory until the owner opens Telegram.
+          // Do not close the modal or issue a second token automatically.
+          setOfficialBinding({ shareLink });
+          setStatusMessage("Secure Telegram link ready. Open it, then press Start in Telegram.");
+          void loadConnections();
+          return;
+        }
+
         setStatusMessage(data.message || "Connected successfully!");
         setTimeout(() => {
           setShowConnectModal(false);
@@ -864,6 +885,7 @@ export default function ConnectionsDashboardPage() {
                 type="button"
                 onClick={() => {
                   setShowConnectModal(false);
+                  setOfficialBinding(null);
                   if (pollTimerRef.current) clearInterval(pollTimerRef.current);
                 }}
                 className="rounded-lg p-1 text-white/40 hover:bg-white/[0.06] hover:text-white"
@@ -1026,7 +1048,7 @@ export default function ConnectionsDashboardPage() {
                   </p>
                 </div>
 
-                <div>
+                {!officialBinding && <div>
                   <label className="block text-xs font-medium text-white/70">
                     Optional: VIP Telegram Group Chat ID (for Paid Join Gating)
                   </label>
@@ -1037,17 +1059,31 @@ export default function ConnectionsDashboardPage() {
                     placeholder="e.g. -1001234567890"
                     className="mt-1.5 w-full rounded-lg border border-white/[0.08] bg-black/60 px-3 py-2 text-xs text-white placeholder:text-white/30 focus:border-blue-500 focus:outline-none"
                   />
-                </div>
+                </div>}
 
-                <button
+                {!officialBinding ? <button
                   type="button"
                   onClick={handleConnectLegacyTelegram}
                   disabled={connecting}
                   className="w-full flex items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 text-xs font-semibold text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-500"
                 >
                   {connecting ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
-                  Activate Official Bot DM
+                  Generate secure Telegram link
                 </button>
+                : <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 text-xs">
+                    <p className="font-semibold text-emerald-200">Your single-use Telegram link is ready.</p>
+                    <p className="text-white/70">Open Telegram, press <b>Start</b>, then return here. This link is held only in this browser session.</p>
+                    <a
+                      href={officialBinding.shareLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-2.5 font-semibold text-white shadow-md shadow-blue-600/30 transition hover:bg-blue-500"
+                    >
+                      <Send size={14} />
+                      Open Telegram
+                      <ExternalLink size={12} />
+                    </a>
+                  </div>}
               </div>
             )}
 
