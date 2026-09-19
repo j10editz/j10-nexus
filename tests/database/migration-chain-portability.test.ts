@@ -5,6 +5,20 @@ import { describe, expect, it } from "vitest";
 const migrationsDir = resolve(process.cwd(), "supabase/migrations");
 
 describe("Supabase migration-chain portability", () => {
+  it("does not seed environment-specific identities in executable migrations from 20260915 onward", () => {
+    const identityLiteral = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|'\+?\d[\d ()-]{7,}\d'/gi;
+    const executableMigrations = readdirSync(migrationsDir)
+      .filter((name) => /^\d+_.+\.sql$/.test(name) && name >= "20260915")
+      .sort();
+
+    for (const name of executableMigrations) {
+      const sqlWithoutComments = readFileSync(resolve(migrationsDir, name), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/--[^\r\n]*/g, "");
+      expect(sqlWithoutComments.match(identityLiteral), `${name} contains an environment-specific identity seed`).toBeNull();
+    }
+  });
+
   it("uses valid numeric versions and removes the skipped executable migrations", () => {
     const migrationNames = readdirSync(migrationsDir).filter((name) => name.endsWith(".sql"));
     const invalidVersionNames = migrationNames.filter((name) => !/^\d+_.+\.sql$/.test(name));
@@ -81,10 +95,10 @@ describe("Supabase migration-chain portability", () => {
       "utf8",
     );
 
-    expect(identityMigration).toContain("Skipping historical founder ownership transfer");
+    expect(identityMigration).toContain("platform role must be granted by an explicit authenticated bootstrap flow");
     expect(tier0gMigration).toContain("Preserve the hardening formerly skipped in invalid migration 20260918b");
     expect(tier1Migration).toContain("Preserve the authenticated-role reset formerly skipped in invalid 20260919b");
-    expect(reconciliation).toContain("Skipping historical founder ownership reconciliation");
+    expect(reconciliation).toContain("not reconciled here");
     for (const [canonical, consolidated] of Object.entries({
       "20260820_day14b_integrations.sql": [
         "20260820_day14c_integration_credentials.sql",
