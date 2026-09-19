@@ -28,11 +28,35 @@ describe("Supabase migration-chain portability", () => {
     expect(invalidVersionNames).toEqual([]);
     expect(new Set(versions).size).toBe(versions.length);
     expect(migrationNames).toContain("20261009_migration_chain_reconciliation.sql");
+    expect(migrationNames).toContain("20261010_workspace_subscriptions_tenantization_reconciliation.sql");
     expect(migrationNames).not.toContain("20260915b_atomic_founder_ownership_transfer.sql");
     expect(migrationNames).not.toContain("20260918b_restrict_tier0g_rpc_execute.sql");
     expect(migrationNames).not.toContain("20260919b_restrict_tier1_authenticated_table_privileges.sql");
     expect(ordered.indexOf("20261009_migration_chain_reconciliation.sql"))
       .toBeGreaterThan(ordered.indexOf("20261007_whatsapp_embedded_signup.sql"));
+  });
+
+  it("tenantizes legacy workspace subscriptions before workspace-scoped use", () => {
+    const tenantization = readFileSync(
+      resolve(migrationsDir, "20260916_global_tenantization_launch_integrity.sql"),
+      "utf8",
+    );
+    const reconciliation = readFileSync(
+      resolve(migrationsDir, "20261010_workspace_subscriptions_tenantization_reconciliation.sql"),
+      "utf8",
+    );
+    const firstWorkspaceScopedInsert = tenantization.indexOf(
+      "INSERT INTO public.workspace_subscriptions (workspace_id, plan_id, status, monthly_message_limit)",
+    );
+
+    expect(firstWorkspaceScopedInsert).toBeGreaterThan(0);
+    expect(tenantization.indexOf("ADD COLUMN workspace_id UUID")).toBeGreaterThan(0);
+    expect(tenantization.indexOf("ADD COLUMN workspace_id UUID")).toBeLessThan(firstWorkspaceScopedInsert);
+    expect(tenantization).toContain("Backfill assertion failed: workspace_subscriptions row lacks workspace_id.");
+    expect(tenantization).toContain("uq_workspace_subscriptions_workspace_id");
+    expect(tenantization).toContain("ALTER COLUMN user_id DROP NOT NULL");
+    expect(reconciliation).toContain("workspace_subscriptions reconciliation failed: unresolved workspace_id.");
+    expect(reconciliation).toContain("uq_workspace_subscriptions_workspace_id");
   });
 
   it("creates every canonical pre-tenant core table before a later migration references it", () => {

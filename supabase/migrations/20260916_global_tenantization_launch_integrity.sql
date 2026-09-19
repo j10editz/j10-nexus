@@ -255,6 +255,53 @@ CREATE TABLE IF NOT EXISTS public.workspace_subscriptions (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 20260904 created this relation with user_id only.  CREATE TABLE IF NOT
+-- EXISTS above intentionally preserves that deployed relation, so tenantize it
+-- before any workspace-scoped statement references workspace_id.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'workspace_subscriptions'
+      AND column_name = 'workspace_id'
+  ) THEN
+    ALTER TABLE public.workspace_subscriptions
+      ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+  END IF;
+END;
+$$;
+
+UPDATE public.workspace_subscriptions subscription
+SET workspace_id = membership.workspace_id
+FROM public.workspace_memberships membership
+WHERE subscription.workspace_id IS NULL
+  AND subscription.user_id = membership.user_id
+  AND membership.status = 'active';
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.workspace_subscriptions WHERE workspace_id IS NULL) THEN
+    RAISE EXCEPTION 'Backfill assertion failed: workspace_subscriptions row lacks workspace_id.';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM public.workspace_subscriptions
+    GROUP BY workspace_id
+    HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'Backfill assertion failed: multiple workspace_subscriptions rows resolve to one workspace.';
+  END IF;
+END;
+$$;
+
+ALTER TABLE public.workspace_subscriptions ALTER COLUMN workspace_id SET NOT NULL;
+-- Retain legacy user_id values when present, but workspace ownership is now the
+-- canonical key and workspace seed rows do not have a user identity.
+ALTER TABLE public.workspace_subscriptions ALTER COLUMN user_id DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_workspace_subscriptions_workspace_id
+  ON public.workspace_subscriptions(workspace_id);
+
 -- Seed initial subscription for existing workspaces if missing
 INSERT INTO public.workspace_subscriptions (workspace_id, plan_id, status, monthly_message_limit)
 SELECT w.id, COALESCE(w.plan, 'growth'), 'active', 10000
