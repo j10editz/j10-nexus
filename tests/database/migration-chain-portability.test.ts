@@ -31,6 +31,7 @@ describe("Supabase migration-chain portability", () => {
     expect(migrationNames).toContain("20261010_workspace_subscriptions_tenantization_reconciliation.sql");
     expect(migrationNames).toContain("20261011_tenantization_contract_reconciliation.sql");
     expect(migrationNames).toContain("20261012_crm_contacts_tenantization_reconciliation.sql");
+    expect(migrationNames).toContain("20261013_integration_credential_envelope_reconciliation.sql");
     expect(migrationNames).not.toContain("20260915b_atomic_founder_ownership_transfer.sql");
     expect(migrationNames).not.toContain("20260918b_restrict_tier0g_rpc_execute.sql");
     expect(migrationNames).not.toContain("20260919b_restrict_tier1_authenticated_table_privileges.sql");
@@ -175,5 +176,35 @@ describe("Supabase migration-chain portability", () => {
     expect(foundersMigration).toContain("derived hashes are not one-to-one");
     expect(foundersMigration).toContain("a remaining database object depends on it");
     expect(foundersMigration).toContain("DROP COLUMN invitation_code");
+  });
+
+  it("replaces the credential envelope signature without cascade and restores tenant-safe access", () => {
+    const freshReconciliation = readFileSync(
+      resolve(migrationsDir, "20261009_migration_chain_reconciliation.sql"),
+      "utf8",
+    );
+    const ledgeredReconciliation = readFileSync(
+      resolve(migrationsDir, "20261013_integration_credential_envelope_reconciliation.sql"),
+      "utf8",
+    );
+
+    for (const sql of [freshReconciliation, ledgeredReconciliation]) {
+      const start = sql.indexOf("drop function if exists public.get_integration_credential_envelope(uuid);");
+      const definitionEnd = sql.indexOf("$$;", start) + 3;
+      const securityEnd = sql.indexOf("grant execute on function public.get_integration_credential_envelope(uuid)", start);
+      const envelope = sql.slice(start, definitionEnd);
+      const security = sql.slice(definitionEnd, securityEnd);
+
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(envelope).not.toMatch(/drop\s+function[^;]*\bcascade\b/i);
+      expect(envelope).toContain("workspace_id uuid");
+      expect(envelope).not.toContain("rotated_at");
+      expect(envelope).not.toContain("last_used_at");
+      expect(envelope).toMatch(/security definer/i);
+      expect(envelope).toMatch(/set search_path = pg_catalog, public/i);
+      expect(envelope).toContain("has_workspace_role");
+      expect(security).toMatch(/owner to postgres/i);
+      expect(security).toMatch(/revoke all[\s\S]*from public, anon/i);
+    }
   });
 });
