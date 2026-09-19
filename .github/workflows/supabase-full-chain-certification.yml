@@ -46,7 +46,10 @@ jobs:
       - name: Start disposable local Supabase and preload linked-reset residue
         run: |
           supabase start
-          supabase db query --local --file supabase/tests/legacy-integration-credential-envelope-residue.sql
+          db_container=$(docker ps --filter 'name=supabase_db_' --format '{{.ID}}' | head -n 1)
+          test -n "$db_container"
+          docker exec -i "$db_container" psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+            < supabase/tests/legacy-integration-credential-envelope-residue.sql
       - name: Apply the complete chain over legacy credential residue
         run: supabase db reset --local --no-seed
       - name: Verify ledger and restored credential-envelope contract
