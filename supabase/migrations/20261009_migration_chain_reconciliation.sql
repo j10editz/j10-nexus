@@ -13,44 +13,10 @@ CREATE TABLE IF NOT EXISTS public.employees (id uuid PRIMARY KEY DEFAULT gen_ran
 CREATE TABLE IF NOT EXISTS public.ai_tasks (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL, title text NOT NULL, status text NOT NULL DEFAULT 'pending', created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS public.activity_logs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL, action text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 
-DO $$
-DECLARE
-  v_source_id uuid := '0a96ddf0-ab9d-4325-85dd-8e3cbd4eacfa';
-  v_dest_id uuid := 'f44f4cc4-30bc-4d78-98e3-0b63ff63e08f';
-  v_ws_id uuid := 'ce593364-2aaf-47e4-a1d2-2272775747c4';
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = v_source_id)
-    OR NOT EXISTS (SELECT 1 FROM auth.users WHERE id = v_dest_id)
-    OR NOT EXISTS (SELECT 1 FROM public.workspaces WHERE id = v_ws_id) THEN
-    RAISE NOTICE 'Skipping historical founder ownership reconciliation: original identities are absent.';
-    RETURN;
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM public.workspaces WHERE id = v_ws_id AND owner_user_id = v_dest_id) THEN
-    RETURN;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public.workspaces WHERE id = v_ws_id AND owner_user_id = v_source_id)
-    OR NOT EXISTS (
-      SELECT 1 FROM public.platform_roles
-      WHERE user_id = v_source_id AND role = 'platform_founder' AND revoked_at IS NULL
-    ) THEN
-    RAISE EXCEPTION 'Historical founder reconciliation precondition failed; ownership state is not the expected source state.';
-  END IF;
-
-  INSERT INTO public.workspace_memberships (workspace_id, user_id, role, status)
-  VALUES (v_ws_id, v_dest_id, 'owner', 'active')
-  ON CONFLICT (workspace_id, user_id)
-  DO UPDATE SET role = 'owner', status = 'active', updated_at = now();
-  UPDATE public.workspaces SET owner_user_id = v_dest_id, updated_at = now() WHERE id = v_ws_id;
-  INSERT INTO public.platform_roles (user_id, role, granted_at)
-  VALUES (v_dest_id, 'platform_founder', now())
-  ON CONFLICT (user_id) DO UPDATE SET role = 'platform_founder', revoked_at = NULL;
-  INSERT INTO public.profiles (user_id, display_name, job_title, status)
-  VALUES (v_dest_id, 'J10 THE BOSS', 'CEO', 'active')
-  ON CONFLICT (user_id) DO UPDATE SET job_title = 'CEO', status = 'active', updated_at = now();
-  UPDATE public.platform_roles SET role = 'platform_admin' WHERE user_id = v_source_id;
-END $$;
+-- Historical, environment-specific founder ownership changes are intentionally
+-- not reconciled here. Existing environments retain their recorded ownership;
+-- any explicit role or ownership bootstrap is performed through the authenticated
+-- application flow after its referenced user and workspace have been verified.
 
 DO $$
 BEGIN

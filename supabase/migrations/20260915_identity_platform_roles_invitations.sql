@@ -120,17 +120,11 @@ SELECT id, split_part(email, '@', 1), 'active'
 FROM auth.users
 ON CONFLICT (user_id) DO NOTHING;
 
--- 6. IDEMPOTENT FOUNDER PROTECTION
--- Explicitly grant platform_founder to the verified immutable founder UUID
-INSERT INTO public.platform_roles (user_id, role, granted_at)
-VALUES ('0a96ddf0-ab9d-4325-85dd-8e3cbd4eacfa', 'platform_founder', now())
-ON CONFLICT (user_id) DO UPDATE SET role = 'platform_founder', revoked_at = NULL;
-
-UPDATE public.profiles
-SET display_name = 'CEO & Founder',
-    job_title = 'CEO',
-    updated_at = now()
-WHERE user_id = '0a96ddf0-ab9d-4325-85dd-8e3cbd4eacfa';
+-- 6. PLATFORM OWNER BOOTSTRAP
+-- This schema migration deliberately creates no platform owner. The initial
+-- platform role must be granted by an explicit authenticated bootstrap flow
+-- after the target user exists, so a clean install never embeds an
+-- environment-specific identity.
 
 -- 7. HARDENED PROVISION_WORKSPACE RPC
 -- Enforces that only verified platform admins/founders can provision agency_master or enterprise workspaces.
@@ -321,50 +315,6 @@ CREATE POLICY "invitations_delete_privileged"
   USING (public.has_workspace_role(workspace_id, ARRAY['owner', 'admin']));
 
 COMMIT;
-
--- Historical ownership transfer formerly lived in an invalid `20260915b`
--- filename. Keep it in this valid migration for fresh installs; it is a safe
--- no-op for every database other than the original tenancy.
-DO $$
-DECLARE
-  v_source_id uuid := '0a96ddf0-ab9d-4325-85dd-8e3cbd4eacfa';
-  v_dest_id uuid := 'f44f4cc4-30bc-4d78-98e3-0b63ff63e08f';
-  v_ws_id uuid := 'ce593364-2aaf-47e4-a1d2-2272775747c4';
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = v_source_id)
-    OR NOT EXISTS (SELECT 1 FROM auth.users WHERE id = v_dest_id)
-    OR NOT EXISTS (SELECT 1 FROM public.workspaces WHERE id = v_ws_id) THEN
-    RAISE NOTICE 'Skipping historical founder ownership transfer: original identities are absent.';
-    RETURN;
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM public.workspaces WHERE id = v_ws_id AND owner_user_id = v_dest_id) THEN
-    RAISE NOTICE 'Skipping historical founder ownership transfer: destination already owns workspace.';
-    RETURN;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public.workspaces WHERE id = v_ws_id AND owner_user_id = v_source_id)
-    OR NOT EXISTS (
-      SELECT 1 FROM public.platform_roles
-      WHERE user_id = v_source_id AND role = 'platform_founder' AND revoked_at IS NULL
-    ) THEN
-    RAISE EXCEPTION 'Historical founder transfer precondition failed; ownership state is not the expected source state.';
-  END IF;
-
-  INSERT INTO public.workspace_memberships (workspace_id, user_id, role, status)
-  VALUES (v_ws_id, v_dest_id, 'owner', 'active')
-  ON CONFLICT (workspace_id, user_id)
-  DO UPDATE SET role = 'owner', status = 'active', updated_at = now();
-
-  UPDATE public.workspaces SET owner_user_id = v_dest_id, updated_at = now() WHERE id = v_ws_id;
-  INSERT INTO public.platform_roles (user_id, role, granted_at)
-  VALUES (v_dest_id, 'platform_founder', now())
-  ON CONFLICT (user_id) DO UPDATE SET role = 'platform_founder', revoked_at = NULL;
-  INSERT INTO public.profiles (user_id, display_name, job_title, status)
-  VALUES (v_dest_id, 'J10 THE BOSS', 'CEO', 'active')
-  ON CONFLICT (user_id) DO UPDATE SET job_title = 'CEO', status = 'active', updated_at = now();
-  UPDATE public.platform_roles SET role = 'platform_admin' WHERE user_id = v_source_id;
-END $$;
 
 -- 10. RELOAD POSTGREST SCHEMA CACHE
 NOTIFY pgrst, 'reload schema';
