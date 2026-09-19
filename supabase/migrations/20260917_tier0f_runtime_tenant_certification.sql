@@ -105,6 +105,36 @@ BEGIN
 
   -- If crm_contacts is a physical table ('r'), safely backfill and convert without deleting data
   IF v_crm_kind = 'r' THEN
+    -- The legacy CRM table predates workspace tenantization. Establish its
+    -- tenant key before it is renamed and later referenced through arc.
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'crm_contacts' AND column_name = 'workspace_id'
+    ) THEN
+      ALTER TABLE public.crm_contacts
+        ADD COLUMN workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE;
+    END IF;
+    UPDATE public.crm_contacts legacy
+    SET workspace_id = membership.workspace_id
+    FROM (
+      SELECT membership.user_id, membership.workspace_id
+      FROM public.workspace_memberships membership
+      JOIN (
+        SELECT user_id
+        FROM public.workspace_memberships
+        WHERE status = 'active'
+        GROUP BY user_id
+        HAVING count(DISTINCT workspace_id) = 1
+      ) unique_membership USING (user_id)
+      WHERE membership.status = 'active'
+    ) membership
+    WHERE legacy.workspace_id IS NULL
+      AND legacy.user_id = membership.user_id;
+    IF EXISTS (SELECT 1 FROM public.crm_contacts WHERE workspace_id IS NULL) THEN
+      RAISE EXCEPTION 'CRM consolidation aborted: crm_contacts.workspace_id is unresolved.';
+    END IF;
+    ALTER TABLE public.crm_contacts ALTER COLUMN workspace_id SET NOT NULL;
+
     EXECUTE 'SELECT count(*) FROM public.crm_contacts' INTO v_pre_count;
 
     -- Check archive table state
