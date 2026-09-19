@@ -1,518 +1,69 @@
-begin;
+-- Reconciles invariants from invalid historical `b` migrations for databases
+-- that already recorded the surrounding valid migration versions.
+BEGIN;
 
-create extension if not exists pgcrypto;
+DO $$
+DECLARE
+  v_source_id uuid := '0a96ddf0-ab9d-4325-85dd-8e3cbd4eacfa';
+  v_dest_id uuid := 'f44f4cc4-30bc-4d78-98e3-0b63ff63e08f';
+  v_ws_id uuid := 'ce593364-2aaf-47e4-a1d2-2272775747c4';
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = v_source_id)
+    OR NOT EXISTS (SELECT 1 FROM auth.users WHERE id = v_dest_id)
+    OR NOT EXISTS (SELECT 1 FROM public.workspaces WHERE id = v_ws_id) THEN
+    RAISE NOTICE 'Skipping historical founder ownership reconciliation: original identities are absent.';
+    RETURN;
+  END IF;
 
-/*
-  Day 14B
-  Integration connection model, lifecycle state, ownership,
-  status history, row-level security, and operational metadata.
-*/
+  IF EXISTS (SELECT 1 FROM public.workspaces WHERE id = v_ws_id AND owner_user_id = v_dest_id) THEN
+    RETURN;
+  END IF;
 
-create table if not exists public.integrations (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  provider text not null,
-  status text not null default 'not_configured',
-  environment text not null default 'development',
-  account_label text,
-  credential_reference uuid,
-  external_account_id text,
-  external_account_label text,
-  granted_scopes text[] not null default '{}'::text[],
-  enabled_capabilities text[] not null default '{}'::text[],
-  public_configuration jsonb not null default '{}'::jsonb,
-  metadata jsonb not null default '{}'::jsonb,
-  connected_at timestamptz,
-  last_health_check_at timestamptz,
-  last_error_code text,
-  last_error_message text,
-  status_reason text,
-  status_metadata jsonb not null default '{}'::jsonb,
-  revoked_at timestamptz,
-  disabled_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+  IF NOT EXISTS (SELECT 1 FROM public.workspaces WHERE id = v_ws_id AND owner_user_id = v_source_id)
+    OR NOT EXISTS (
+      SELECT 1 FROM public.platform_roles
+      WHERE user_id = v_source_id AND role = 'platform_founder' AND revoked_at IS NULL
+    ) THEN
+    RAISE EXCEPTION 'Historical founder reconciliation precondition failed; ownership state is not the expected source state.';
+  END IF;
 
-alter table public.integrations
-  add column if not exists environment text
-    not null default 'development',
-  add column if not exists credential_reference uuid,
-  add column if not exists external_account_label text,
-  add column if not exists granted_scopes text[]
-    not null default '{}'::text[],
-  add column if not exists enabled_capabilities text[]
-    not null default '{}'::text[],
-  add column if not exists public_configuration jsonb
-    not null default '{}'::jsonb,
-  add column if not exists metadata jsonb
-    not null default '{}'::jsonb,
-  add column if not exists last_health_check_at timestamptz,
-  add column if not exists last_error_code text,
-  add column if not exists last_error_message text,
-  add column if not exists status_reason text,
-  add column if not exists status_metadata jsonb
-    not null default '{}'::jsonb,
-  add column if not exists revoked_at timestamptz,
-  add column if not exists disabled_at timestamptz,
-  add column if not exists updated_at timestamptz
-    not null default now();
+  INSERT INTO public.workspace_memberships (workspace_id, user_id, role, status)
+  VALUES (v_ws_id, v_dest_id, 'owner', 'active')
+  ON CONFLICT (workspace_id, user_id)
+  DO UPDATE SET role = 'owner', status = 'active', updated_at = now();
+  UPDATE public.workspaces SET owner_user_id = v_dest_id, updated_at = now() WHERE id = v_ws_id;
+  INSERT INTO public.platform_roles (user_id, role, granted_at)
+  VALUES (v_dest_id, 'platform_founder', now())
+  ON CONFLICT (user_id) DO UPDATE SET role = 'platform_founder', revoked_at = NULL;
+  INSERT INTO public.profiles (user_id, display_name, job_title, status)
+  VALUES (v_dest_id, 'J10 THE BOSS', 'CEO', 'active')
+  ON CONFLICT (user_id) DO UPDATE SET job_title = 'CEO', status = 'active', updated_at = now();
+  UPDATE public.platform_roles SET role = 'platform_admin' WHERE user_id = v_source_id;
+END $$;
 
-update public.integrations
-set
-  status = coalesce(status, 'not_configured'),
-  environment = coalesce(environment, 'development'),
-  granted_scopes = coalesce(granted_scopes, '{}'::text[]),
-  enabled_capabilities = coalesce(enabled_capabilities, '{}'::text[]),
-  public_configuration = coalesce(public_configuration, '{}'::jsonb),
-  metadata = coalesce(metadata, '{}'::jsonb),
-  status_metadata = coalesce(status_metadata, '{}'::jsonb),
-  created_at = coalesce(created_at, now()),
-  updated_at = coalesce(updated_at, created_at, now());
+DO $$
+BEGIN
+  IF to_regprocedure('public.record_verified_workspace_usage(uuid,text,integer,text,text,uuid,jsonb)') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.record_verified_workspace_usage(UUID, TEXT, INT, TEXT, TEXT, UUID, JSONB) FROM PUBLIC';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.record_verified_workspace_usage(UUID, TEXT, INT, TEXT, TEXT, UUID, JSONB) FROM anon';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.record_verified_workspace_usage(UUID, TEXT, INT, TEXT, TEXT, UUID, JSONB) TO authenticated, service_role';
+  END IF;
+  IF to_regprocedure('public.activate_workspace_trial(uuid,text,integer)') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL ON FUNCTION public.activate_workspace_trial(UUID, TEXT, INT) FROM PUBLIC';
+    EXECUTE 'REVOKE ALL ON FUNCTION public.activate_workspace_trial(UUID, TEXT, INT) FROM anon';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.activate_workspace_trial(UUID, TEXT, INT) TO authenticated, service_role';
+  END IF;
+  IF to_regclass('public.crm_proposals') IS NOT NULL AND to_regclass('public.crm_bookings') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL ON public.crm_proposals FROM authenticated';
+    EXECUTE 'REVOKE ALL ON public.crm_bookings FROM authenticated';
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.crm_proposals TO authenticated';
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.crm_bookings TO authenticated';
+  END IF;
+END $$;
 
-alter table public.integrations
-  alter column status set default 'not_configured',
-  alter column status set not null,
-  alter column environment set default 'development',
-  alter column environment set not null,
-  alter column granted_scopes set default '{}'::text[],
-  alter column granted_scopes set not null,
-  alter column enabled_capabilities set default '{}'::text[],
-  alter column enabled_capabilities set not null,
-  alter column public_configuration set default '{}'::jsonb,
-  alter column public_configuration set not null,
-  alter column metadata set default '{}'::jsonb,
-  alter column metadata set not null,
-  alter column status_metadata set default '{}'::jsonb,
-  alter column status_metadata set not null,
-  alter column created_at set default now(),
-  alter column created_at set not null,
-  alter column updated_at set default now(),
-  alter column updated_at set not null;
+COMMIT;
 
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.integrations'::regclass
-      and conname = 'integrations_provider_check'
-  ) then
-    alter table public.integrations
-      add constraint integrations_provider_check
-      check (
-        provider = any (
-          array[
-            'gmail',
-            'google-calendar',
-            'whatsapp-business',
-            'shopify',
-            'stripe',
-            'generic-webhook',
-
-            /* Preserved legacy identifiers. */
-            'email',
-            'calendar',
-            'google_calendar',
-            'whatsapp',
-            'whatsapp_business',
-            'webhook',
-            'generic_webhook',
-            'crm',
-            'marketing',
-            'notifications'
-          ]::text[]
-        )
-      );
-  end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.integrations'::regclass
-      and conname = 'integrations_status_check'
-  ) then
-    alter table public.integrations
-      add constraint integrations_status_check
-      check (
-        status = any (
-          array[
-            'not_configured',
-            'pending',
-            'connected',
-            'degraded',
-            'disconnected',
-            'error',
-            'revoked',
-            'disabled'
-          ]::text[]
-        )
-      );
-  end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.integrations'::regclass
-      and conname = 'integrations_environment_check'
-  ) then
-    alter table public.integrations
-      add constraint integrations_environment_check
-      check (
-        environment = any (
-          array[
-            'development',
-            'sandbox',
-            'production'
-          ]::text[]
-        )
-      );
-  end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.integrations'::regclass
-      and conname = 'integrations_user_provider_key'
-  ) then
-    alter table public.integrations
-      add constraint integrations_user_provider_key
-      unique (
-        user_id,
-        provider
-      );
-  end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.integrations'::regclass
-      and conname = 'integrations_account_label_check'
-  ) then
-    alter table public.integrations
-      add constraint integrations_account_label_check
-      check (
-        account_label is null
-        or char_length(account_label) between 1 and 160
-      );
-  end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.integrations'::regclass
-      and conname = 'integrations_public_configuration_size_check'
-  ) then
-    alter table public.integrations
-      add constraint integrations_public_configuration_size_check
-      check (
-        octet_length(public_configuration::text) <= 32768
-      );
-  end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.integrations'::regclass
-      and conname = 'integrations_metadata_size_check'
-  ) then
-    alter table public.integrations
-      add constraint integrations_metadata_size_check
-      check (
-        octet_length(metadata::text) <= 32768
-        and octet_length(status_metadata::text) <= 32768
-      );
-  end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.integrations'::regclass
-      and conname = 'integrations_error_size_check'
-  ) then
-    alter table public.integrations
-      add constraint integrations_error_size_check
-      check (
-        (
-          last_error_code is null
-          or char_length(last_error_code) <= 160
-        )
-        and
-        (
-          last_error_message is null
-          or char_length(last_error_message) <= 2000
-        )
-        and
-        (
-          status_reason is null
-          or char_length(status_reason) <= 2000
-        )
-      );
-  end if;
-end
-$$;
-
-create index if not exists integrations_user_created_idx
-  on public.integrations(
-    user_id,
-    created_at asc
-  );
-
-create index if not exists integrations_user_status_idx
-  on public.integrations(
-    user_id,
-    status
-  );
-
-create index if not exists integrations_provider_idx
-  on public.integrations(provider);
-
-create table if not exists public.integration_status_history (
-  id uuid primary key default gen_random_uuid(),
-  integration_id uuid not null
-    references public.integrations(id) on delete cascade,
-  user_id uuid not null
-    references auth.users(id) on delete cascade,
-  previous_status text,
-  next_status text not null,
-  reason text,
-  metadata jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now(),
-
-  constraint integration_status_history_previous_status_check
-    check (
-      previous_status is null
-      or previous_status = any (
-        array[
-          'not_configured',
-          'pending',
-          'connected',
-          'degraded',
-          'disconnected',
-          'error',
-          'revoked',
-          'disabled'
-        ]::text[]
-      )
-    ),
-
-  constraint integration_status_history_next_status_check
-    check (
-      next_status = any (
-        array[
-          'not_configured',
-          'pending',
-          'connected',
-          'degraded',
-          'disconnected',
-          'error',
-          'revoked',
-          'disabled'
-        ]::text[]
-      )
-    ),
-
-  constraint integration_status_history_reason_check
-    check (
-      reason is null
-      or char_length(reason) <= 2000
-    ),
-
-  constraint integration_status_history_metadata_size_check
-    check (
-      octet_length(metadata::text) <= 32768
-    )
-);
-
-create index if not exists integration_status_history_connection_idx
-  on public.integration_status_history(
-    integration_id,
-    created_at desc
-  );
-
-create index if not exists integration_status_history_user_idx
-  on public.integration_status_history(
-    user_id,
-    created_at desc
-  );
-
-create or replace function public.set_integration_updated_at()
-returns trigger
-language plpgsql
-set search_path = pg_catalog, public
-as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$;
-
-drop trigger if exists integrations_set_updated_at
-  on public.integrations;
-
-create trigger integrations_set_updated_at
-  before update
-  on public.integrations
-  for each row
-  execute function public.set_integration_updated_at();
-
-create or replace function public.record_integration_status_history()
-returns trigger
-language plpgsql
-security definer
-set search_path = pg_catalog, public
-as $$
-begin
-  if (
-    tg_op = 'INSERT'
-    or old.status is distinct from new.status
-  ) then
-    insert into public.integration_status_history (
-      integration_id,
-      user_id,
-      previous_status,
-      next_status,
-      reason,
-      metadata
-    )
-    values (
-      new.id,
-      new.user_id,
-      case
-        when tg_op = 'INSERT' then null
-        else old.status
-      end,
-      new.status,
-      new.status_reason,
-      coalesce(
-        new.status_metadata,
-        '{}'::jsonb
-      )
-    );
-  end if;
-
-  return new;
-end;
-$$;
-
-drop trigger if exists integrations_record_status_history
-  on public.integrations;
-
-create trigger integrations_record_status_history
-  after insert or update of status
-  on public.integrations
-  for each row
-  execute function public.record_integration_status_history();
-
-alter table public.integrations
-  enable row level security;
-
-alter table public.integration_status_history
-  enable row level security;
-
-drop policy if exists integrations_select_own
-  on public.integrations;
-
-create policy integrations_select_own
-  on public.integrations
-  for select
-  to authenticated
-  using (
-    auth.uid() = user_id
-  );
-
-drop policy if exists integrations_insert_own
-  on public.integrations;
-
-create policy integrations_insert_own
-  on public.integrations
-  for insert
-  to authenticated
-  with check (
-    auth.uid() = user_id
-  );
-
-drop policy if exists integrations_update_own
-  on public.integrations;
-
-create policy integrations_update_own
-  on public.integrations
-  for update
-  to authenticated
-  using (
-    auth.uid() = user_id
-  )
-  with check (
-    auth.uid() = user_id
-  );
-
-drop policy if exists integrations_delete_own
-  on public.integrations;
-
-create policy integrations_delete_own
-  on public.integrations
-  for delete
-  to authenticated
-  using (
-    auth.uid() = user_id
-  );
-
-drop policy if exists integration_status_history_select_own
-  on public.integration_status_history;
-
-create policy integration_status_history_select_own
-  on public.integration_status_history
-  for select
-  to authenticated
-  using (
-    auth.uid() = user_id
-  );
-
-revoke all
-  on table public.integrations
-  from public, anon;
-
-revoke all
-  on table public.integration_status_history
-  from public, anon;
-
-grant select, insert, update, delete
-  on table public.integrations
-  to authenticated;
-
-grant select
-  on table public.integration_status_history
-  to authenticated;
-
-grant all
-  on table public.integrations
-  to service_role;
-
-grant all
-  on table public.integration_status_history
-  to service_role;
-
-revoke all
-  on function public.record_integration_status_history()
-  from public, anon, authenticated;
-
-comment on table public.integrations is
-  'J10 NEXUS workspace-owned integration connection registry and lifecycle state.';
-
-comment on table public.integration_status_history is
-  'Immutable workspace-owned history of integration lifecycle transitions.';
-
-comment on column public.integrations.credential_reference is
-  'Opaque reference to encrypted server-side credentials. Never stores plaintext secrets.';
-
-comment on column public.integrations.public_configuration is
-  'Non-secret connector configuration safe for authenticated workspace clients.';
-
-comment on column public.integrations.metadata is
-  'Non-secret internal integration metadata. Raw credentials are forbidden.';
-
-commit;
--- BEGIN CONSOLIDATED 20260820_day14c_integration_credentials.sql
+-- BEGIN LEDGER RECONCILIATION 20260820_day14c_integration_credentials.sql
 begin;
 
 create extension if not exists pgcrypto;
@@ -1037,9 +588,9 @@ comment on function public.get_integration_credential_envelope(uuid) is
   'Returns an encrypted credential envelope only to its workspace owner or service role.';
 
 commit;
--- END CONSOLIDATED 20260820_day14c_integration_credentials.sql
+-- END LEDGER RECONCILIATION 20260820_day14c_integration_credentials.sql
 
--- BEGIN CONSOLIDATED 20260820_day14e_integration_catalog.sql
+-- BEGIN LEDGER RECONCILIATION 20260820_day14e_integration_catalog.sql
 begin;
 
 /*
@@ -1155,9 +706,9 @@ comment on constraint integrations_provider_check
   is 'Allows canonical J10 NEXUS integration providers and preserved legacy provider values.';
 
 commit;
--- END CONSOLIDATED 20260820_day14e_integration_catalog.sql
+-- END LEDGER RECONCILIATION 20260820_day14e_integration_catalog.sql
 
--- BEGIN CONSOLIDATED 20260820_day14g_webhook_foundation.sql
+-- BEGIN LEDGER RECONCILIATION 20260820_day14g_webhook_foundation.sql
 begin;
 
 create extension if not exists pgcrypto;
@@ -1367,9 +918,9 @@ comment on column public.integration_webhook_events.processing_status is
   'Day 14G stores pending_adapter; Day 14H normalizes and Day 14J dispatches.';
 
 commit;
--- END CONSOLIDATED 20260820_day14g_webhook_foundation.sql
+-- END LEDGER RECONCILIATION 20260820_day14g_webhook_foundation.sql
 
--- BEGIN CONSOLIDATED 20260820_day14h_external_trigger_adapter.sql
+-- BEGIN LEDGER RECONCILIATION 20260820_day14h_external_trigger_adapter.sql
 begin;
 
 alter table public.integration_webhook_events
@@ -1436,9 +987,9 @@ comment on constraint integration_webhook_events_adapted_payload_check
   'Adapted and processed receipts must contain a canonical normalized event and adaptation timestamp.';
 
 commit;
--- END CONSOLIDATED 20260820_day14h_external_trigger_adapter.sql
+-- END LEDGER RECONCILIATION 20260820_day14h_external_trigger_adapter.sql
 
--- BEGIN CONSOLIDATED 20260820_day14i_external_action_adapter.sql
+-- BEGIN LEDGER RECONCILIATION 20260820_day14i_external_action_adapter.sql
 begin;
 
 create extension if not exists pgcrypto;
@@ -1603,4 +1154,368 @@ comment on column public.integration_action_executions.requires_approval is
   'Safety classification consumed by the Day 14K permission and human-approval gate.';
 
 commit;
--- END CONSOLIDATED 20260820_day14i_external_action_adapter.sql
+-- END LEDGER RECONCILIATION 20260820_day14i_external_action_adapter.sql
+
+-- BEGIN LEDGER RECONCILIATION 20260821_day14l_integration_observability_retry.sql
+begin;
+
+alter table public.integration_action_executions
+  add column if not exists attempt_count integer not null default 1,
+  add column if not exists max_attempts integer not null default 3,
+  add column if not exists retryable boolean not null default false,
+  add column if not exists next_retry_at timestamptz,
+  add column if not exists last_attempted_at timestamptz,
+  add column if not exists last_error_at timestamptz;
+
+update public.integration_action_executions
+set
+  attempt_count = greatest(attempt_count, 1),
+  max_attempts = greatest(max_attempts, 1),
+  last_attempted_at = coalesce(last_attempted_at, started_at),
+  last_error_at = case
+    when status = 'failed'
+      then coalesce(last_error_at, completed_at, updated_at)
+    else last_error_at
+  end;
+
+alter table public.integration_action_executions
+  alter column last_attempted_at set default now(),
+  alter column last_attempted_at set not null;
+
+alter table public.integration_action_executions
+  drop constraint if exists integration_action_executions_attempt_count_check;
+
+alter table public.integration_action_executions
+  add constraint integration_action_executions_attempt_count_check
+  check (
+    attempt_count between 1 and max_attempts
+    and max_attempts between 1 and 10
+  );
+
+alter table public.integration_action_executions
+  drop constraint if exists integration_action_executions_retry_state_check;
+
+alter table public.integration_action_executions
+  add constraint integration_action_executions_retry_state_check
+  check (
+    not retryable
+    or (
+      status = 'failed'
+      and attempt_count < max_attempts
+    )
+  );
+
+create index if not exists integration_action_executions_retry_queue_idx
+  on public.integration_action_executions(next_retry_at asc)
+  where status = 'failed' and retryable = true;
+
+alter table public.integration_webhook_events
+  add column if not exists attempt_count integer not null default 0,
+  add column if not exists max_attempts integer not null default 5,
+  add column if not exists retryable boolean not null default false,
+  add column if not exists next_retry_at timestamptz,
+  add column if not exists last_attempted_at timestamptz,
+  add column if not exists last_error_at timestamptz;
+
+update public.integration_webhook_events
+set
+  attempt_count = case
+    when processing_status = 'pending_adapter'
+      then greatest(attempt_count, 0)
+    else greatest(attempt_count, 1)
+  end,
+  max_attempts = greatest(max_attempts, 1),
+  last_attempted_at = case
+    when processing_status = 'pending_adapter'
+      then last_attempted_at
+    else coalesce(last_attempted_at, adapted_at, processed_at, received_at)
+  end,
+  last_error_at = case
+    when processing_status = 'failed'
+      then coalesce(last_error_at, processed_at, adapted_at, received_at)
+    else last_error_at
+  end;
+
+alter table public.integration_webhook_events
+  drop constraint if exists integration_webhook_events_attempt_count_check;
+
+alter table public.integration_webhook_events
+  add constraint integration_webhook_events_attempt_count_check
+  check (
+    attempt_count between 0 and max_attempts
+    and max_attempts between 1 and 10
+  );
+
+alter table public.integration_webhook_events
+  drop constraint if exists integration_webhook_events_retry_state_check;
+
+alter table public.integration_webhook_events
+  add constraint integration_webhook_events_retry_state_check
+  check (
+    not retryable
+    or (
+      processing_status = 'failed'
+      and attempt_count < max_attempts
+    )
+  );
+
+create index if not exists integration_webhook_events_retry_queue_idx
+  on public.integration_webhook_events(next_retry_at asc)
+  where processing_status = 'failed' and retryable = true;
+
+create table if not exists public.integration_operation_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  integration_id uuid not null references public.integrations(id) on delete cascade,
+  provider text not null,
+  source text not null,
+  event_type text not null,
+  severity text not null default 'info',
+  status text not null,
+  correlation_id text not null,
+  action_execution_id uuid references public.integration_action_executions(id) on delete set null,
+  webhook_event_id uuid references public.integration_webhook_events(id) on delete set null,
+  attempt integer not null default 1,
+  max_attempts integer not null default 1,
+  retryable boolean not null default false,
+  next_retry_at timestamptz,
+  error_code text,
+  message text not null,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+
+  constraint integration_operation_logs_source_check
+    check (
+      source in (
+        'action',
+        'webhook',
+        'system'
+      )
+    ),
+
+  constraint integration_operation_logs_severity_check
+    check (
+      severity in (
+        'debug',
+        'info',
+        'warning',
+        'error'
+      )
+    ),
+
+  constraint integration_operation_logs_status_check
+    check (
+      status in (
+        'received',
+        'started',
+        'succeeded',
+        'failed',
+        'blocked',
+        'duplicate',
+        'retry_scheduled',
+        'retrying',
+        'exhausted'
+      )
+    ),
+
+  constraint integration_operation_logs_attempt_check
+    check (
+      attempt between 0 and max_attempts
+      and max_attempts between 1 and 10
+    ),
+
+  constraint integration_operation_logs_correlation_check
+    check (
+      char_length(correlation_id) between 1 and 160
+    ),
+
+  constraint integration_operation_logs_message_check
+    check (
+      char_length(message) between 1 and 2000
+    ),
+
+  constraint integration_operation_logs_metadata_size_check
+    check (
+      octet_length(metadata::text) <= 32768
+    )
+);
+
+create index if not exists integration_operation_logs_user_created_idx
+  on public.integration_operation_logs(
+    user_id,
+    created_at desc
+  );
+
+create index if not exists integration_operation_logs_integration_created_idx
+  on public.integration_operation_logs(
+    integration_id,
+    created_at desc
+  );
+
+create index if not exists integration_operation_logs_errors_idx
+  on public.integration_operation_logs(
+    integration_id,
+    created_at desc
+  )
+  where severity = 'error';
+
+create index if not exists integration_operation_logs_action_idx
+  on public.integration_operation_logs(action_execution_id)
+  where action_execution_id is not null;
+
+create index if not exists integration_operation_logs_webhook_idx
+  on public.integration_operation_logs(webhook_event_id)
+  where webhook_event_id is not null;
+
+alter table public.integration_operation_logs
+  enable row level security;
+
+drop policy if exists integration_operation_logs_select_own
+  on public.integration_operation_logs;
+
+create policy integration_operation_logs_select_own
+  on public.integration_operation_logs
+  for select
+  to authenticated
+  using (
+    auth.uid() = user_id
+  );
+
+drop policy if exists integration_operation_logs_insert_own
+  on public.integration_operation_logs;
+
+create policy integration_operation_logs_insert_own
+  on public.integration_operation_logs
+  for insert
+  to authenticated
+  with check (
+    auth.uid() = user_id
+  );
+
+revoke all
+  on table public.integration_operation_logs
+  from public, anon;
+
+grant select, insert
+  on table public.integration_operation_logs
+  to authenticated;
+
+grant all
+  on table public.integration_operation_logs
+  to service_role;
+
+comment on table public.integration_operation_logs is
+  'Immutable, redacted Day 14L action, webhook, failure, and retry observability records.';
+
+comment on column public.integration_operation_logs.metadata is
+  'Redacted operational metadata only. Credentials, authorization headers, raw payloads, and raw action input are forbidden.';
+
+comment on column public.integration_action_executions.retryable is
+  'True only when the latest failed action attempt is transient and remains inside its bounded retry budget.';
+
+comment on column public.integration_webhook_events.retryable is
+  'True only when the latest failed webhook processing attempt is transient and remains inside its bounded retry budget.';
+
+commit;
+-- END LEDGER RECONCILIATION 20260821_day14l_integration_observability_retry.sql
+
+-- BEGIN LEDGER RECONCILIATION 20260829_day16g_runtime_step_history_fk.sql
+begin;
+
+/*
+  Day 16G
+  Preserve immutable run history when a published workflow replaces its live
+  automation_steps rows.
+
+  automation_run_steps already stores automation_version_id and graph_node_id
+  for durable traceability. The live automation_step_id is therefore a useful
+  pointer only while that runtime step still exists; it must not prevent the
+  atomic publish/rollback RPCs from replacing live runtime steps.
+*/
+
+alter table public.automation_run_steps
+  alter column automation_step_id drop not null;
+
+do $$
+declare
+  v_constraint record;
+begin
+  for v_constraint in
+    select constraint_row.conname
+    from pg_constraint as constraint_row
+    where constraint_row.contype = 'f'
+      and constraint_row.conrelid =
+        'public.automation_run_steps'::regclass
+      and constraint_row.confrelid =
+        'public.automation_steps'::regclass
+      and pg_get_constraintdef(constraint_row.oid) ~
+        '^FOREIGN KEY \(automation_step_id\)'
+  loop
+    execute format(
+      'alter table public.automation_run_steps drop constraint %I',
+      v_constraint.conname
+    );
+  end loop;
+end $$;
+
+alter table public.automation_run_steps
+  add constraint automation_run_steps_automation_step_id_fkey
+  foreign key (automation_step_id)
+  references public.automation_steps(id)
+  on delete set null;
+
+commit;
+
+-- END LEDGER RECONCILIATION 20260829_day16g_runtime_step_history_fk.sql
+
+-- BEGIN LEDGER RECONCILIATION 20260829_day16h_pgcrypto_checksum_schema.sql
+begin;
+
+/*
+  Day 16H
+  Resolve the workflow graph checksum function through Supabase's extensions
+  schema. Supabase installs pgcrypto there, while PostgREST requests may use a
+  search path that does not include extensions.
+*/
+
+create extension if not exists pgcrypto with schema extensions;
+
+create or replace function public.set_automation_version_graph_checksum()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public, auth, extensions
+as $$
+begin
+  new.graph_checksum := encode(
+    extensions.digest(
+      new.graph_snapshot::text,
+      'sha256'::text
+    ),
+    'hex'
+  );
+
+  if new.status = 'published' and new.published_by is null then
+    new.published_by := auth.uid();
+  end if;
+
+  return new;
+end;
+$$;
+
+do $$
+declare
+  v_checksum text;
+begin
+  v_checksum := encode(
+    extensions.digest('{}'::text, 'sha256'::text),
+    'hex'
+  );
+
+  if v_checksum !~ '^[a-f0-9]{64}$' then
+    raise exception 'pgcrypto SHA-256 checksum verification failed.';
+  end if;
+end $$;
+
+commit;
+
+-- END LEDGER RECONCILIATION 20260829_day16h_pgcrypto_checksum_schema.sql
