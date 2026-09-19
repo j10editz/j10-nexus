@@ -243,4 +243,15 @@ BEGIN
   END IF;
 END $$;
 
+-- Preserve the authenticated-role reset formerly skipped in invalid 20260919b.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    EXECUTE 'REVOKE ALL ON public.crm_proposals FROM authenticated';
+    EXECUTE 'REVOKE ALL ON public.crm_bookings FROM authenticated';
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.crm_proposals TO authenticated';
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.crm_bookings TO authenticated';
+  END IF;
+END $$;
+
 COMMIT;

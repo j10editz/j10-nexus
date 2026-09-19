@@ -7,43 +7,43 @@ const migrationPath = resolve(
   "supabase/migrations/20260829_day16f_workflow_lifecycle.sql",
 );
 const sql = readFileSync(migrationPath, "utf8");
+const lifecycleSql = sql.split("-- BEGIN CONSOLIDATED")[0];
 
-const runtimeHistoryMigrationPath = resolve(
-  process.cwd(),
-  "supabase/migrations/20260829_day16g_runtime_step_history_fk.sql",
-);
-const runtimeHistorySql = readFileSync(runtimeHistoryMigrationPath, "utf8");
+function consolidatedBlock(fileName: string) {
+  const start = `-- BEGIN CONSOLIDATED ${fileName}`;
+  const end = `-- END CONSOLIDATED ${fileName}`;
+  const content = sql.split(start)[1]?.split(end)[0];
+  if (!content) throw new Error(`Missing consolidated migration block: ${fileName}`);
+  return content;
+}
 
-const checksumSchemaMigrationPath = resolve(
-  process.cwd(),
-  "supabase/migrations/20260829_day16h_pgcrypto_checksum_schema.sql",
-);
-const checksumSchemaSql = readFileSync(checksumSchemaMigrationPath, "utf8");
+const runtimeHistorySql = consolidatedBlock("20260829_day16g_runtime_step_history_fk.sql");
+const checksumSchemaSql = consolidatedBlock("20260829_day16h_pgcrypto_checksum_schema.sql");
 
 describe("Workflow lifecycle migration contract", () => {
   it("is transactional and provides optimistic draft revision protection", () => {
-    expect(sql.trimStart().startsWith("begin;")).toBe(true);
-    expect(sql.trimEnd().endsWith("commit;")).toBe(true);
-    expect(sql).toContain("save_automation_draft_graph");
-    expect(sql).toContain("draft_revision <> p_expected_revision");
-    expect(sql).toContain("errcode = '40001'");
+    expect(lifecycleSql.trimStart().startsWith("begin;")).toBe(true);
+    expect(lifecycleSql.trimEnd().endsWith("commit;")).toBe(true);
+    expect(lifecycleSql).toContain("save_automation_draft_graph");
+    expect(lifecycleSql).toContain("draft_revision <> p_expected_revision");
+    expect(lifecycleSql).toContain("errcode = '40001'");
   });
 
   it("creates immutable checksummed versions and a transactional rollback copy", () => {
-    expect(sql).toContain("graph_checksum");
-    expect(sql).toContain("extensions.digest");
-    expect(sql).toContain("prevent_published_automation_version_mutation");
-    expect(sql).toContain("rollback_automation_version_runtime");
-    expect(sql).toContain("rollback_of_version_id");
-    expect(sql).toContain("insert into public.automation_version_steps");
-    expect(sql).toContain("delete from public.automation_steps");
+    expect(lifecycleSql).toContain("graph_checksum");
+    expect(lifecycleSql).toContain("extensions.digest");
+    expect(lifecycleSql).toContain("prevent_published_automation_version_mutation");
+    expect(lifecycleSql).toContain("rollback_automation_version_runtime");
+    expect(lifecycleSql).toContain("rollback_of_version_id");
+    expect(lifecycleSql).toContain("insert into public.automation_version_steps");
+    expect(lifecycleSql).toContain("delete from public.automation_steps");
   });
 
   it("keeps mutation RPCs unavailable to anonymous users", () => {
-    expect(sql).toMatch(/revoke all[\s\S]+save_automation_draft_graph[\s\S]+from anon;/);
-    expect(sql).toMatch(/revoke all[\s\S]+rollback_automation_version_runtime[\s\S]+from anon;/);
-    expect(sql).toMatch(/grant execute[\s\S]+save_automation_draft_graph[\s\S]+to authenticated;/);
-    expect(sql).toMatch(/grant execute[\s\S]+rollback_automation_version_runtime[\s\S]+to authenticated;/);
+    expect(lifecycleSql).toMatch(/revoke all[\s\S]+save_automation_draft_graph[\s\S]+from anon;/);
+    expect(lifecycleSql).toMatch(/revoke all[\s\S]+rollback_automation_version_runtime[\s\S]+from anon;/);
+    expect(lifecycleSql).toMatch(/grant execute[\s\S]+save_automation_draft_graph[\s\S]+to authenticated;/);
+    expect(lifecycleSql).toMatch(/grant execute[\s\S]+rollback_automation_version_runtime[\s\S]+to authenticated;/);
   });
 });
 

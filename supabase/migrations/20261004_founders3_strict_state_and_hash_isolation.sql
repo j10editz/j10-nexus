@@ -130,22 +130,80 @@ CREATE TABLE IF NOT EXISTS public.founders3_invitations (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Backfill or migrate column if table previously had invitation_code
+-- Backfill and verify every legacy invitation before removing plaintext codes.
+-- The legacy reservation RPC and its column-owned indexes/constraint are
+-- migration-owned and recreated below against invitation_code_hash.
+DROP FUNCTION IF EXISTS public.reserve_founders3_slot_atomic(UUID, TEXT, UUID, UUID, INT);
+
 DO $$
+DECLARE
+  v_table_oid oid := 'public.founders3_invitations'::regclass;
+  v_code_attnum smallint;
+  v_constraint record;
+  v_index record;
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'founders3_invitations' AND column_name = 'invitation_code'
-  ) AND NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'founders3_invitations' AND column_name = 'invitation_code_hash'
   ) THEN
-    ALTER TABLE public.founders3_invitations ADD COLUMN invitation_code_hash TEXT;
+    SELECT attnum INTO v_code_attnum
+    FROM pg_attribute
+    WHERE attrelid = v_table_oid
+      AND attname = 'invitation_code'
+      AND NOT attisdropped;
+
+    ALTER TABLE public.founders3_invitations ADD COLUMN IF NOT EXISTS invitation_code_hash TEXT;
     UPDATE public.founders3_invitations
     SET invitation_code_hash = encode(sha256(invitation_code::bytea), 'hex')
     WHERE invitation_code_hash IS NULL;
+
+    IF EXISTS (
+      SELECT 1
+      FROM public.founders3_invitations
+      WHERE invitation_code IS NULL OR invitation_code_hash IS NULL
+    ) THEN
+      RAISE EXCEPTION 'Refusing to remove founders3_invitations.invitation_code: every legacy value must have a non-null SHA-256 hash.';
+    END IF;
+
+    IF (SELECT count(*) FROM public.founders3_invitations)
+       <> (SELECT count(DISTINCT invitation_code_hash) FROM public.founders3_invitations) THEN
+      RAISE EXCEPTION 'Refusing to remove founders3_invitations.invitation_code: derived hashes are not one-to-one.';
+    END IF;
+
+    -- Remove only database dependencies owned by the legacy column.
+    FOR v_constraint IN
+      SELECT conname
+      FROM pg_constraint
+      WHERE conrelid = v_table_oid AND v_code_attnum = ANY (conkey)
+    LOOP
+      EXECUTE format('ALTER TABLE public.founders3_invitations DROP CONSTRAINT IF EXISTS %I', v_constraint.conname);
+    END LOOP;
+
+    FOR v_index IN
+      SELECT indexrelid::regclass::text AS index_name
+      FROM pg_index
+      WHERE indrelid = v_table_oid
+        AND v_code_attnum = ANY (indkey)
+    LOOP
+      EXECUTE format('DROP INDEX IF EXISTS %s', v_index.index_name);
+    END LOOP;
+
+    IF EXISTS (
+      SELECT 1
+      FROM pg_depend d
+      WHERE d.refobjid = v_table_oid
+        AND d.refobjsubid = v_code_attnum
+        AND d.deptype IN ('a', 'n')
+    ) THEN
+      RAISE EXCEPTION 'Refusing to remove founders3_invitations.invitation_code: a remaining database object depends on it.';
+    END IF;
+
     ALTER TABLE public.founders3_invitations ALTER COLUMN invitation_code_hash SET NOT NULL;
-    ALTER TABLE public.founders3_invitations ADD CONSTRAINT uq_f3_invitations_code_hash UNIQUE(invitation_code_hash);
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint WHERE conname = 'uq_f3_invitations_code_hash' AND conrelid = v_table_oid
+    ) THEN
+      ALTER TABLE public.founders3_invitations ADD CONSTRAINT uq_f3_invitations_code_hash UNIQUE(invitation_code_hash);
+    END IF;
     ALTER TABLE public.founders3_invitations DROP COLUMN invitation_code;
   END IF;
 END $$;
