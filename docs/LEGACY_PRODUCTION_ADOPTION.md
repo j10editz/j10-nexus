@@ -3,9 +3,12 @@
 This process is for a J10 Production project whose application schema exists but whose
 `supabase_migrations.schema_migrations` history was lost. It does **not** replay historic SQL.
 
-1. Start a disposable local Supabase database and apply the canonical chain through `20261013`.
-2. Export its normalized schema manifest to a local, access-controlled file with
-   `node scripts/export-legacy-adoption-manifest.mjs --output .j10-adoption/canonical.json`.
+1. Use the immutable `canonical-schema-manifest-<main SHA>` artifact produced by the successful
+   `Supabase full migration-chain certification` workflow. The artifact is exported only after a
+   disposable local Supabase database has applied the canonical chain through `20261013`; it carries
+   the source SHA, exact 45-version range, normalized manifest, fingerprint, and SHA-256 checksum.
+2. Verify the artifact's workflow provenance, source SHA, range, checksum, and absence of secret-like
+   values before using its normalized schema manifest as certification input.
 3. Run `node scripts/certify-legacy-production-adoption.mjs` with the exact Production ref,
    hostname, canonical manifest, report destination, and `--dry-run`.
 4. Review the deterministic report. It includes only schema fingerprints and aggregate invariant

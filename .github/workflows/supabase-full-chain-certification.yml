@@ -34,9 +34,17 @@ jobs:
           test "$local_count" -eq "$remote_count"
       - name: Certify legacy-ledger adoption tooling against the disposable clean chain
         run: |
-          node scripts/export-legacy-adoption-manifest.mjs --output .j10-adoption/canonical.json
+          node scripts/export-legacy-adoption-manifest.mjs --output .j10-adoption/canonical.json --artifact-output .j10-adoption/canonical-manifest-artifact.json --source-sha "$GITHUB_SHA"
           test -s .j10-adoption/canonical.json
+          test -s .j10-adoption/canonical-manifest-artifact.json
           npx vitest run tests/database/legacy-production-adoption.test.ts --pool=threads --maxWorkers=1 --no-file-parallelism
+      - name: Upload immutable non-secret canonical manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-schema-manifest-${{ github.sha }}
+          path: .j10-adoption/canonical-manifest-artifact.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Certify official repair against a representative ledgerless schema
         run: |
           supabase db query --local "DELETE FROM supabase_migrations.schema_migrations"

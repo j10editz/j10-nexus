@@ -2,11 +2,15 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { parseSupabaseQueryOutput, schemaManifestSql } from "./lib/legacy-production-adoption.mjs";
+import { buildCanonicalManifestArtifact, migrationVersions, parseSupabaseQueryOutput, schemaManifestSql } from "./lib/legacy-production-adoption.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const outputIndex = process.argv.indexOf("--output");
 const output = outputIndex === -1 ? undefined : process.argv[outputIndex + 1];
+const artifactOutputIndex = process.argv.indexOf("--artifact-output");
+const artifactOutput = artifactOutputIndex === -1 ? undefined : process.argv[artifactOutputIndex + 1];
+const sourceShaIndex = process.argv.indexOf("--source-sha");
+const sourceSha = sourceShaIndex === -1 ? process.env.GITHUB_SHA : process.argv[sourceShaIndex + 1];
 
 if (!output) {
   console.error("USAGE: --output <access-controlled-manifest.json>");
@@ -33,6 +37,14 @@ try {
   const absoluteOutput = resolve(repoRoot, output);
   mkdirSync(dirname(absoluteOutput), { recursive: true });
   writeFileSync(absoluteOutput, `${JSON.stringify({ manifest }, null, 2)}\n`, { mode: 0o600 });
+  if (artifactOutput) {
+    const versions = migrationVersions(resolve(repoRoot, "supabase", "migrations"));
+    const artifact = buildCanonicalManifestArtifact({ canonicalSourceSha: sourceSha, manifest, versions });
+    const absoluteArtifactOutput = resolve(repoRoot, artifactOutput);
+    mkdirSync(dirname(absoluteArtifactOutput), { recursive: true });
+    writeFileSync(absoluteArtifactOutput, `${JSON.stringify(artifact, null, 2)}\n`, { mode: 0o600 });
+    console.log(`CANONICAL_MANIFEST_ARTIFACT_EXPORTED sha256=${artifact.sha256}`);
+  }
   console.log("CANONICAL_MANIFEST_EXPORTED");
 } catch (error) {
   console.error(error instanceof Error ? error.message : "CANONICAL_MANIFEST_EXPORT_FAILED");
