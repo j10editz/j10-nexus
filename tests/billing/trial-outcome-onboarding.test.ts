@@ -35,6 +35,15 @@ describe("72-hour trial and outcome onboarding", () => {
       expect(migration).toContain(`'${table}'`);
     }
     expect(migration).toContain("BEFORE INSERT ON public.%I");
+    expect(migration).toContain("relation.relkind IN ('r', 'p')");
+  });
+
+  it("is an upgrade-safe additive migration for current paid workspaces", () => {
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS trial_started_at");
+    expect(migration).toContain("ADD COLUMN IF NOT EXISTS trial_ends_at");
+    expect(migration).toContain("ON CONFLICT (workspace_id) DO UPDATE SET");
+    expect(migration).toContain("CASE WHEN public.workspace_subscriptions.provenance = 'stripe'");
+    expect(migration).toContain("trial_status = CASE WHEN public.workspace_subscriptions.provenance = 'stripe' THEN 'converted'");
   });
 
   it("keeps onboarding owner-scoped and requires explicit activation approval", () => {

@@ -255,7 +255,14 @@ DECLARE
   v_table TEXT;
 BEGIN
   FOREACH v_table IN ARRAY ARRAY['workspace_usage_records', 'workspace_quota_reservations', 'ai_tasks', 'automation_runs', 'contacts', 'crm_contacts'] LOOP
-    IF to_regclass('public.' || v_table) IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1
+      FROM pg_class AS relation
+      JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+      WHERE namespace.nspname = 'public'
+        AND relation.relname = v_table
+        AND relation.relkind IN ('r', 'p')
+    ) THEN
       EXECUTE format('DROP TRIGGER IF EXISTS trg_enforce_workspace_trial_runtime ON public.%I', v_table);
       EXECUTE format('CREATE TRIGGER trg_enforce_workspace_trial_runtime BEFORE INSERT ON public.%I FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_trial_runtime()', v_table);
     END IF;
