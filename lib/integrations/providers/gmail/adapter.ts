@@ -522,7 +522,7 @@ export const GMAIL_RUNTIME_ADAPTER:
         requiredScopes: [
           GMAIL_SEND_SCOPE,
         ],
-        supportsIdempotency: false,
+        supportsIdempotency: true,
       },
       {
         capabilityId:
@@ -536,7 +536,7 @@ export const GMAIL_RUNTIME_ADAPTER:
         requiredScopes: [
           GMAIL_SEND_SCOPE,
         ],
-        supportsIdempotency: false,
+        supportsIdempotency: true,
       },
       {
         capabilityId:
