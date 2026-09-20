@@ -110,12 +110,16 @@ export async function register360DialogWebhook(input: {
   }
 
   // The Sandbox API documents a POST acknowledgement but does not document a
-  // GET readback endpoint. Its POST response includes the configured URL, so
-  // verify that acknowledgement instead of treating an unsupported GET as a
-  // failed API key. Production retains its documented GET readback below.
+  // GET readback endpoint. Some sandbox clusters return an empty successful
+  // acknowledgement, while others include the configured URL. Treat a 2xx
+  // POST as the documented acknowledgement, but fail closed if an optional
+  // response explicitly reports a different callback. Production retains its
+  // documented GET readback below.
   if (input.mode === "sandbox") {
     const registrationPayload: unknown = await registration.json().catch(() => null);
-    requireMatchingWebhookUrl(registrationPayload, input.callbackUrl);
+    if (readWebhookUrl(registrationPayload) !== null) {
+      requireMatchingWebhookUrl(registrationPayload, input.callbackUrl);
+    }
     return;
   }
 

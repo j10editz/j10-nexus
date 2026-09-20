@@ -36,6 +36,21 @@ describe("360dialog Connections UI", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("accepts the documented empty successful Sandbox acknowledgement", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await expect(register360DialogWebhook({
+      apiKey: "customer-supplied-key",
+      webhookSecret: "server-generated-secret",
+      callbackUrl: "https://preview.example/api/webhooks/whatsapp/endpoint-a",
+      mode: "sandbox",
+      fetchImpl,
+    })).resolves.toBeUndefined();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("fails closed if 360dialog does not acknowledge the registered Sandbox callback", async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ url: "https://wrong.example/webhook" }), { status: 200 }));
