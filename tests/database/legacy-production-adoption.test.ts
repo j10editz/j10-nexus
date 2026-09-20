@@ -76,6 +76,8 @@ describe("legacy Production adoption", () => {
     const exporter = readFileSync(resolve(process.cwd(), "scripts/export-legacy-adoption-manifest.mjs"), "utf8");
     expect(workflow).toContain("canonical-schema-manifest-${{ github.sha }}");
     expect(workflow).toContain("--artifact-output .j10-adoption/canonical-manifest-artifact.json");
+    expect(workflow).toContain("version: 2.117.0");
+    expect(workflow).not.toContain("version: latest");
     expect(workflow).not.toContain(PRODUCTION_PROJECT_REF);
     expect(exporter).toContain('"--local"');
     expect(exporter).not.toContain('"--linked"');

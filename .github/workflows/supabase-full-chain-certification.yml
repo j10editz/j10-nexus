@@ -19,7 +19,7 @@ jobs:
       - run: npm ci
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.117.0
       - name: Start disposable local Supabase and apply the complete chain
         run: |
           supabase start
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.117.0
       - name: Start disposable local Supabase and preload linked-reset residue
         run: |
           supabase start
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.117.0
       - name: Start disposable local Supabase and preload the orphan composite type
         run: |
           supabase start
