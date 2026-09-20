@@ -97,7 +97,7 @@ export const INTEGRATION_REGISTRY: Readonly<
     shortDescription:
       "Receive, organize, send, and reply to business email.",
     category: "communication",
-    availability: "development",
+    availability: "available",
     iconKey: "mail",
     accentColor: "#EA4335",
     auth: {

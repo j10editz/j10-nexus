@@ -761,6 +761,21 @@ function providerIdentifier(
   return response.requestId;
 }
 
+function gmailThreadIdentifier(
+  response:
+    GoogleApiResponse,
+): string | null {
+  if (
+    isRecord(response.data) &&
+    typeof response.data.threadId ===
+      "string"
+  ) {
+    return response.data.threadId;
+  }
+
+  return null;
+}
+
 async function executeGmailAction(
   invocation:
     IntegrationRuntimeActionInvocation,
@@ -869,6 +884,10 @@ async function executeGmailAction(
           bcc.length,
         providerMessageId:
           providerIdentifier(
+            response,
+          ),
+        threadId:
+          gmailThreadIdentifier(
             response,
           ),
       },
