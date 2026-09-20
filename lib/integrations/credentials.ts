@@ -275,6 +275,41 @@ function validateCredentialValues(
       providerId,
     );
 
+  // WhatsApp supports two intentionally separate official transports. Meta
+  // Cloud credentials remain required for Meta connections, while a 360dialog
+  // connection stores only its API key and the server-generated webhook
+  // secret. Keeping this distinction here prevents either transport from
+  // receiving the other transport's credential requirements.
+  if (
+    providerId === "whatsapp-business" &&
+    Object.prototype.hasOwnProperty.call(values, "api_key")
+  ) {
+    const allowed360dialogFields = new Set([
+      "api_key",
+      "webhook_secret",
+    ]);
+
+    const unsupported360dialogField = Object.keys(values).find(
+      (key) => !allowed360dialogFields.has(key),
+    );
+
+    if (unsupported360dialogField) {
+      throw new IntegrationCredentialError(
+        `Unsupported 360dialog credential field: ${unsupported360dialogField}`,
+        "UNSUPPORTED_INTEGRATION_CREDENTIAL_FIELD",
+      );
+    }
+
+    if (!values.api_key?.trim() || !values.webhook_secret?.trim()) {
+      throw new IntegrationCredentialError(
+        "360dialog credentials require an API key and a server-generated webhook secret.",
+        "REQUIRED_INTEGRATION_CREDENTIAL_MISSING",
+      );
+    }
+
+    return;
+  }
+
   const entries =
     Object.entries(
       values,
