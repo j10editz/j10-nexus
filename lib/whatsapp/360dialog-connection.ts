@@ -59,6 +59,12 @@ function readWebhookHeaders(payload: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function requireMatchingWebhookUrl(payload: unknown, callbackUrl: string): void {
+  if (readWebhookUrl(payload) !== callbackUrl) {
+    throw new Dialog360WebhookRegistrationError();
+  }
+}
+
 /**
  * Registers a workspace-specific endpoint only after credentials are in the
  * encrypted vault. A readback confirms the callback URL and, when returned by
@@ -103,6 +109,16 @@ export async function register360DialogWebhook(input: {
     throw new Dialog360WebhookRegistrationError();
   }
 
+  // The Sandbox API documents a POST acknowledgement but does not document a
+  // GET readback endpoint. Its POST response includes the configured URL, so
+  // verify that acknowledgement instead of treating an unsupported GET as a
+  // failed API key. Production retains its documented GET readback below.
+  if (input.mode === "sandbox") {
+    const registrationPayload: unknown = await registration.json().catch(() => null);
+    requireMatchingWebhookUrl(registrationPayload, input.callbackUrl);
+    return;
+  }
+
   const readback = await fetchImpl(endpoint, {
     method: "GET",
     headers: whatsappTransportHeaders({
@@ -117,9 +133,7 @@ export async function register360DialogWebhook(input: {
   }
 
   const payload: unknown = await readback.json().catch(() => null);
-  if (readWebhookUrl(payload) !== input.callbackUrl) {
-    throw new Dialog360WebhookRegistrationError();
-  }
+  requireMatchingWebhookUrl(payload, input.callbackUrl);
 
   const returnedSecret = readWebhookHeaders(payload)?.[D360_WEBHOOK_SECRET_HEADER];
   if (returnedSecret !== undefined && (typeof returnedSecret !== "string" || !equalSecret(returnedSecret, input.webhookSecret))) {
