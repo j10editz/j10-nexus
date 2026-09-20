@@ -83,6 +83,17 @@ describe("legacy Production adoption", () => {
     expect(exporter).not.toContain('"--linked"');
   });
 
+  it("uses the Windows-compatible npx command for local CLI fallbacks", () => {
+    for (const file of [
+      "scripts/export-legacy-adoption-manifest.mjs",
+      "scripts/certify-legacy-production-adoption.mjs",
+      "scripts/apply-legacy-production-ledger-adoption.mjs",
+    ]) {
+      const source = readFileSync(resolve(process.cwd(), file), "utf8");
+      expect(source).toContain('process.platform === "win32" ? "npx.cmd" : "npx"');
+    }
+  });
+
   it("uses the final Supabase CLI result envelope when setup metadata precedes it", () => {
     const raw = '{"setup":true}\n{"boundary":"safe","rows":[{"manifest":true}]}';
     expect(parseSupabaseQueryOutput(raw)).toEqual({ boundary: "safe", rows: [{ manifest: true }] });
