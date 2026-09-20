@@ -46,3 +46,6 @@ next-env.d.ts
 
 # supabase cli temporary files
 supabase/.temp/
+
+# locally generated, schema-only legacy-adoption evidence
+/.j10-adoption/

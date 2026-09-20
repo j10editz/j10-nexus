@@ -1,14 +1,10 @@
 name: Supabase full migration-chain certification
+# Changes to adoption tooling are intentionally included in this required check.
 
 on:
   pull_request:
-    paths:
-      - 'supabase/migrations/**'
-      - '.github/workflows/supabase-full-chain-certification.yml'
   push:
     branches: [main]
-    paths:
-      - 'supabase/migrations/**'
 
 jobs:
   fresh-chain:
@@ -16,6 +12,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - uses: supabase/setup-cli@v1
         with:
           version: latest
@@ -31,6 +32,21 @@ jobs:
           remote_count=$(docker exec "$db_container" psql -U postgres -d postgres -tAc \
             'select count(*) from supabase_migrations.schema_migrations')
           test "$local_count" -eq "$remote_count"
+      - name: Certify legacy-ledger adoption tooling against the disposable clean chain
+        run: |
+          node scripts/export-legacy-adoption-manifest.mjs --output .j10-adoption/canonical.json
+          test -s .j10-adoption/canonical.json
+          npx vitest run tests/database/legacy-production-adoption.test.ts --pool=threads --maxWorkers=1 --no-file-parallelism
+      - name: Certify official repair against a representative ledgerless schema
+        run: |
+          supabase db query --local "DELETE FROM supabase_migrations.schema_migrations"
+          db_container=$(docker ps --filter 'name=supabase_db_' --format '{{.ID}}' | head -n 1)
+          test -n "$db_container"
+          test "$(docker exec "$db_container" psql -U postgres -d postgres -tAc 'SELECT count(*) FROM supabase_migrations.schema_migrations')" = "0"
+          versions=$(find supabase/migrations -maxdepth 1 -name '*.sql' -printf '%f\n' | sed -E 's/^([0-9]+)_.*/\1/' | sort)
+          supabase migration repair --local --status applied $versions
+          repaired_count=$(docker exec "$db_container" psql -U postgres -d postgres -tAc 'SELECT count(*) FROM supabase_migrations.schema_migrations')
+          test "$repaired_count" -eq "$(echo "$versions" | wc -l)"
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup
