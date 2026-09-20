@@ -36,6 +36,8 @@ describe("72-hour trial and outcome onboarding", () => {
     }
     expect(migration).toContain("BEFORE INSERT ON public.%I");
     expect(migration).toContain("relation.relkind IN ('r', 'p')");
+    expect(migration).toContain("trg_enforce_workspace_trial_outbound_message");
+    expect(migration).toContain("WHEN (NEW.direction = ''outbound'')");
   });
 
   it("is an upgrade-safe additive migration for current paid workspaces", () => {
@@ -57,5 +59,14 @@ describe("72-hour trial and outcome onboarding", () => {
     expect(outcomePage).toContain("interactive demo");
     expect(outcomePage).toContain("No live provider call will be made");
     expect(outcomePage).not.toMatch(/sendWhatsApp|sendChannelProviderMessage|360dialog|meta cloud/i);
+  });
+
+  it("derives dashboard expiry only from server time and presents a read-only upgrade state", () => {
+    const countdown = readFileSync(resolve(root, "components/trial/TrialCountdown.tsx"), "utf8");
+    const route = readFileSync(resolve(root, "app/api/onboarding/outcome/route.ts"), "utf8");
+    expect(route).toContain("getTrialRuntimeStatus");
+    expect(route).toContain("const serverNow = new Date()");
+    expect(countdown).toContain("This workspace is read-only");
+    expect(countdown).toContain("Upgrade to resume AI, automations, messages, and lead processing.");
   });
 });

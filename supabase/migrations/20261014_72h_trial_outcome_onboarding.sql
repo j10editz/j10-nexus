@@ -267,6 +267,19 @@ BEGIN
       EXECUTE format('CREATE TRIGGER trg_enforce_workspace_trial_runtime BEFORE INSERT ON public.%I FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_trial_runtime()', v_table);
     END IF;
   END LOOP;
+
+  -- Preserve inbound evidence after expiry, but never allow an expired trial
+  -- to create a new outbound provider message through a direct table write.
+  IF EXISTS (
+    SELECT 1 FROM pg_class AS relation
+    JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'public'
+      AND relation.relname = 'inbox_messages'
+      AND relation.relkind IN ('r', 'p')
+  ) THEN
+    EXECUTE 'DROP TRIGGER IF EXISTS trg_enforce_workspace_trial_outbound_message ON public.inbox_messages';
+    EXECUTE 'CREATE TRIGGER trg_enforce_workspace_trial_outbound_message BEFORE INSERT ON public.inbox_messages FOR EACH ROW WHEN (NEW.direction = ''outbound'') EXECUTE FUNCTION public.enforce_workspace_trial_runtime()';
+  END IF;
 END;
 $$;
 
