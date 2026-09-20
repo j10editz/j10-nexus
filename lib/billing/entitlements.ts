@@ -126,13 +126,25 @@ export async function getWorkspaceSubscription(
   workspaceId: string
 ): Promise<WorkspaceSubscription | null> {
   try {
-    const { data, error } = await supabase
+    const extendedSelection =
+      "id,workspace_id,plan_id,status,provenance,monthly_message_limit,messages_used_this_period,ai_conversations_quota,seats_quota,channels_quota,cancel_at_period_end,current_period_start,current_period_end,grace_period_end,trial_start,trial_end,trial_started_at,trial_ends_at,trial_status,has_used_trial,dunning_status,dunning_attempt_count,last_dunning_at,stripe_customer_id,stripe_subscription_id,stripe_price_id";
+    const legacySelection =
+      "id,workspace_id,plan_id,status,provenance,monthly_message_limit,messages_used_this_period,ai_conversations_quota,seats_quota,channels_quota,cancel_at_period_end,current_period_start,current_period_end,grace_period_end,trial_start,trial_end,has_used_trial,dunning_status,dunning_attempt_count,last_dunning_at,stripe_customer_id,stripe_subscription_id,stripe_price_id";
+    let { data, error } = await supabase
       .from("workspace_subscriptions")
-      .select(
-        "id,workspace_id,plan_id,status,provenance,monthly_message_limit,messages_used_this_period,ai_conversations_quota,seats_quota,channels_quota,cancel_at_period_end,current_period_start,current_period_end,grace_period_end,trial_start,trial_end,trial_started_at,trial_ends_at,trial_status,has_used_trial,dunning_status,dunning_attempt_count,last_dunning_at,stripe_customer_id,stripe_subscription_id,stripe_price_id"
-      )
+      .select(extendedSelection)
       .eq("workspace_id", workspaceId)
       .maybeSingle();
+
+    // Deployments may arrive before this additive migration. Preserve paid
+    // workspace behavior by reading the pre-migration contract until it lands.
+    if (error && /trial_(started_at|ends_at|status)/i.test(error.message || "")) {
+      ({ data, error } = await supabase
+        .from("workspace_subscriptions")
+        .select(legacySelection)
+        .eq("workspace_id", workspaceId)
+        .maybeSingle());
+    }
 
     if (error || !data) return null;
 
