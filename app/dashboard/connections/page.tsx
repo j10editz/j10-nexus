@@ -41,6 +41,8 @@ interface ConnectionItem {
   aiState?: string;
   verificationState?: string;
   webhookState?: string;
+  credentialState?: "connected" | "expiring_soon" | "expired" | "revoked" | "reconnect_required";
+  credentialExpiresAt?: string | null;
   lastVerifiedAt?: string;
   lastEventAt?: string;
   shareUrl?: string;
@@ -192,6 +194,8 @@ export default function ConnectionsDashboardPage() {
           verificationState: wa.verificationStatus || "VERIFIED",
           webhookState: wa.webhookSubscribed ? "Subscribed" : "Pending Webhook",
           lastVerifiedAt: wa.lastConnectedAt,
+          credentialState: wa.credentialState,
+          credentialExpiresAt: wa.credentialExpiresAt,
         });
       } else {
         // Distinguish not-connected state from active; eliminate demo placeholder
@@ -615,6 +619,23 @@ export default function ConnectionsDashboardPage() {
                               Verification: {conn.verificationState || "Unregistered"}
                             </span>
                           </div>
+                          {conn.credentialState && (
+                            <div className="flex items-center gap-1.5">
+                              <span className={`h-1.5 w-1.5 rounded-full ${
+                                conn.credentialState === "connected"
+                                  ? "bg-emerald-400"
+                                  : conn.credentialState === "expiring_soon"
+                                    ? "bg-amber-400"
+                                    : "bg-rose-400"
+                              }`} />
+                              <span className="text-[10px] text-white/50">
+                                Credential: {conn.credentialState.replaceAll("_", " ")}
+                                {conn.credentialExpiresAt
+                                  ? ` · expires ${new Date(conn.credentialExpiresAt).toLocaleDateString()}`
+                                  : ""}
+                              </span>
+                            </div>
+                          )}
                           <div className="flex items-center gap-1.5">
                             <span className={`h-1.5 w-1.5 rounded-full ${conn.webhookState === "Subscribed" ? "bg-emerald-400" : "bg-white/30"}`} />
                             <span className="text-[10px] text-white/50">

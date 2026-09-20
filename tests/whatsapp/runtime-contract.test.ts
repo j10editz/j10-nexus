@@ -42,6 +42,17 @@ describe("WhatsApp runtime contract", () => {
     expect(execution).not.toContain("console.log(storedCredentials");
   });
 
+  it("fails closed before Meta calls when a WhatsApp credential has expired or been revoked", () => {
+    const adapter = readFileSync(
+      resolve(process.cwd(), "lib/integrations/providers/whatsapp/adapter.ts"),
+      "utf8",
+    );
+
+    expect(adapter).toContain("canUseWhatsAppCredential");
+    expect(adapter).toContain("WHATSAPP_CREDENTIAL_RECONNECT_REQUIRED");
+    expect(adapter).not.toContain("Refresh your Meta access token in .env.local");
+  });
+
   it("returns actionable provider runtime errors instead of a generic banner", () => {
     const integrationApi = readFileSync(
       resolve(

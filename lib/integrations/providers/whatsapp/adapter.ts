@@ -18,6 +18,10 @@ import {
 import {
   buildWhatsAppCloudPayload,
 } from "./payload";
+import {
+  canUseWhatsAppCredential,
+  getWhatsAppCredentialLifecycleState,
+} from "@/lib/whatsapp/credential-lifecycle";
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RESPONSE_BYTES = 128 * 1024;
@@ -71,6 +75,21 @@ function graphApiVersion(context: IntegrationRuntimeInvocationContext): string {
 async function readAccessToken(
   context: IntegrationRuntimeInvocationContext,
 ): Promise<string> {
+  const lifecycleState = getWhatsAppCredentialLifecycleState(
+    context.connection.publicConfiguration,
+  );
+  if (!canUseWhatsAppCredential(context.connection.publicConfiguration)) {
+    throw new IntegrationRuntimeError(
+      "WhatsApp credentials require an owner or admin reconnect before they can be used.",
+      {
+        code: "WHATSAPP_CREDENTIAL_RECONNECT_REQUIRED",
+        category: "authentication",
+        status: 401,
+        details: { lifecycleState },
+      },
+    );
+  }
+
   const credentials = await context.credentials.read(["access_token"]);
   const accessToken = credentials.access_token?.trim();
 
@@ -163,9 +182,9 @@ function providerError(
 
   if (response.status === 401 || providerCode === 190) {
     return new IntegrationRuntimeError(
-      "WhatsApp authentication failed or Meta token expired. Refresh your Meta access token in .env.local.",
+      "WhatsApp authentication failed. An owner or admin must reconnect this integration.",
       {
-        code: "WHATSAPP_AUTHENTICATION_FAILED",
+        code: "WHATSAPP_CREDENTIAL_RECONNECT_REQUIRED",
         category: "authentication",
         status: 401,
         details: { providerCode },
