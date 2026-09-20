@@ -91,6 +91,7 @@ describe("legacy Production adoption", () => {
     ]) {
       const source = readFileSync(resolve(process.cwd(), file), "utf8");
       expect(source).toContain('process.platform === "win32" ? "npx.cmd" : "npx"');
+      expect(source).toContain('shell: process.platform === "win32"');
     }
   });
 
