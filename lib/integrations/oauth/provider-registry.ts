@@ -46,6 +46,18 @@ const GOOGLE_CLIENT_ID_ENVIRONMENT_VARIABLE =
 const GOOGLE_CLIENT_SECRET_ENVIRONMENT_VARIABLE =
   "GOOGLE_OAUTH_CLIENT_SECRET";
 
+const MICROSOFT_AUTHORIZATION_ENDPOINT =
+  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+
+const MICROSOFT_TOKEN_ENDPOINT =
+  "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+
+const MICROSOFT_CLIENT_ID_ENVIRONMENT_VARIABLE =
+  "MICROSOFT_OAUTH_CLIENT_ID";
+
+const MICROSOFT_CLIENT_SECRET_ENVIRONMENT_VARIABLE =
+  "MICROSOFT_OAUTH_CLIENT_SECRET";
+
 const GOOGLE_AUTHORIZATION_PARAMETERS =
   Object.freeze({
     access_type:
@@ -70,10 +82,23 @@ const GOOGLE_CALENDAR_OAUTH_SCOPES =
     "https://www.googleapis.com/auth/calendar.events.freebusy",
   ] as const);
 
+const OUTLOOK_MAIL_OAUTH_SCOPES =
+  Object.freeze([
+    "https://graph.microsoft.com/Mail.ReadWrite",
+    "https://graph.microsoft.com/Mail.Send",
+    "offline_access",
+  ] as const);
+
 export const GOOGLE_OAUTH_PROVIDER_IDS =
   Object.freeze([
     "gmail",
     "google-calendar",
+  ] as const satisfies
+    readonly IntegrationProviderId[]);
+
+export const MICROSOFT_OAUTH_PROVIDER_IDS =
+  Object.freeze([
+    "outlook-mail",
   ] as const satisfies
     readonly IntegrationProviderId[]);
 
@@ -149,6 +174,18 @@ export const INTEGRATION_OAUTH_PROVIDER_REGISTRY:
 
         authorizationParameters:
           GOOGLE_AUTHORIZATION_PARAMETERS,
+      }),
+
+    "outlook-mail":
+      Object.freeze({
+        providerId: "outlook-mail",
+        authorizationEndpoint: MICROSOFT_AUTHORIZATION_ENDPOINT,
+        tokenEndpoint: MICROSOFT_TOKEN_ENDPOINT,
+        clientIdEnvironmentVariable: MICROSOFT_CLIENT_ID_ENVIRONMENT_VARIABLE,
+        clientSecretEnvironmentVariable: MICROSOFT_CLIENT_SECRET_ENVIRONMENT_VARIABLE,
+        scopes: OUTLOOK_MAIL_OAUTH_SCOPES,
+        clientAuthenticationMethod: "client_secret_post",
+        authorizationParameters: Object.freeze({ prompt: "select_account" }),
       }),
   });
 
@@ -344,6 +381,39 @@ function validateGoogleProviderDefinition(
   }
 }
 
+function validateMicrosoftProviderDefinition(
+  providerId:
+    IntegrationProviderId,
+  definition:
+    IntegrationOAuthProviderDefinition,
+): void {
+  if (
+    !MICROSOFT_OAUTH_PROVIDER_IDS.includes(
+      providerId as
+        (typeof MICROSOFT_OAUTH_PROVIDER_IDS)[number],
+    )
+  ) {
+    return;
+  }
+
+  if (
+    definition.authorizationEndpoint !==
+      MICROSOFT_AUTHORIZATION_ENDPOINT ||
+    definition.tokenEndpoint !==
+      MICROSOFT_TOKEN_ENDPOINT ||
+    definition.clientIdEnvironmentVariable !==
+      MICROSOFT_CLIENT_ID_ENVIRONMENT_VARIABLE ||
+    definition.clientSecretEnvironmentVariable !==
+      MICROSOFT_CLIENT_SECRET_ENVIRONMENT_VARIABLE ||
+    definition.authorizationParameters?.prompt !==
+      "select_account"
+  ) {
+    throw configurationError(
+      "Microsoft OAuth configuration is invalid.",
+    );
+  }
+}
+
 function validateProviderDefinition(
   providerId:
     IntegrationProviderId,
@@ -457,6 +527,11 @@ function validateProviderDefinition(
   );
 
   validateGoogleProviderDefinition(
+    providerId,
+    definition,
+  );
+
+  validateMicrosoftProviderDefinition(
     providerId,
     definition,
   );

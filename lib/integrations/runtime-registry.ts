@@ -16,6 +16,7 @@ import type {
 } from "@/types/integration-runtime";
 import { GMAIL_RUNTIME_ADAPTER } from "./providers/gmail/adapter";
 import { GOOGLE_CALENDAR_RUNTIME_ADAPTER } from "./providers/google-calendar/adapter";
+import { OUTLOOK_MAIL_RUNTIME_ADAPTER } from "./providers/outlook-mail/adapter";
 import { WHATSAPP_RUNTIME_ADAPTER } from "./providers/whatsapp/adapter";
 import {
   getIntegrationProvider,
@@ -32,6 +33,7 @@ const RUNTIME_ADAPTERS:
   readonly IntegrationConnectorRuntimeAdapter[] = [
     GMAIL_RUNTIME_ADAPTER,
     GOOGLE_CALENDAR_RUNTIME_ADAPTER,
+    OUTLOOK_MAIL_RUNTIME_ADAPTER,
     WHATSAPP_RUNTIME_ADAPTER,
   ];
 
