@@ -294,7 +294,7 @@ export const INTEGRATION_REGISTRY: Readonly<
         },
       ],
     },
-    environments: ["development", "production"],
+    environments: ["development", "sandbox", "production"],
     webhookSupport: "bidirectional",
     supportsHealthChecks: true,
     capabilities: [

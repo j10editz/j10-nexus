@@ -25,7 +25,7 @@ import {
   Zap,
 } from "lucide-react";
 
-import { WhatsAppEmbeddedSignup } from "@/components/whatsapp/WhatsAppEmbeddedSignup";
+import { WhatsAppConnectionChoice } from "@/components/whatsapp/WhatsAppConnectionChoice";
 import { getOfficialTelegramBindingLink } from "@/lib/telegram/official-binding-link";
 
 interface ConnectionItem {
@@ -1286,13 +1286,16 @@ export default function ConnectionsDashboardPage() {
         </div>
       )}
 
-      {/* WhatsApp Embedded Signup Modal */}
+      {/* WhatsApp transport selection and connection modal */}
       {showWhatsAppModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
           <div className="w-full max-w-lg rounded-2xl border border-white/[0.12] bg-[#0E0F14] p-6 shadow-2xl">
-            <WhatsAppEmbeddedSignup
-              onSuccess={() => {
+            <WhatsAppConnectionChoice
+              onMetaSuccess={() => {
                 setShowWhatsAppModal(false);
+                void loadConnections();
+              }}
+              onDialog360Connected={() => {
                 void loadConnections();
               }}
               onCancel={() => {
