@@ -4,6 +4,7 @@ import { createAdminSupabaseClient } from "@/lib/auth";
 import { writeIntegrationActivity } from "@/lib/integrations/api";
 import {
   createIntegrationConnection,
+  getIntegrationConnectionByProvider,
   updateIntegrationConnectionConfiguration,
   updateIntegrationConnectionStatus,
 } from "@/lib/integrations/database";
@@ -93,24 +94,65 @@ export async function POST(request: Request) {
   let connectionId: string | null = null;
 
   try {
-    const connection = await createIntegrationConnection(adminSupabase, scope, {
-      providerId: "whatsapp-business",
-      environment: mode === "sandbox" ? "sandbox" : "production",
-      name: "360dialog",
-      enabledCapabilities: [
-        "whatsapp.message.received",
-        "whatsapp.message.status_updated",
-        "whatsapp.message.send",
-        "whatsapp.template.send",
-        "whatsapp.media.send",
-      ],
-      publicConfiguration: {
-        transport: "360dialog",
-        mode,
-        sandbox: mode === "sandbox",
-        webhookRegistered: false,
-      },
-    });
+    const publicConfiguration = {
+      transport: "360dialog" as const,
+      mode,
+      sandbox: mode === "sandbox",
+      webhookRegistered: false,
+    };
+    const enabledCapabilities = [
+      "whatsapp.message.received",
+      "whatsapp.message.status_updated",
+      "whatsapp.message.send",
+      "whatsapp.template.send",
+      "whatsapp.media.send",
+    ];
+    const existing = await getIntegrationConnectionByProvider(
+      adminSupabase,
+      context.workspace.id,
+      "whatsapp-business",
+    );
+    let connection;
+
+    if (existing) {
+      // An earlier 360dialog registration can fail after its integration row
+      // exists. Allow the owner/admin to retry that same row, but never turn a
+      // Meta Cloud connection into a 360dialog connection implicitly.
+      if (existing.publicConfiguration.transport !== "360dialog") {
+        return NextResponse.json(
+          { success: false, error: "A different WhatsApp connection is already registered for this workspace." },
+          { status: 409 },
+        );
+      }
+
+      if (!["error", "revoked", "disconnected"].includes(existing.status)) {
+        return NextResponse.json(
+          { success: false, error: "A 360dialog connection is already being configured for this workspace." },
+          { status: 409 },
+        );
+      }
+
+      connection = await updateIntegrationConnectionConfiguration(
+        adminSupabase,
+        scope,
+        existing.id,
+        { publicConfiguration, enabledCapabilities },
+      );
+      connection = await updateIntegrationConnectionStatus(
+        adminSupabase,
+        scope,
+        connection.id,
+        { status: "pending", reason: "Retrying verified 360dialog setup." },
+      );
+    } else {
+      connection = await createIntegrationConnection(adminSupabase, scope, {
+        providerId: "whatsapp-business",
+        environment: mode === "sandbox" ? "sandbox" : "production",
+        name: "360dialog",
+        enabledCapabilities,
+        publicConfiguration,
+      });
+    }
     connectionId = connection.id;
 
     const webhookSecret = generate360DialogWebhookSecret();

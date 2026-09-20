@@ -11,9 +11,8 @@ const root = process.cwd();
 const source = (path: string) => readFileSync(resolve(root, path), "utf8");
 
 describe("360dialog Connections UI", () => {
-  it("uses a server-generated secret only for authenticated registration and verifies a readback", async () => {
+  it("uses the documented Sandbox POST acknowledgement without an unsupported readback", async () => {
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         url: "https://preview.example/api/webhooks/whatsapp/endpoint-a",
         headers: { "x-j10-webhook-secret": "server-generated-secret" },
@@ -34,15 +33,11 @@ describe("360dialog Connections UI", () => {
         headers: expect.objectContaining({ "D360-API-KEY": "customer-supplied-key" }),
       }),
     );
-    expect(fetchImpl).toHaveBeenNthCalledWith(2,
-      "https://waba-sandbox.360dialog.io/v1/configs/webhook",
-      expect.objectContaining({ method: "GET" }),
-    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("fails closed if 360dialog does not verify the registered callback", async () => {
+  it("fails closed if 360dialog does not acknowledge the registered Sandbox callback", async () => {
     const fetchImpl = vi.fn()
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ url: "https://wrong.example/webhook" }), { status: 200 }));
 
     await expect(register360DialogWebhook({
@@ -52,6 +47,28 @@ describe("360dialog Connections UI", () => {
       mode: "sandbox",
       fetchImpl,
     })).rejects.toBeInstanceOf(Dialog360WebhookRegistrationError);
+  });
+
+  it("retains the documented production readback and verifies its returned secret", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ url: "https://preview.example/api/webhooks/whatsapp/endpoint-a" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        url: "https://preview.example/api/webhooks/whatsapp/endpoint-a",
+        headers: { "x-j10-webhook-secret": "server-generated-secret" },
+      }), { status: 200 }));
+
+    await expect(register360DialogWebhook({
+      apiKey: "customer-supplied-key",
+      webhookSecret: "server-generated-secret",
+      callbackUrl: "https://preview.example/api/webhooks/whatsapp/endpoint-a",
+      mode: "production",
+      fetchImpl,
+    })).resolves.toBeUndefined();
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(2,
+      "https://waba-v2.360dialog.io/v1/configs/webhook",
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   it("keeps the API key ephemeral and exposes no browser secret storage or reveal control", () => {
@@ -69,6 +86,8 @@ describe("360dialog Connections UI", () => {
     const route = source("app/api/integrations/whatsapp/360dialog/connect/route.ts");
     expect(route).toContain("['owner', 'admin'].includes(context.membership.role)");
     expect(route).toContain("createIntegrationConnection");
+    expect(route).toContain("getIntegrationConnectionByProvider");
+    expect(route).toContain("Retrying verified 360dialog setup.");
     expect(route).toContain("storeIntegrationCredentials");
     expect(route).toContain("generate360DialogWebhookSecret");
     expect(route).toContain("createOrEnableIntegrationWebhookEndpoint");
