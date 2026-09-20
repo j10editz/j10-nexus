@@ -5,6 +5,7 @@ import {
   PRODUCTION_DATABASE_HOST,
   PRODUCTION_PROJECT_REF,
   assertProductionTarget,
+  buildCanonicalManifestArtifact,
   buildCertificationReport,
   compareManifests,
   fingerprint,
@@ -29,6 +30,18 @@ describe("legacy Production adoption", () => {
     const legacyLedgerless = { functions: [...canonical.functions], columns: [...canonical.columns], relations: [...canonical.relations] };
     expect(compareManifests(canonical, legacyLedgerless).equal).toBe(true);
     expect(fingerprint(canonical)).toBe(fingerprint(normalizeManifest(legacyLedgerless)));
+  });
+
+  it("builds a non-secret, checksummed artifact from the disposable canonical manifest only", () => {
+    const artifact = buildCanonicalManifestArtifact({
+      canonicalSourceSha: "0608a640a3250c29eb3a04e134a7ff1d6bb48bc0",
+      manifest: canonical,
+      versions: Array.from({ length: 45 }, (_, index) => index === 44 ? "20261013" : String(20260820 + index)),
+    });
+    expect(artifact.canonicalSourceSha).toBe("0608a640a3250c29eb3a04e134a7ff1d6bb48bc0");
+    expect(artifact.certifiedMigrationRange.through).toBe("20261013");
+    expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(artifact)).not.toMatch(/https?:\/\/[^\s/:@]+:[^\s@]+@|\b(?:gh[pousr]_|sk_|eyJ)/i);
   });
 
   it("fails closed when a representative legacy database diverges or an invariant is nonzero", () => {
@@ -56,6 +69,16 @@ describe("legacy Production adoption", () => {
     expect(source).toContain("APPLICATION_TABLE_COUNTS_CHANGED");
     expect(source).not.toMatch(/db\s+(?:push|reset)/i);
     expect(source).not.toMatch(/\b(?:drop|truncate|cascade)\b/i);
+  });
+
+  it("exports and uploads the manifest only from the disposable local Supabase workflow", () => {
+    const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/supabase-full-chain-certification.yml"), "utf8");
+    const exporter = readFileSync(resolve(process.cwd(), "scripts/export-legacy-adoption-manifest.mjs"), "utf8");
+    expect(workflow).toContain("canonical-schema-manifest-${{ github.sha }}");
+    expect(workflow).toContain("--artifact-output .j10-adoption/canonical-manifest-artifact.json");
+    expect(workflow).not.toContain(PRODUCTION_PROJECT_REF);
+    expect(exporter).toContain('"--local"');
+    expect(exporter).not.toContain('"--linked"');
   });
 
   it("uses the final Supabase CLI result envelope when setup metadata precedes it", () => {

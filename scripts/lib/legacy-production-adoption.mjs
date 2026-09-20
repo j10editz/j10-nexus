@@ -40,6 +40,30 @@ export function fingerprint(manifest) {
   return createHash("sha256").update(JSON.stringify(normalizeManifest(manifest))).digest("hex");
 }
 
+function containsSecretLikeValue(value) {
+  if (typeof value === "string") {
+    return /(https?:\/\/[^\s/:@]+:[^\s@]+@|\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|sk_[A-Za-z0-9_-]{16,}|eyJ[A-Za-z0-9_-]{20,})\b)/.test(value);
+  }
+  if (Array.isArray(value)) return value.some(containsSecretLikeValue);
+  return value && typeof value === "object" && Object.values(value).some(containsSecretLikeValue);
+}
+
+export function buildCanonicalManifestArtifact({ canonicalSourceSha, manifest, versions }) {
+  if (!/^[0-9a-f]{40}$/i.test(canonicalSourceSha)) throw new Error("CANONICAL_SOURCE_SHA_INVALID");
+  if (versions.length !== 45 || versions.at(-1) !== ADOPTION_CUTOFF) throw new Error("CANONICAL_MIGRATION_RANGE_INVALID");
+  const artifact = normalizeManifest({
+    artifactVersion: 1,
+    purpose: "disposable-supabase-canonical-schema-manifest",
+    canonicalSourceSha,
+    certifiedMigrationRange: { from: versions[0], through: ADOPTION_CUTOFF },
+    migrationVersions: versions,
+    normalizedSchemaManifest: normalizeManifest(manifest),
+    normalizedSchemaFingerprint: fingerprint(manifest),
+  });
+  if (containsSecretLikeValue(artifact)) throw new Error("CANONICAL_MANIFEST_SECRET_LIKE_MATERIAL");
+  return { ...artifact, sha256: createHash("sha256").update(JSON.stringify(artifact)).digest("hex") };
+}
+
 export function compareManifests(canonical, candidate) {
   const canonicalFingerprint = fingerprint(canonical);
   const candidateFingerprint = fingerprint(candidate);
