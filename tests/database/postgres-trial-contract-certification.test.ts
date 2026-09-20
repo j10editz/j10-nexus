@@ -72,7 +72,6 @@ describe.runIf(databaseUrl && apiUrl && serviceRoleKey)("72-hour trial contract 
   afterAll(async () => {
     globalThis.fetch = originalFetch;
     if (sql) {
-      await sql`delete from auth.users where id in (${expiredOwner}::uuid, ${paidOwner}::uuid, ${isolatedOwner}::uuid)`;
       await sql.end();
     }
   });
@@ -97,15 +96,18 @@ describe.runIf(databaseUrl && apiUrl && serviceRoleKey)("72-hour trial contract 
   });
 
   it("enforces tenant isolation with actual RLS reads and mutations", async () => {
-    await sql.begin(async (transaction) => {
-      await transaction`set local role authenticated`;
-      await transaction`select set_config('request.jwt.claim.sub', ${paidOwner}, true)`;
-      const ownRows = await transaction`select count(*)::int as count from public.workspace_subscriptions where workspace_id = ${paidWorkspace}::uuid`;
-      const foreignRows = await transaction`select count(*)::int as count from public.workspace_subscriptions where workspace_id = ${isolatedWorkspace}::uuid`;
+    const rls = postgres(databaseUrl!, { max: 1, ssl: false, onnotice: () => {} });
+    try {
+      await rls`set role authenticated`;
+      await rls`select set_config('request.jwt.claim.sub', ${paidOwner}, false)`;
+      const ownRows = await rls`select count(*)::int as count from public.workspace_subscriptions where workspace_id = ${paidWorkspace}::uuid`;
+      const foreignRows = await rls`select count(*)::int as count from public.workspace_subscriptions where workspace_id = ${isolatedWorkspace}::uuid`;
       expect(ownRows[0].count).toBe(1);
       expect(foreignRows[0].count).toBe(0);
-      await expect(transaction`insert into public.contacts (workspace_id, name, source, deal_stage, type, status) values (${isolatedWorkspace}::uuid, 'Cross-tenant write', 'certification', 'lead', 'Lead', 'New')`).rejects.toThrow();
-    });
+      await expect(rls`insert into public.contacts (workspace_id, name, source, deal_stage, type, status) values (${isolatedWorkspace}::uuid, 'Cross-tenant write', 'certification', 'lead', 'Lead', 'New')`).rejects.toThrow();
+    } finally {
+      await rls.end();
+    }
   });
 
   it("makes no external provider request in this isolated certification", () => {
