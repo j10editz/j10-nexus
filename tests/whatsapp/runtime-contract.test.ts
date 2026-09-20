@@ -53,6 +53,22 @@ describe("WhatsApp runtime contract", () => {
     expect(adapter).not.toContain("Refresh your Meta access token in .env.local");
   });
 
+  it("keeps Meta Cloud while adding an opt-in official 360dialog sandbox transport", () => {
+    const adapter = readFileSync(
+      resolve(process.cwd(), "lib/integrations/providers/whatsapp/adapter.ts"),
+      "utf8",
+    );
+    const transport = readFileSync(
+      resolve(process.cwd(), "lib/integrations/providers/whatsapp/transport.ts"),
+      "utf8",
+    );
+    expect(adapter).toContain("resolveWhatsAppTransport");
+    expect(adapter).toContain("supportsIdempotency: true");
+    expect(transport).toContain("waba-sandbox.360dialog.io");
+    expect(transport).toContain("meta_cloud");
+    expect(transport).not.toContain("whatsapp-web.js");
+  });
+
   it("returns actionable provider runtime errors instead of a generic banner", () => {
     const integrationApi = readFileSync(
       resolve(

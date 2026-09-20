@@ -22,6 +22,13 @@ import {
   canUseWhatsAppCredential,
   getWhatsAppCredentialLifecycleState,
 } from "@/lib/whatsapp/credential-lifecycle";
+import {
+  resolveWhatsAppTransport,
+  whatsappTransportCredentialKeys,
+  whatsappTransportHeaders,
+  whatsappTransportHealthEndpoint,
+  whatsappTransportMessageEndpoint,
+} from "./transport";
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RESPONSE_BYTES = 128 * 1024;
@@ -72,8 +79,9 @@ function graphApiVersion(context: IntegrationRuntimeInvocationContext): string {
   return version;
 }
 
-async function readAccessToken(
+async function readTransportCredential(
   context: IntegrationRuntimeInvocationContext,
+  transport: ReturnType<typeof resolveWhatsAppTransport>,
 ): Promise<string> {
   const lifecycleState = getWhatsAppCredentialLifecycleState(
     context.connection.publicConfiguration,
@@ -90,22 +98,23 @@ async function readAccessToken(
     );
   }
 
-  const credentials = await context.credentials.read(["access_token"]);
-  const accessToken = credentials.access_token?.trim();
+  const keys = whatsappTransportCredentialKeys(transport);
+  const credentials = await context.credentials.read(keys);
+  const credential = credentials[keys[0]]?.trim();
 
   if (
-    !accessToken ||
-    accessToken.length > MAX_ACCESS_TOKEN_LENGTH ||
-    /[\u0000-\u0020\u007f]/.test(accessToken)
+    !credential ||
+    credential.length > MAX_ACCESS_TOKEN_LENGTH ||
+    /[\u0000-\u0020\u007f]/.test(credential)
   ) {
-    throw new IntegrationRuntimeError("WhatsApp access token is required.", {
-      code: "WHATSAPP_ACCESS_TOKEN_MISSING",
+    throw new IntegrationRuntimeError("WhatsApp provider credential is required.", {
+      code: "WHATSAPP_PROVIDER_CREDENTIAL_MISSING",
       category: "authentication",
       status: 401,
     });
   }
 
-  return accessToken;
+  return credential;
 }
 
 async function readBoundedJson(response: Response): Promise<unknown> {
@@ -225,25 +234,28 @@ function providerRequestId(response: Response): string | null {
   return response.headers.get("x-fb-trace-id") ?? response.headers.get("x-request-id");
 }
 
-async function executeLiveAction(
+async function executeProviderAction(
   invocation: IntegrationRuntimeActionInvocation,
 ): Promise<IntegrationRuntimeResult> {
   const payload = buildWhatsAppCloudPayload(invocation.capabilityId, invocation.input);
-  const phoneNumberId = requireConfigurationValue(
-    invocation,
-    "phone_number_id",
-    "WhatsApp Phone Number ID",
-    /^\d{5,32}$/,
-  );
-  const accessToken = await readAccessToken(invocation);
-  const endpoint = `https://graph.facebook.com/${graphApiVersion(invocation)}/${phoneNumberId}/messages`;
+  const transport = resolveWhatsAppTransport(invocation.connection.publicConfiguration);
+  const phoneNumberId = transport === "meta_cloud"
+    ? requireConfigurationValue(invocation, "phone_number_id", "WhatsApp Phone Number ID", /^\d{5,32}$/)
+    : "not-applicable";
+  const credential = await readTransportCredential(invocation, transport);
+  const endpoint = whatsappTransportMessageEndpoint({
+    transport,
+    mode: invocation.mode === "sandbox" ? "sandbox" : "live",
+    phoneNumberId,
+    graphApiVersion: graphApiVersion(invocation),
+  });
 
   try {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         Accept: "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        ...whatsappTransportHeaders({ transport, credential }),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
@@ -288,7 +300,8 @@ async function executeLiveAction(
       metadata: {
         providerId: "whatsapp-business",
         capabilityId: invocation.capabilityId,
-        mode: "live",
+        mode: invocation.mode,
+        transport,
         providerCall: true,
         externalSideEffect: true,
         messageId,
@@ -316,8 +329,9 @@ async function executeWhatsAppAction(
 ): Promise<IntegrationRuntimeResult> {
   const payload = buildWhatsAppCloudPayload(invocation.capabilityId, invocation.input);
 
-  if (invocation.mode === "live") {
-    return executeLiveAction(invocation);
+  const transport = resolveWhatsAppTransport(invocation.connection.publicConfiguration);
+  if (invocation.mode === "live" || (invocation.mode === "sandbox" && transport === "360dialog")) {
+    return executeProviderAction(invocation);
   }
 
   if (invocation.mode !== "simulate" && invocation.mode !== "sandbox") {
@@ -343,6 +357,7 @@ async function executeWhatsAppAction(
       providerCall: false,
       externalSideEffect: false,
       messageType: payload.type,
+      transport,
       inputKeys: Object.keys(invocation.input).sort(),
     },
   };
@@ -352,20 +367,57 @@ async function checkWhatsAppHealth(
   context: IntegrationRuntimeInvocationContext,
 ): Promise<IntegrationRuntimeHealthResult> {
   const startedAt = performance.now();
+  const transport = resolveWhatsAppTransport(context.connection.publicConfiguration);
+  if (transport === "360dialog") {
+    const credential = await readTransportCredential(context, transport);
+    try {
+      const response = await fetch(whatsappTransportHealthEndpoint({
+        transport,
+        mode: context.environment === "development" ? "sandbox" : "live",
+        phoneNumberId: "not-applicable",
+        graphApiVersion: graphApiVersion(context),
+      }), {
+        method: "GET",
+        headers: { Accept: "application/json", ...whatsappTransportHeaders({ transport, credential }) },
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.any([context.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]),
+      });
+      const data = await readBoundedJson(response);
+      if (!response.ok) {
+        throw providerError(response, data);
+      }
+      return {
+        healthy: true,
+        checkedAt: new Date().toISOString(),
+        latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        externalAccountId: null,
+        externalAccountLabel: null,
+        metadata: { transport, providerRequestId: providerRequestId(response) },
+      };
+    } catch (error) {
+      if (error instanceof IntegrationRuntimeError) throw error;
+      throw new IntegrationRuntimeError("J10 could not reach WhatsApp securely.", {
+        code: "WHATSAPP_HEALTH_NETWORK_ERROR",
+        category: error instanceof DOMException && error.name === "TimeoutError" ? "timeout" : "network",
+        status: 502,
+        retryable: true,
+      });
+    }
+  }
   const phoneNumberId = requireConfigurationValue(
     context,
     "phone_number_id",
     "WhatsApp Phone Number ID",
     /^\d{5,32}$/,
   );
-  const accessToken = await readAccessToken(context);
-  const endpoint = new URL(
-    `https://graph.facebook.com/${graphApiVersion(context)}/${phoneNumberId}`,
-  );
-  endpoint.searchParams.set(
-    "fields",
-    "id,display_phone_number,verified_name,quality_rating",
-  );
+  const accessToken = await readTransportCredential(context, transport);
+  const endpoint = whatsappTransportHealthEndpoint({
+    transport,
+    mode: "live",
+    phoneNumberId,
+    graphApiVersion: graphApiVersion(context),
+  });
 
   try {
     const response = await fetch(endpoint, {
@@ -402,6 +454,7 @@ async function checkWhatsAppHealth(
         qualityRating:
           typeof data.quality_rating === "string" ? data.quality_rating : null,
         providerRequestId: providerRequestId(response),
+        transport,
       },
     };
   } catch (error) {
@@ -425,7 +478,7 @@ export const WHATSAPP_RUNTIME_ADAPTER: IntegrationConnectorRuntimeAdapter = {
   manifest: {
     schemaVersion: INTEGRATION_RUNTIME_SCHEMA_VERSION,
     adapterId: "j10.whatsapp-business.runtime",
-    adapterVersion: "1.0.0",
+    adapterVersion: "1.1.0",
     providerId: "whatsapp-business",
     state: "installed",
     authType: "access_token",
@@ -440,7 +493,7 @@ export const WHATSAPP_RUNTIME_ADAPTER: IntegrationConnectorRuntimeAdapter = {
       kind: "action" as const,
       modes: ["simulate", "sandbox", "live"] as const,
       requiredScopes: [],
-      supportsIdempotency: false,
+      supportsIdempotency: true,
     })),
     supportsHealthChecks: true,
     supportsTokenRefresh: false,

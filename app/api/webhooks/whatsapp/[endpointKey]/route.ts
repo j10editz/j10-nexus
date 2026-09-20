@@ -32,6 +32,11 @@ import {
   normalizeSignatureHex,
   safeStringEqual,
 } from "@/lib/integrations/webhooks/crypto";
+import {
+  D360_WEBHOOK_SECRET_HEADER,
+  resolveWhatsAppTransport,
+  whatsappTransportWebhookAuthMode,
+} from "@/lib/integrations/providers/whatsapp/transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -246,11 +251,13 @@ export async function POST(
       );
     }
 
-    // 2. Resolve App Secret for X-Hub-Signature-256 verification
-    let appSecret =
-      process.env.META_WHATSAPP_APP_SECRET?.trim() ||
-      process.env.META_APP_SECRET?.trim() ||
-      "";
+    const transport = resolveWhatsAppTransport(connection.publicConfiguration);
+    const webhookAuthMode = whatsappTransportWebhookAuthMode(transport);
+
+    // 2. Resolve secret scoped to the exact integration before parsing.
+    let appSecret = webhookAuthMode === "meta_hmac"
+      ? (process.env.META_WHATSAPP_APP_SECRET?.trim() || process.env.META_APP_SECRET?.trim() || "")
+      : "";
 
     try {
       const credentials = await getIntegrationCredentials(
@@ -258,9 +265,11 @@ export async function POST(
         workspaceId,
         connection.id,
       );
-      if (credentials?.values?.app_secret?.trim()) {
+      if (webhookAuthMode === "static_header" && credentials?.values?.webhook_secret?.trim()) {
+        appSecret = credentials.values.webhook_secret.trim();
+      } else if (webhookAuthMode === "meta_hmac" && credentials?.values?.app_secret?.trim()) {
         appSecret = credentials.values.app_secret.trim();
-      } else if (credentials?.values?.appSecret?.trim()) {
+      } else if (webhookAuthMode === "meta_hmac" && credentials?.values?.appSecret?.trim()) {
         appSecret = credentials.values.appSecret.trim();
       }
     } catch {
@@ -276,16 +285,17 @@ export async function POST(
       );
     }
 
-    // 3. Cryptographic Signature Validation
-    const receivedSignature = normalizeSignatureHex(
-      request.headers.get("x-hub-signature-256"),
-    );
+    // 3. Authenticate delivery. Meta Cloud uses its native HMAC. 360dialog
+    // sandbox forwards the exact per-workspace header configured in its Hub.
+    const receivedSignature = normalizeSignatureHex(request.headers.get("x-hub-signature-256"));
     const expectedSignature = hmacSha256Hex(appSecret, rawBody);
+    const staticHeader = request.headers.get(D360_WEBHOOK_SECRET_HEADER);
 
-    if (
-      !receivedSignature ||
-      !safeStringEqual(receivedSignature, expectedSignature)
-    ) {
+    const authenticated = webhookAuthMode === "meta_hmac"
+      ? Boolean(receivedSignature && safeStringEqual(receivedSignature, expectedSignature))
+      : Boolean(staticHeader && safeStringEqual(staticHeader, appSecret));
+
+    if (!authenticated) {
       return NextResponse.json(
         {
           success: false,
