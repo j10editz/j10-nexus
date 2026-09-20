@@ -67,6 +67,7 @@ const GMAIL_OAUTH_SCOPES =
 const GOOGLE_CALENDAR_OAUTH_SCOPES =
   Object.freeze([
     "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.events.freebusy",
   ] as const);
 
 export const GOOGLE_OAUTH_PROVIDER_IDS =

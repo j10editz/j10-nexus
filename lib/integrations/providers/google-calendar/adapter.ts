@@ -5,6 +5,7 @@ import {
 } from "node:crypto";
 
 import type {
+  GoogleCalendarAvailabilityInput,
   GoogleCalendarCancelEventInput,
   GoogleCalendarCreateEventInput,
   GoogleCalendarSendUpdates,
@@ -397,6 +398,22 @@ function validateDateRange(
   }
 }
 
+function normalizeAvailabilityInput(
+  value: unknown,
+): GoogleCalendarAvailabilityInput {
+  const input = requireRecord(value);
+  const start = normalizeDateTime(input, "start", "Availability start");
+  const end = normalizeDateTime(input, "end", "Availability end");
+  validateDateRange(start, end);
+
+  return {
+    calendarId: normalizeCalendarId(input),
+    start,
+    end,
+    timeZone: normalizeTimeZone(input),
+  };
+}
+
 function normalizeCreateEventInput(
   value: unknown,
 ): GoogleCalendarCreateEventInput {
@@ -598,6 +615,17 @@ function createActionMetadata(
   switch (
     invocation.capabilityId
   ) {
+    case "google-calendar.availability.read": {
+      const input = normalizeAvailabilityInput(invocation.input);
+
+      return {
+        operation: "read_availability",
+        calendar: input.calendarId === "primary" ? "primary" : "custom",
+        durationMinutes: Math.round((Date.parse(input.end) - Date.parse(input.start)) / 60_000),
+        timeZonePresent: Boolean(input.timeZone),
+      };
+    }
+
     case "google-calendar.event.create": {
       const input =
         normalizeCreateEventInput(
@@ -1055,6 +1083,13 @@ export const GOOGLE_CALENDAR_RUNTIME_ADAPTER:
         "live",
       ],
       capabilities: [
+        {
+          capabilityId: "google-calendar.availability.read",
+          kind: "action",
+          modes: ["simulate", "sandbox", "live"],
+          requiredScopes: [GOOGLE_CALENDAR_SCOPE, "https://www.googleapis.com/auth/calendar.events.freebusy"],
+          supportsIdempotency: false,
+        },
         {
           capabilityId:
             "google-calendar.event.create",
