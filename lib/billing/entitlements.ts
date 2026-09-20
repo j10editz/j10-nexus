@@ -91,6 +91,9 @@ export interface WorkspaceSubscription {
   gracePeriodEnd: string | null;
   trialStart?: string | null;
   trialEnd?: string | null;
+  trialStartedAt?: string | null;
+  trialEndsAt?: string | null;
+  trialStatus?: "not_started" | "active" | "expired" | "converted";
   hasUsedTrial?: boolean;
   dunningStatus?: DunningStatus;
   dunningAttemptCount?: number;
@@ -126,7 +129,7 @@ export async function getWorkspaceSubscription(
     const { data, error } = await supabase
       .from("workspace_subscriptions")
       .select(
-        "id,workspace_id,plan_id,status,provenance,monthly_message_limit,messages_used_this_period,ai_conversations_quota,seats_quota,channels_quota,cancel_at_period_end,current_period_start,current_period_end,grace_period_end,trial_start,trial_end,has_used_trial,dunning_status,dunning_attempt_count,last_dunning_at,stripe_customer_id,stripe_subscription_id,stripe_price_id"
+        "id,workspace_id,plan_id,status,provenance,monthly_message_limit,messages_used_this_period,ai_conversations_quota,seats_quota,channels_quota,cancel_at_period_end,current_period_start,current_period_end,grace_period_end,trial_start,trial_end,trial_started_at,trial_ends_at,trial_status,has_used_trial,dunning_status,dunning_attempt_count,last_dunning_at,stripe_customer_id,stripe_subscription_id,stripe_price_id"
       )
       .eq("workspace_id", workspaceId)
       .maybeSingle();
@@ -150,6 +153,9 @@ export async function getWorkspaceSubscription(
       gracePeriodEnd: data.grace_period_end ?? null,
       trialStart: data.trial_start ?? null,
       trialEnd: data.trial_end ?? null,
+      trialStartedAt: data.trial_started_at ?? null,
+      trialEndsAt: data.trial_ends_at ?? null,
+      trialStatus: data.trial_status ?? "not_started",
       hasUsedTrial: Boolean(data.has_used_trial),
       dunningStatus: (data.dunning_status as DunningStatus) || "none",
       dunningAttemptCount: data.dunning_attempt_count ?? 0,
@@ -196,6 +202,19 @@ export async function assertWorkspaceEntitlement(
   }
 
   const now = new Date();
+
+  // New launch trials are fixed, database-authored 72-hour windows. This
+  // server gate complements the database triggers that protect direct writes.
+  if (sub.provenance === "trial") {
+    const trialEnd = sub.trialEndsAt || sub.trialEnd;
+    if (sub.trialStatus === "expired" || !trialEnd || now >= new Date(trialEnd)) {
+      throw new BillingRequiredError(
+        "Your 72-hour trial has ended. Workspace data remains available read-only; activate a plan to resume AI, automations, messages, and lead processing.",
+        "TRIAL_EXPIRED",
+        sub
+      );
+    }
+  }
 
   // 2. Status check: Canceled, unpaid, refunded, disputed, or invalid status
   if (sub.status === "refunded" || sub.status === "disputed") {
@@ -686,8 +705,8 @@ export async function getWorkspaceEntitlements(
   let trialActive = false;
   let trialDaysRemaining = 0;
 
-  if (sub?.status === "trialing" && sub.trialEnd) {
-    const endMs = new Date(sub.trialEnd).getTime();
+  if (sub?.status === "trialing" && (sub.trialEndsAt || sub.trialEnd)) {
+    const endMs = new Date(sub.trialEndsAt || sub.trialEnd!).getTime();
     if (endMs > now) {
       trialActive = true;
       trialDaysRemaining = Math.max(0, Math.ceil((endMs - now) / 86400000));

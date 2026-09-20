@@ -1,0 +1,22 @@
+"use client";
+
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+
+type Profile = Record<string, string>;
+const fields: Array<[keyof Profile, string, boolean]> = [
+  ["business_name", "Business name", true], ["industry", "Industry", true], ["website", "Website", false], ["services", "Services", false], ["hours", "Business hours", false], ["timezone", "Timezone", true], ["business_goals", "Business goals", false], ["preferred_lead_outcomes", "Preferred lead outcomes", false], ["receptionist_tone", "Receptionist tone", false], ["supported_languages", "Supported languages", false], ["faqs_and_knowledge_sources", "FAQs and knowledge sources", false], ["booking_rules", "Booking rules", false], ["connected_calendar", "Connected calendar", false], ["communication_channels", "Communication channels", false], ["human_handoff_contact", "Human-handoff contact", false], ["lead_qualification_questions", "Lead qualification questions", false],
+];
+
+export default function OutcomeOnboardingPage() {
+  const router = useRouter();
+  const [profile, setProfile] = useState<Profile>({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
+  const [proposal, setProposal] = useState<Record<string, unknown> | null>(null);
+  const [status, setStatus] = useState("draft");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void fetch("/api/onboarding/outcome").then(async r => r.ok ? r.json() : null).then(data => { if (data?.onboarding) { setProfile(data.onboarding.business_profile || {}); setProposal(data.onboarding.proposed_setup || null); setStatus(data.onboarding.status); } }); }, []);
+  async function submit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { const r = await fetch("/api/onboarding/outcome", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profile) }); const data = await r.json(); if (!r.ok) throw new Error(data.error); setProposal(data.proposal); setStatus("submitted"); } catch (e) { setError(e instanceof Error ? e.message : "Could not save onboarding."); } finally { setBusy(false); } }
+  async function approve() { setBusy(true); setError(""); try { const r = await fetch("/api/onboarding/outcome", { method: "PATCH" }); const data = await r.json(); if (!r.ok) throw new Error(data.error); setStatus("activated"); router.push("/dashboard"); } catch (e) { setError(e instanceof Error ? e.message : "Could not activate the trial."); } finally { setBusy(false); } }
+  return <main className="min-h-screen bg-[#07090f] px-4 py-10 text-slate-100"><section className="mx-auto max-w-3xl rounded-2xl border border-white/10 bg-[#0b1020] p-6"><p className="text-xs font-semibold uppercase tracking-widest text-cyan-300">Outcome onboarding</p><h1 className="mt-2 text-3xl font-bold">Build your proposed J10 setup</h1><p className="mt-2 text-sm text-slate-400">Your 72-hour trial begins only after you review and approve this setup. No charge, automatic extension, or live WhatsApp connection is created.</p><form onSubmit={submit} className="mt-7 grid gap-4">{fields.map(([name, label, required]) => <label key={name} className="text-sm text-slate-300">{label}{required ? " *" : ""}<textarea required={required} value={profile[name] || ""} onChange={e => setProfile({ ...profile, [name]: e.target.value })} className="mt-1 block min-h-10 w-full rounded-lg border border-white/10 bg-black/20 p-3 text-sm" /></label>)}<button disabled={busy} className="rounded-lg bg-cyan-500 px-4 py-3 font-semibold text-slate-950 disabled:opacity-50">{busy ? "Saving..." : "Generate proposed setup"}</button></form>{error && <p className="mt-4 text-sm text-red-300">{error}</p>}{proposal && <section className="mt-6 rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-4"><h2 className="font-semibold">Proposed J10 setup</h2><pre className="mt-3 overflow-auto whitespace-pre-wrap text-xs text-slate-300">{JSON.stringify(proposal, null, 2)}</pre>{status !== "activated" && <button onClick={approve} disabled={busy} className="mt-4 rounded-lg bg-emerald-400 px-4 py-3 font-semibold text-slate-950 disabled:opacity-50">Approve setup and start my 72-hour trial</button>}<p className="mt-3 text-xs text-slate-400">WhatsApp remains a clearly labeled interactive demo during this trial. No live provider call will be made.</p></section>}</section></main>;
+}
