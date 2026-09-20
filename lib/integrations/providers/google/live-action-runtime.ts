@@ -1305,6 +1305,75 @@ function calendarUrl(
   );
 }
 
+function calendarDateTime(
+  input: JsonRecord,
+  key: "start" | "end",
+): string {
+  const value = requireString(input, key, 128);
+
+  if (!/^\d{4}-\d{2}-\d{2}T.+(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) {
+    throw new IntegrationRuntimeError("Google Calendar availability requires RFC 3339 timestamps.", {
+      code: "GOOGLE_CALENDAR_AVAILABILITY_INPUT_INVALID",
+      category: "validation",
+      status: 400,
+    });
+  }
+
+  return value;
+}
+
+async function readCalendarAvailability(
+  invocation: IntegrationRuntimeActionInvocation,
+  accessToken: string,
+  input: JsonRecord,
+): Promise<IntegrationRuntimeResult> {
+  const start = calendarDateTime(input, "start");
+  const end = calendarDateTime(input, "end");
+  if (Date.parse(end) <= Date.parse(start)) {
+    throw new IntegrationRuntimeError("Google Calendar availability end must be after start.", {
+      code: "GOOGLE_CALENDAR_AVAILABILITY_RANGE_INVALID",
+      category: "validation",
+      status: 400,
+    });
+  }
+
+  const calendarId = optionalString(input, "calendarId", 1_024) ?? "primary";
+  const timeZone = optionalString(input, "timeZone", 255);
+  const response = await googleRequest({
+    url: `${CALENDAR_API_BASE}/freeBusy`,
+    method: "POST",
+    accessToken,
+    signal: invocation.signal,
+    body: {
+      timeMin: start,
+      timeMax: end,
+      ...(timeZone ? { timeZone } : {}),
+      items: [{ id: calendarId }],
+    },
+  });
+
+  const root = isRecord(response.data) ? response.data : {};
+  const calendars = isRecord(root.calendars) ? root.calendars : {};
+  const requested = isRecord(calendars[calendarId]) ? calendars[calendarId] : {};
+  const busy = Array.isArray(requested.busy) ? requested.busy : [];
+
+  return {
+    success: true,
+    responseStatus: response.status,
+    providerRequestId: response.requestId,
+    rateLimit: response.rateLimit,
+    metadata: {
+      providerId: "google-calendar",
+      capabilityId: invocation.capabilityId,
+      mode: "live",
+      externalSideEffect: false,
+      operation: "read_availability",
+      available: busy.length === 0,
+      busyCount: busy.length,
+    },
+  };
+}
+
 async function executeCalendarAction(
   invocation:
     IntegrationRuntimeActionInvocation,
@@ -1327,6 +1396,17 @@ async function executeCalendarAction(
       1_024,
     ) ??
     "primary";
+
+  if (
+    invocation.capabilityId ===
+    "google-calendar.availability.read"
+  ) {
+    return readCalendarAvailability(
+      invocation,
+      accessToken,
+      input,
+    );
+  }
 
   const sendUpdates =
     optionalString(

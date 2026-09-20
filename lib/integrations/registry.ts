@@ -148,13 +148,14 @@ export const INTEGRATION_REGISTRY: Readonly<
     shortDescription:
       "Create, update, cancel, and monitor calendar events.",
     category: "productivity",
-    availability: "development",
+    availability: "available",
     iconKey: "calendar-days",
     accentColor: "#4285F4",
     auth: {
       type: "oauth2",
       requiredScopes: [
         "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.events.freebusy",
       ],
       supportsRefreshTokens: true,
       setupFields: [],
@@ -163,6 +164,12 @@ export const INTEGRATION_REGISTRY: Readonly<
     webhookSupport: "incoming",
     supportsHealthChecks: true,
     capabilities: [
+      capability(
+        "google-calendar.availability.read",
+        "Read Availability",
+        "action",
+        "Checks whether a requested appointment window is available without retaining calendar contents.",
+      ),
       capability(
         "google-calendar.event.created",
         "Event Created",

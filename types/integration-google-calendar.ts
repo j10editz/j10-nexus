@@ -1,4 +1,5 @@
 export const GOOGLE_CALENDAR_ACTION_CAPABILITIES = [
+  "google-calendar.availability.read",
   "google-calendar.event.create",
   "google-calendar.event.update",
   "google-calendar.event.cancel",
@@ -6,6 +7,13 @@ export const GOOGLE_CALENDAR_ACTION_CAPABILITIES = [
 
 export type GoogleCalendarActionCapability =
   (typeof GOOGLE_CALENDAR_ACTION_CAPABILITIES)[number];
+
+export interface GoogleCalendarAvailabilityInput {
+  readonly calendarId?: string;
+  readonly start: string;
+  readonly end: string;
+  readonly timeZone?: string;
+}
 
 export const GOOGLE_CALENDAR_SEND_UPDATE_OPTIONS = [
   "all",
@@ -48,6 +56,7 @@ export interface GoogleCalendarCancelEventInput {
 }
 
 export type GoogleCalendarActionInput =
+  | GoogleCalendarAvailabilityInput
   | GoogleCalendarCreateEventInput
   | GoogleCalendarUpdateEventInput
   | GoogleCalendarCancelEventInput;
