@@ -29,7 +29,7 @@ try {
     raw = execFileSync("supabase", ["db", "query", "--local", "--output", "json", schemaManifestSql], options);
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
-    raw = execFileSync("npx", ["--no-install", "supabase", "db", "query", "--local", "--output", "json", schemaManifestSql], options);
+    raw = execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["--no-install", "supabase", "db", "query", "--local", "--output", "json", schemaManifestSql], options);
   }
   const parsed = parseSupabaseQueryOutput(raw);
   const manifest = parsed.rows?.[0]?.manifest;
