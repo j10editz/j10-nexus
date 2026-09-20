@@ -516,15 +516,44 @@ export const INTEGRATION_REGISTRY: Readonly<
     ],
   },
 
-  "outlook-mail": plannedProvider({
+  "outlook-mail": {
     id: "outlook-mail",
     name: "Outlook Mail",
-    description: "Read, organize, send, and reply to Microsoft 365 email.",
+    shortDescription: "Connect Microsoft 365 to send new email and thread replies.",
     category: "communication",
+    availability: "available",
+    iconKey: "mail",
     accentColor: "#0078D4",
-    triggers: ["Email Received", "Email Flagged"],
-    actions: ["Send Email", "Reply to Email", "Move Email"],
-  }),
+    auth: {
+      type: "oauth2",
+      requiredScopes: [
+        "https://graph.microsoft.com/Mail.ReadWrite",
+        "https://graph.microsoft.com/Mail.Send",
+        "offline_access",
+      ],
+      supportsRefreshTokens: true,
+      setupFields: [],
+    },
+    environments: ["development", "production"],
+    webhookSupport: "none",
+    supportsHealthChecks: true,
+    capabilities: [
+      capability(
+        "outlook-mail.message.send",
+        "Send Email",
+        "action",
+        "Sends a new email through the connected Microsoft 365 account.",
+        true,
+      ),
+      capability(
+        "outlook-mail.message.reply",
+        "Reply to Email",
+        "action",
+        "Replies to an existing Microsoft 365 email conversation.",
+        true,
+      ),
+    ],
+  },
   "outlook-calendar": plannedProvider({
     id: "outlook-calendar",
     name: "Outlook Calendar",
