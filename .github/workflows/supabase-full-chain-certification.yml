@@ -38,6 +38,14 @@ jobs:
         run: |
           supabase start
           supabase db reset --local --no-seed
+          set -a
+          source <(supabase status -o env)
+          set +a
+          {
+            echo "J10_TRIAL_CERT_DATABASE_URL=$DB_URL"
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
       - name: Verify the migration ledger contains every local migration
         run: |
           local_count=$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)
@@ -46,6 +54,18 @@ jobs:
           remote_count=$(docker exec "$db_container" psql -U postgres -d postgres -tAc \
             'select count(*) from supabase_migrations.schema_migrations')
           test "$local_count" -eq "$remote_count"
+      - name: Export disposable database connection for trial-contract certification
+        run: |
+          set -a
+          source <(supabase status -o env)
+          set +a
+          {
+            echo "J10_TRIAL_CERT_DATABASE_URL=$DB_URL"
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
+      - name: Certify trial expiry, paid access, tenant isolation, and provider isolation
+        run: npx vitest run tests/database/postgres-trial-contract-certification.test.ts --pool=threads --maxWorkers=1 --no-file-parallelism
       - name: Build the canonical through-20261013 adoption database
         run: |
           # The full-chain reset above certifies every migration. Adoption itself

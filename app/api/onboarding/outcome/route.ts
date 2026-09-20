@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/auth";
+import { getTrialRuntimeStatus } from "@/lib/billing/entitlements";
 import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 
 export async function GET() {
@@ -13,7 +14,17 @@ export async function GET() {
   if (onboardingError || subscriptionError) {
     return NextResponse.json({ error: "Could not load outcome onboarding." }, { status: 500 });
   }
-  return NextResponse.json({ success: true, onboarding, trial: subscription, serverNow: new Date().toISOString() });
+  const serverNow = new Date();
+  const trial = subscription && {
+    ...subscription,
+    trial_status: getTrialRuntimeStatus({
+      provenance: subscription.provenance,
+      trialStatus: subscription.trial_status,
+      trialEndsAt: subscription.trial_ends_at,
+      trialEnd: null,
+    }, serverNow) || subscription.trial_status,
+  };
+  return NextResponse.json({ success: true, onboarding, trial, serverNow: serverNow.toISOString() });
 }
 
 export async function POST(request: NextRequest) {

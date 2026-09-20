@@ -118,6 +118,20 @@ export class BillingRequiredError extends Error {
 }
 
 /**
+ * Derives a trial state from a server-observed clock. Callers must never accept
+ * a browser timestamp for this decision.
+ */
+export function getTrialRuntimeStatus(
+  subscription: Pick<WorkspaceSubscription, "provenance" | "trialStatus" | "trialEndsAt" | "trialEnd">,
+  serverNow = new Date(),
+): "active" | "expired" | null {
+  if (subscription.provenance !== "trial") return null;
+  const endsAt = subscription.trialEndsAt || subscription.trialEnd;
+  if (subscription.trialStatus === "expired" || !endsAt || serverNow >= new Date(endsAt)) return "expired";
+  return "active";
+}
+
+/**
  * Retrieves workspace subscription scoped strictly to workspace_id.
  * Returns null if no subscription has been provisioned.
  */
@@ -217,15 +231,12 @@ export async function assertWorkspaceEntitlement(
 
   // New launch trials are fixed, database-authored 72-hour windows. This
   // server gate complements the database triggers that protect direct writes.
-  if (sub.provenance === "trial") {
-    const trialEnd = sub.trialEndsAt || sub.trialEnd;
-    if (sub.trialStatus === "expired" || !trialEnd || now >= new Date(trialEnd)) {
-      throw new BillingRequiredError(
-        "Your 72-hour trial has ended. Workspace data remains available read-only; activate a plan to resume AI, automations, messages, and lead processing.",
-        "TRIAL_EXPIRED",
-        sub
-      );
-    }
+  if (getTrialRuntimeStatus(sub, now) === "expired") {
+    throw new BillingRequiredError(
+      "Your 72-hour trial has ended. Workspace data remains available read-only; activate a plan to resume AI, automations, messages, and lead processing.",
+      "TRIAL_EXPIRED",
+      sub
+    );
   }
 
   // 2. Status check: Canceled, unpaid, refunded, disputed, or invalid status
