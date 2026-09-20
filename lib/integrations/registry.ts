@@ -227,6 +227,16 @@ export const INTEGRATION_REGISTRY: Readonly<
       supportsRefreshTokens: false,
       setupFields: [
         {
+          key: "transport",
+          label: "WhatsApp Transport",
+          kind: "text",
+          required: false,
+          storage: "connection",
+          placeholder: "meta_cloud or 360dialog",
+          helpText:
+            "Defaults to Meta Cloud. Select 360dialog only for an official 360dialog workspace connection.",
+        },
+        {
           key: "access_token",
           label: "Access Token",
           kind: "secret",
@@ -251,17 +261,35 @@ export const INTEGRATION_REGISTRY: Readonly<
             "Used to validate signed WhatsApp webhook deliveries from Meta.",
         },
         {
+          key: "api_key",
+          label: "360dialog API Key",
+          kind: "secret",
+          required: false,
+          storage: "credential_vault",
+          helpText:
+            "Used only when this workspace explicitly selects the official 360dialog transport.",
+        },
+        {
+          key: "webhook_secret",
+          label: "360dialog Webhook Secret",
+          kind: "secret",
+          required: false,
+          storage: "credential_vault",
+          helpText:
+            "Per-workspace secret forwarded by 360dialog in the configured webhook header.",
+        },
+        {
           key: "phone_number_id",
           label: "Phone Number ID",
           kind: "text",
-          required: true,
+          required: false,
           storage: "connection",
         },
         {
           key: "business_account_id",
           label: "Business Account ID",
           kind: "text",
-          required: true,
+          required: false,
           storage: "connection",
         },
       ],

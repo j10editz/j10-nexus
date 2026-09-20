@@ -405,6 +405,22 @@ export function validateProviderPublicConfiguration(
   }
 
   if (providerId === "whatsapp-business") {
+    const transport = configuration.transport ?? "meta_cloud";
+
+    if (transport !== "meta_cloud" && transport !== "360dialog") {
+      throw new IntegrationApiValidationError(
+        "WhatsApp transport must be meta_cloud or 360dialog.",
+        "INVALID_WHATSAPP_TRANSPORT",
+      );
+    }
+
+    // 360dialog keys are sender-scoped, while Meta Cloud requires the two
+    // numeric identifiers below. Do not force Meta identifiers onto an
+    // official 360dialog sandbox connection.
+    if (transport === "360dialog") {
+      return;
+    }
+
     const phoneNumberId =
       configuration.phone_number_id;
 
