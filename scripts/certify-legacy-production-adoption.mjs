@@ -34,7 +34,7 @@ function runSupabase(args) {
     output = execFileSync("supabase", args, options);
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
-    output = execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["--no-install", "supabase", ...args], options);
+    output = execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["--no-install", "supabase", ...args], { ...options, shell: process.platform === "win32" });
   }
   return parseSupabaseQueryOutput(output);
 }

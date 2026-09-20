@@ -78,7 +78,7 @@ async function main() {
     execFileSync("supabase", repairArgs, { cwd: repoRoot, stdio: "inherit" });
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
-    execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["--no-install", "supabase", ...repairArgs], { cwd: repoRoot, stdio: "inherit" });
+    execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["--no-install", "supabase", ...repairArgs], { cwd: repoRoot, stdio: "inherit", shell: process.platform === "win32" });
   }
 
   const afterLedger = migrationLedgerVersions();
