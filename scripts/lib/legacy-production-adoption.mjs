@@ -74,6 +74,91 @@ export function compareManifests(canonical, candidate) {
   };
 }
 
+function itemFingerprint(item) {
+  return JSON.stringify(stable(item));
+}
+
+/**
+ * Compare only the contract exported from the disposable canonical database.
+ * A ledgerless legacy database may have additional, security-safe objects; an
+ * extra must never make a required canonical object appear to exist.
+ */
+export function compareCanonicalContracts(canonical, candidate) {
+  const missing = [];
+  for (const [section, required] of Object.entries(canonical)) {
+    if (!Array.isArray(required)) continue;
+    const actual = new Set((Array.isArray(candidate?.[section]) ? candidate[section] : []).map(itemFingerprint));
+    for (const item of required) {
+      if (!actual.has(itemFingerprint(item))) missing.push({ section, item: stable(item) });
+    }
+  }
+  return {
+    equal: missing.length === 0,
+    missing,
+    canonicalFingerprint: fingerprint(canonical),
+    candidateFingerprint: fingerprint(candidate),
+  };
+}
+
+export const LEGACY_WORKFLOW_RELATIONS = Object.freeze([
+  "workflows",
+  "workflow_runs",
+  "workflow_run_steps",
+  "automation_execution_locks",
+]);
+
+export const LEGACY_RUNTIME_CONTRACTS = Object.freeze({
+  workflows: ["id", "workspace_id", "status", "runs_count"],
+  automation_execution_locks: ["user_id", "lock_key", "owner_token", "scope", "automation_id", "run_id", "expires_at", "created_at", "updated_at"],
+});
+
+export function inventoryLegacyExtras(canonical, candidate) {
+  const canonicalRelations = new Set((canonical?.relations ?? []).filter((relation) => relation.schema === "public").map((relation) => relation.name));
+  const candidateRelations = (candidate?.relations ?? []).filter((relation) => relation.schema === "public");
+  return candidateRelations
+    .filter((relation) => !canonicalRelations.has(relation.name))
+    .map((relation) => ({
+      name: relation.name,
+      kind: relation.kind,
+      rls: relation.rls,
+      runtimeRequiredColumns: LEGACY_RUNTIME_CONTRACTS[relation.name] ?? [],
+      classification: LEGACY_WORKFLOW_RELATIONS.includes(relation.name)
+        ? (LEGACY_RUNTIME_CONTRACTS[relation.name] ? "runtime-validated-legacy-extra" : "preserved-legacy-extra")
+        : "legacy-extra",
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function validateLegacyExtraSecurity(candidate, extras) {
+  const columns = candidate?.columns ?? [];
+  const policies = candidate?.policies ?? [];
+  const issues = [];
+  for (const extra of extras.filter((entry) => LEGACY_WORKFLOW_RELATIONS.includes(entry.name))) {
+    const relation = (candidate?.relations ?? []).find((entry) => entry.schema === "public" && entry.name === extra.name);
+    if (!relation?.rls) {
+      issues.push({ relation: extra.name, reason: "rls_not_enabled" });
+      continue;
+    }
+    const presentColumns = new Set(columns.filter((column) => column.table === extra.name).map((column) => column.name));
+    for (const required of extra.runtimeRequiredColumns) {
+      if (!presentColumns.has(required)) issues.push({ relation: extra.name, reason: `runtime_column_missing:${required}` });
+    }
+    const relationPolicies = policies.filter((policy) => policy.table === extra.name);
+    if (relationPolicies.length === 0) {
+      issues.push({ relation: extra.name, reason: "rls_policy_missing" });
+      continue;
+    }
+    for (const policy of relationPolicies) {
+      const publicRole = !Array.isArray(policy.roles) || policy.roles.length === 0 || policy.roles.includes("anon");
+      const expression = `${policy.using ?? ""} ${policy.check ?? ""}`;
+      if (publicRole && !/auth\.uid\(\)|has_workspace_role\(/.test(expression)) {
+        issues.push({ relation: extra.name, reason: `public_policy_not_identity_scoped:${policy.name}` });
+      }
+    }
+  }
+  return issues;
+}
+
 export function parseSupabaseQueryOutput(raw) {
   const starts = [];
   for (let index = raw.indexOf("{"); index >= 0; index = raw.indexOf("{", index + 1)) starts.push(index);
@@ -121,7 +206,7 @@ export function buildCertificationReport({ canonicalCommit, generatedAt, manifes
 export const schemaManifestSql = `
 SELECT jsonb_build_object(
   'relations', COALESCE((SELECT jsonb_agg(jsonb_build_object('schema', n.nspname, 'name', c.relname, 'kind', c.relkind, 'rls', c.relrowsecurity, 'forceRls', c.relforcerowsecurity) ORDER BY n.nspname, c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','S')),'[]'::jsonb),
-  'columns', COALESCE((SELECT jsonb_agg(jsonb_build_object('table', c.relname, 'name', a.attname, 'type', pg_catalog.format_type(a.atttypid,a.atttypmod), 'notNull', a.attnotnull, 'default', pg_get_expr(ad.adbin,ad.adrelid)) ORDER BY c.relname,a.attnum) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m') AND a.attnum>0 AND NOT a.attisdropped),'[]'::jsonb),
+  'columns', COALESCE((SELECT jsonb_agg(jsonb_build_object('table', c.relname, 'name', a.attname, 'type', pg_catalog.format_type(a.atttypid,a.atttypmod), 'notNull', a.attnotnull, 'default', pg_get_expr(ad.adbin,ad.adrelid)) ORDER BY c.relname,a.attnum) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m') AND a.attnum>0 AND NOT a.attisdropped AND NOT (c.relname='workspace_subscriptions' AND a.attname='user_id')),'[]'::jsonb),
   'constraints', COALESCE((SELECT jsonb_agg(jsonb_build_object('table',c.relname,'name',con.conname,'type',con.contype,'definition',pg_get_constraintdef(con.oid,true),'validated',con.convalidated) ORDER BY c.relname,con.conname) FROM pg_constraint con JOIN pg_class c ON c.oid=con.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'),'[]'::jsonb),
   'indexes', COALESCE((SELECT jsonb_agg(jsonb_build_object('table',c.relname,'name',i.relname,'definition',pg_get_indexdef(i.oid)) ORDER BY c.relname,i.relname) FROM pg_index x JOIN pg_class c ON c.oid=x.indrelid JOIN pg_class i ON i.oid=x.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'),'[]'::jsonb),
   'types', COALESCE((SELECT jsonb_agg(jsonb_build_object('name',t.typname,'kind',t.typtype,'definition',pg_catalog.format_type(t.oid,NULL)) ORDER BY t.typname) FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public' AND t.typtype IN ('e','d','c')),'[]'::jsonb),
@@ -140,7 +225,7 @@ UNION ALL SELECT 'duplicate_provider_bindings', count(*)::bigint FROM (SELECT pr
 UNION ALL SELECT 'unresolved_tenant_backfills', count(*)::bigint FROM (SELECT workspace_id FROM public.integrations UNION ALL SELECT workspace_id FROM public.integration_credentials UNION ALL SELECT workspace_id FROM public.contacts UNION ALL SELECT workspace_id FROM public.ai_tasks UNION ALL SELECT workspace_id FROM public.automation_runs UNION ALL SELECT workspace_id FROM public.inbox_messages) tenant_rows WHERE workspace_id IS NULL
 UNION ALL SELECT 'invalid_integration_credentials', count(*)::bigint FROM public.integration_credentials WHERE encrypted_payload IS NULL OR initialization_vector IS NULL OR authentication_tag IS NULL OR algorithm <> 'aes-256-gcm' OR key_version < 1
 UNION ALL SELECT 'duplicate_idempotency_keys', count(*)::bigint FROM (SELECT workspace_id,idempotency_key FROM public.inbox_messages WHERE idempotency_key IS NOT NULL GROUP BY workspace_id,idempotency_key HAVING count(*)>1 UNION ALL SELECT workspace_id,idempotency_key FROM public.lead_intakes GROUP BY workspace_id,idempotency_key HAVING count(*)>1 UNION ALL SELECT workspace_id,idempotency_key FROM public.integration_action_executions GROUP BY workspace_id,idempotency_key HAVING count(*)>1) duplicates
-UNION ALL SELECT 'invalid_subscription_states', count(*)::bigint FROM public.workspace_subscriptions WHERE status NOT IN ('trialing','active','past_due','canceled','unpaid','incomplete','incomplete_expired') OR provenance NOT IN ('stripe','trial','manual','system');`;
+UNION ALL SELECT 'invalid_subscription_states', count(*)::bigint FROM public.workspace_subscriptions WHERE status NOT IN ('trialing','active','past_due','canceled','unpaid','incomplete','incomplete_expired') OR provenance NOT IN ('stripe','trial','internal_grant','none');`;
 
 export function canonicalCommit(repoRoot) {
   return readFileSync(resolve(repoRoot, '.git', 'refs', 'heads', 'main'), 'utf8').trim();

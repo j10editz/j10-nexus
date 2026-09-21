@@ -7,11 +7,13 @@ import {
   PRODUCTION_PROJECT_REF,
   assertProductionTarget,
   buildCertificationReport,
-  compareManifests,
+  compareCanonicalContracts,
+  inventoryLegacyExtras,
   invariantSql,
   migrationVersions,
   parseSupabaseQueryOutput,
   schemaManifestSql,
+  validateLegacyExtraSecurity,
 } from "./lib/legacy-production-adoption.mjs";
 import { runSupabaseCli } from "./lib/supabase-cli-process.mjs";
 
@@ -51,13 +53,16 @@ async function main() {
   const canonical = loadCanonicalManifest(resolve(repoRoot, canonicalManifestPath));
   const [productionRow] = queryProduction(schemaManifestSql);
   if (!productionRow?.manifest) throw new Error("PRODUCTION_SCHEMA_MANIFEST_UNAVAILABLE");
-  const comparison = compareManifests(canonical, productionRow.manifest);
+  const comparison = compareCanonicalContracts(canonical, productionRow.manifest);
+  const legacyExtras = inventoryLegacyExtras(canonical, productionRow.manifest);
   const invariants = queryProduction(invariantSql).map((row) => ({
     name: row.name,
     count: Number(row.count),
     status: Number(row.count) === 0 ? "pass" : "fail",
   }));
   if (!comparison.equal) invariants.push({ name: "normalized_schema_manifest", count: 1, status: "fail" });
+  const extraSecurityIssues = validateLegacyExtraSecurity(productionRow.manifest, legacyExtras);
+  if (extraSecurityIssues.length !== 0) invariants.push({ name: "legacy_extra_security", count: extraSecurityIssues.length, status: "fail" });
 
   const report = buildCertificationReport({
     canonicalCommit: process.env.GITHUB_SHA || "local-uncommitted-audit",
@@ -67,6 +72,8 @@ async function main() {
     targetProjectRef: target,
   });
   report.versionsProvenByState = versions;
+  report.legacyExtras = legacyExtras;
+  report.legacyExtraSecurityIssues = extraSecurityIssues;
   report.mode = "dry-run";
   mkdirSync(dirname(resolve(repoRoot, reportPath)), { recursive: true });
   writeFileSync(resolve(repoRoot, reportPath), `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });

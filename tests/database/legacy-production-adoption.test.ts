@@ -8,7 +8,10 @@ import {
   buildCanonicalManifestArtifact,
   buildCertificationReport,
   compareManifests,
+  compareCanonicalContracts,
   fingerprint,
+  inventoryLegacyExtras,
+  validateLegacyExtraSecurity,
   normalizeManifest,
   parseSupabaseQueryOutput,
 } from "../../scripts/lib/legacy-production-adoption.mjs";
@@ -59,6 +62,50 @@ describe("legacy Production adoption", () => {
     });
     expect(report.result).toBe("fail");
     expect(JSON.stringify(report)).not.toMatch(/token|credential|email|phone/i);
+  });
+
+  it("inventories safe legacy extras without letting them change the canonical contract", () => {
+    const production = {
+      ...canonical,
+      relations: [...canonical.relations, { schema: "public", name: "workflows", kind: "r", rls: true }],
+      columns: [...canonical.columns, { table: "workflows", name: "workspace_id", type: "uuid", notNull: true }],
+    };
+    expect(compareCanonicalContracts(canonical, production).equal).toBe(true);
+    expect(inventoryLegacyExtras(canonical, production)).toEqual([
+      expect.objectContaining({ name: "workflows", classification: "runtime-validated-legacy-extra", runtimeRequiredColumns: ["id", "workspace_id", "status", "runs_count"] }),
+    ]);
+  });
+
+  it("requires every canonical object even when a same-name legacy extra exists", () => {
+    const production = { ...canonical, columns: [], relations: [...canonical.relations, { schema: "public", name: "workflow_runs", kind: "r", rls: true }] };
+    expect(compareCanonicalContracts(canonical, production)).toMatchObject({ equal: false, missing: [expect.objectContaining({ section: "columns" })] });
+  });
+
+  it("accepts identity-scoped legacy extras but rejects unsafe anonymous access", () => {
+    const candidate = {
+      relations: [{ schema: "public", name: "workflow_runs", kind: "r", rls: true }],
+      columns: [],
+      policies: [{ table: "workflow_runs", name: "own", roles: [], using: "(auth.uid() = user_id)", check: null }],
+    };
+    const extras = [{ name: "workflow_runs", runtimeRequiredColumns: [] }];
+    expect(validateLegacyExtraSecurity(candidate, extras)).toEqual([]);
+    candidate.policies[0].using = "true";
+    expect(validateLegacyExtraSecurity(candidate, extras)).toEqual([expect.objectContaining({ relation: "workflow_runs", reason: "public_policy_not_identity_scoped:own" })]);
+  });
+
+  it("keeps workflow canonicalization preflight aggregate-only and fail-closed", () => {
+    const source = readFileSync(resolve(process.cwd(), "scripts/preflight-workflows-canonicalization.mjs"), "utf8");
+    expect(source).toContain("count(DISTINCT workspace_id)");
+    expect(source).toContain("WHEN COALESCE(m.active_workspace_count, 0) = 1");
+    expect(source).toContain("'ambiguous'");
+    expect(source).toContain("'unresolved'");
+    expect(source).not.toContain("SELECT workflow.id");
+  });
+
+  it("treats subscription user_id as optional compatibility metadata and recognizes internal grants", () => {
+    const source = readFileSync(resolve(process.cwd(), "scripts/lib/legacy-production-adoption.mjs"), "utf8");
+    expect(source).toContain("c.relname='workspace_subscriptions' AND a.attname='user_id'");
+    expect(source).toContain("'stripe','trial','internal_grant','none'");
   });
 
   it("keeps the only write path constrained to Supabase migration repair", () => {
