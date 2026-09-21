@@ -40,7 +40,7 @@ resolved AS (
   JOIN pg_proc p ON p.proname=requested.name
   JOIN pg_namespace n ON n.oid=p.pronamespace AND n.nspname='public'
 )
-SELECT jsonb_build_object('manifest', jsonb_build_object('functions', COALESCE(jsonb_agg(jsonb_build_object(
+SELECT jsonb_build_object('functions', COALESCE(jsonb_agg(jsonb_build_object(
   'regprocedure', resolved.regprocedure,
   'identity', pg_get_function_identity_arguments(p.oid),
   'owner', pg_get_userbyid(p.proowner),
@@ -49,7 +49,7 @@ SELECT jsonb_build_object('manifest', jsonb_build_object('functions', COALESCE(j
   'grants', COALESCE((SELECT jsonb_agg(jsonb_build_object('grantee', grantee, 'privilege', privilege_type) ORDER BY grantee, privilege_type) FROM information_schema.routine_privileges rp WHERE rp.routine_schema='public' AND rp.specific_name=p.proname || '_' || p.oid), '[]'::jsonb),
   'dependencies', COALESCE((SELECT jsonb_agg(DISTINCT pg_describe_object(d.refclassid,d.refobjid,d.refobjsubid) ORDER BY pg_describe_object(d.refclassid,d.refobjid,d.refobjsubid)) FROM pg_depend d WHERE d.objid=p.oid AND d.deptype IN ('n','a')), '[]'::jsonb),
   'definition', pg_get_functiondef(p.oid)
-) ORDER BY resolved.regprocedure), '[]'::jsonb))) AS manifest
+) ORDER BY resolved.regprocedure), '[]'::jsonb)) AS manifest
 FROM resolved
 JOIN pg_proc p ON p.oid=resolved.oid;
 `;
