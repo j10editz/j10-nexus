@@ -61,6 +61,12 @@ describe("legacy Production adoption", () => {
     expect(JSON.stringify(report)).not.toMatch(/token|credential|email|phone/i);
   });
 
+  it("treats subscription user_id as optional compatibility metadata and recognizes internal grants", () => {
+    const source = readFileSync(resolve(process.cwd(), "scripts/lib/legacy-production-adoption.mjs"), "utf8");
+    expect(source).toContain("c.relname='workspace_subscriptions' AND a.attname='user_id'");
+    expect(source).toContain("'stripe','trial','internal_grant','none'");
+  });
+
   it("keeps the only write path constrained to Supabase migration repair", () => {
     const source = readFileSync(resolve(process.cwd(), "scripts/apply-legacy-production-ledger-adoption.mjs"), "utf8");
     expect(source).toContain('"migration", "repair"');
