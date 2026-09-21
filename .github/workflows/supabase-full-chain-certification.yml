@@ -46,17 +46,60 @@ jobs:
           remote_count=$(docker exec "$db_container" psql -U postgres -d postgres -tAc \
             'select count(*) from supabase_migrations.schema_migrations')
           test "$local_count" -eq "$remote_count"
-      - name: Certify legacy-ledger adoption tooling against the disposable clean chain
+      - name: Build the canonical through-20261013 adoption database
+        run: |
+          # The full-chain reset above certifies every migration. Adoption itself
+          # compares Production only with the historically adopted cutoff, so
+          # export from a separate disposable reset that excludes forward work.
+          mkdir -p .j10-adoption/deferred-migrations
+          find supabase/migrations -maxdepth 1 -type f -name '2026101[4-9]_*.sql' -exec mv {} .j10-adoption/deferred-migrations/ \;
+          supabase db reset --local --no-seed
+      - name: Certify legacy-ledger adoption tooling against the cutoff database
         run: |
           node scripts/export-legacy-adoption-manifest.mjs --output .j10-adoption/canonical.json --artifact-output .j10-adoption/canonical-manifest-artifact.json --source-sha "$GITHUB_SHA"
+          node scripts/export-canonical-function-reconciliation-plan.mjs --private-output .j10-adoption/canonical-function-plan.private.json --attestation-output .j10-adoption/canonical-function-plan-attestation.json
           test -s .j10-adoption/canonical.json
           test -s .j10-adoption/canonical-manifest-artifact.json
+          test -s .j10-adoption/canonical-function-plan.private.json
+          test -s .j10-adoption/canonical-function-plan-attestation.json
           npx vitest run tests/database/legacy-production-adoption.test.ts --pool=threads --maxWorkers=1 --no-file-parallelism
+          npx vitest run tests/database/canonical-function-reconciliation-plan.test.ts --pool=threads --maxWorkers=1 --no-file-parallelism
+      - name: Export selected executed structural definitions for private reconciliation planning
+        run: |
+          db_container=$(docker ps --filter 'name=supabase_db_' --format '{{.ID}}' | head -n 1)
+          test -n "$db_container"
+          : > .j10-adoption/canonical-structural-definitions.private.sql
+          for relation in automation_steps automation_run_steps subscription_events_ledger crm_contacts_legacy_archive_tier0f employees integrations integration_credentials integration_webhook_endpoints integration_webhook_events integration_action_executions integration_operation_logs integration_provider_subscriptions integration_status_history; do
+            docker exec "$db_container" pg_dump -U postgres -d postgres --schema-only --table="public.$relation" >> .j10-adoption/canonical-structural-definitions.private.sql
+          done
+          node scripts/verify-private-structural-definition-export.mjs --input .j10-adoption/canonical-structural-definitions.private.sql
+          test -s .j10-adoption/canonical-structural-definitions.private.sql
+          node scripts/build-canonical-structural-installer-plan.mjs \
+            --plan .j10-adoption/canonical-function-plan.private.json \
+            --definitions .j10-adoption/canonical-structural-definitions.private.sql \
+            --output .j10-adoption/canonical-structural-installer.private.json
+          test -s .j10-adoption/canonical-structural-installer.private.json
+      - name: Prove canonical structural installation is idempotent and non-operational
+        run: |
+          node scripts/apply-canonical-function-reconciliation-plan.mjs --plan .j10-adoption/canonical-function-plan.private.json --local
+          node scripts/apply-canonical-function-reconciliation-plan.mjs --plan .j10-adoption/canonical-function-plan.private.json --local
+          node scripts/apply-canonical-structural-reconciliation-plan.mjs --plan .j10-adoption/canonical-structural-installer.private.json --local
+          node scripts/apply-canonical-structural-reconciliation-plan.mjs --plan .j10-adoption/canonical-structural-installer.private.json --local
+      - name: Restore forward migrations after cutoff export
+        if: always()
+        run: mv .j10-adoption/deferred-migrations/*.sql supabase/migrations/ 2>/dev/null || true
       - name: Upload immutable non-secret canonical manifest artifact
         uses: actions/upload-artifact@v4
         with:
           name: canonical-schema-manifest-${{ github.sha }}
           path: .j10-adoption/canonical-manifest-artifact.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload non-secret function-plan attestation
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-function-plan-attestation-${{ github.sha }}
+          path: .j10-adoption/canonical-function-plan-attestation.json
           if-no-files-found: error
           retention-days: 90
       - name: Certify official repair against a representative ledgerless schema
