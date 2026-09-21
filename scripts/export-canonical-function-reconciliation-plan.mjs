@@ -58,7 +58,9 @@ try {
   const raw = runSupabaseCli({ args: ["db", "query", "--local", "--output", "json"], sql, cwd: repoRoot });
   const [row] = parseSupabaseQueryOutput(raw).rows;
   const exportedFunctions = row?.manifest?.functions;
-  if (!exportedFunctions || exportedFunctions.length !== REQUIRED_FUNCTION_REGPROCEDURES.length) throw new Error("CANONICAL_FUNCTION_PLAN_UNAVAILABLE");
+  if (!Array.isArray(exportedFunctions) || exportedFunctions.length !== REQUIRED_FUNCTION_REGPROCEDURES.length) {
+    throw new Error(`CANONICAL_FUNCTION_PLAN_UNAVAILABLE count=${Array.isArray(exportedFunctions) ? exportedFunctions.length : "none"}`);
+  }
   const functions = exportedFunctions.map((entry) => ({
     ...entry,
     sourceMigration: FUNCTION_SOURCE_MIGRATIONS[entry.regprocedure],
