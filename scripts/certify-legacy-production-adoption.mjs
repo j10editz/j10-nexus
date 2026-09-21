@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
@@ -14,6 +13,7 @@ import {
   parseSupabaseQueryOutput,
   schemaManifestSql,
 } from "./lib/legacy-production-adoption.mjs";
+import { runSupabaseCli } from "./lib/supabase-cli-process.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 
@@ -23,24 +23,11 @@ function argument(name) {
 }
 
 function runSupabase(args) {
-  const options = {
-    cwd: repoRoot,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-  };
-  let output;
-  try {
-    output = execFileSync("supabase", args, options);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-    output = execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["--no-install", "supabase", ...args], { ...options, shell: process.platform === "win32" });
-  }
-  return parseSupabaseQueryOutput(output);
+  return parseSupabaseQueryOutput(runSupabaseCli({ args, cwd: repoRoot }));
 }
 
 function queryProduction(sql) {
-  return runSupabase(["db", "query", "--linked", "--project-ref", PRODUCTION_PROJECT_REF, "--output", "json", sql]).rows;
+  return parseSupabaseQueryOutput(runSupabaseCli({ args: ["db", "query", "--linked", "--project-ref", PRODUCTION_PROJECT_REF, "--output", "json"], sql, cwd: repoRoot })).rows;
 }
 
 function loadCanonicalManifest(file) {

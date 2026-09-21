@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { buildCanonicalManifestArtifact, migrationVersions, parseSupabaseQueryOutput, schemaManifestSql } from "./lib/legacy-production-adoption.mjs";
+import { runSupabaseCli } from "./lib/supabase-cli-process.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const outputIndex = process.argv.indexOf("--output");
@@ -18,19 +18,7 @@ if (!output) {
 }
 
 try {
-  const options = {
-    cwd: repoRoot,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-  };
-  let raw;
-  try {
-    raw = execFileSync("supabase", ["db", "query", "--local", "--output", "json", schemaManifestSql], options);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-    raw = execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["--no-install", "supabase", "db", "query", "--local", "--output", "json", schemaManifestSql], { ...options, shell: process.platform === "win32" });
-  }
+  const raw = runSupabaseCli({ args: ["db", "query", "--local", "--output", "json"], sql: schemaManifestSql, cwd: repoRoot });
   const parsed = parseSupabaseQueryOutput(raw);
   const manifest = parsed.rows?.[0]?.manifest;
   if (!manifest) throw new Error("CANONICAL_MANIFEST_UNAVAILABLE");

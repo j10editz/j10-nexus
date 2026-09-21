@@ -83,15 +83,15 @@ describe("legacy Production adoption", () => {
     expect(exporter).not.toContain('"--linked"');
   });
 
-  it("uses the Windows-compatible npx command for local CLI fallbacks", () => {
+  it("routes every adoption query through the shared stdin-only CLI transport", () => {
     for (const file of [
       "scripts/export-legacy-adoption-manifest.mjs",
       "scripts/certify-legacy-production-adoption.mjs",
       "scripts/apply-legacy-production-ledger-adoption.mjs",
     ]) {
       const source = readFileSync(resolve(process.cwd(), file), "utf8");
-      expect(source).toContain('process.platform === "win32" ? "npx.cmd" : "npx"');
-      expect(source).toContain('shell: process.platform === "win32"');
+      expect(source).toContain('runSupabaseCli');
+      expect(source).not.toContain('execFileSync');
     }
   });
 

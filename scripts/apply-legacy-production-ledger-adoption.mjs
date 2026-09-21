@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -9,6 +8,7 @@ import {
   migrationVersions,
   parseSupabaseQueryOutput,
 } from "./lib/legacy-production-adoption.mjs";
+import { runSupabaseCli } from "./lib/supabase-cli-process.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 
@@ -18,24 +18,11 @@ function argument(name) {
 }
 
 function runSupabase(args) {
-  const options = {
-    cwd: repoRoot,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 64 * 1024 * 1024,
-  };
-  let output;
-  try {
-    output = execFileSync("supabase", args, options);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-    output = execFileSync("npx", ["--no-install", "supabase", ...args], options);
-  }
-  return parseSupabaseQueryOutput(output);
+  return parseSupabaseQueryOutput(runSupabaseCli({ args, cwd: repoRoot }));
 }
 
 function queryProduction(sql) {
-  return runSupabase(["db", "query", "--linked", "--project-ref", PRODUCTION_PROJECT_REF, "--output", "json", sql]).rows;
+  return parseSupabaseQueryOutput(runSupabaseCli({ args: ["db", "query", "--linked", "--project-ref", PRODUCTION_PROJECT_REF, "--output", "json"], sql, cwd: repoRoot })).rows;
 }
 
 function applicationCounts() {
@@ -74,12 +61,7 @@ async function main() {
   // Supabase's supported repair command only records the supplied versions; it
   // does not execute migration SQL. This code has no schema-reset or raw-DDL path.
   const repairArgs = ["migration", "repair", "--linked", "--project-ref", PRODUCTION_PROJECT_REF, "--status", "applied", ...versions];
-  try {
-    execFileSync("supabase", repairArgs, { cwd: repoRoot, stdio: "inherit" });
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-    execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["--no-install", "supabase", ...repairArgs], { cwd: repoRoot, stdio: "inherit", shell: process.platform === "win32" });
-  }
+  runSupabaseCli({ args: repairArgs, cwd: repoRoot });
 
   const afterLedger = migrationLedgerVersions();
   const afterCounts = applicationCounts();
