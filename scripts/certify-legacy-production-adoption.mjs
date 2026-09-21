@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
   ADOPTION_CUTOFF,
@@ -10,6 +10,7 @@ import {
   compareCanonicalContracts,
   inventoryLegacyExtras,
   invariantSql,
+  loadCanonicalManifestArtifact,
   migrationVersions,
   parseSupabaseQueryOutput,
   schemaManifestSql,
@@ -24,33 +25,28 @@ function argument(name) {
   return index === -1 ? undefined : process.argv[index + 1];
 }
 
-function runSupabase(args) {
-  return parseSupabaseQueryOutput(runSupabaseCli({ args, cwd: repoRoot }));
-}
-
 function queryProduction(sql) {
   return parseSupabaseQueryOutput(runSupabaseCli({ args: ["db", "query", "--linked", "--project-ref", PRODUCTION_PROJECT_REF, "--output", "json"], sql, cwd: repoRoot })).rows;
-}
-
-function loadCanonicalManifest(file) {
-  const parsed = JSON.parse(readFileSync(file, "utf8"));
-  if (!parsed.manifest) throw new Error("CANONICAL_MANIFEST_INVALID");
-  return parsed.manifest;
 }
 
 async function main() {
   const target = argument("--target");
   const hostname = argument("--hostname");
   const canonicalManifestPath = argument("--canonical-manifest");
+  const expectedSourceSha = argument("--expected-source-sha");
   const reportPath = argument("--report");
   const dryRun = process.argv.includes("--dry-run");
 
-  if (!target || !hostname || !canonicalManifestPath || !reportPath || !dryRun) {
-    throw new Error("USAGE: --target --hostname --canonical-manifest --report --dry-run are required. This command never initializes ledger history.");
+  if (!target || !hostname || !canonicalManifestPath || !expectedSourceSha || !reportPath || !dryRun) {
+    throw new Error("USAGE: --target --hostname --canonical-manifest --expected-source-sha --report --dry-run are required. This command never initializes ledger history.");
   }
   assertProductionTarget(target, hostname);
   const versions = migrationVersions(resolve(repoRoot, "supabase", "migrations"));
-  const canonical = loadCanonicalManifest(resolve(repoRoot, canonicalManifestPath));
+  const canonicalArtifact = loadCanonicalManifestArtifact(resolve(repoRoot, canonicalManifestPath), {
+    expectedSourceSha,
+    expectedVersions: versions,
+  });
+  const canonical = canonicalArtifact.manifest;
   const [productionRow] = queryProduction(schemaManifestSql);
   if (!productionRow?.manifest) throw new Error("PRODUCTION_SCHEMA_MANIFEST_UNAVAILABLE");
   const comparison = compareCanonicalContracts(canonical, productionRow.manifest);
@@ -65,13 +61,14 @@ async function main() {
   if (extraSecurityIssues.length !== 0) invariants.push({ name: "legacy_extra_security", count: extraSecurityIssues.length, status: "fail" });
 
   const report = buildCertificationReport({
-    canonicalCommit: process.env.GITHUB_SHA || "local-uncommitted-audit",
+    canonicalCommit: canonicalArtifact.canonicalSourceSha,
     generatedAt: new Date().toISOString(),
     manifest: canonical,
     invariants,
     targetProjectRef: target,
   });
   report.versionsProvenByState = versions;
+  report.canonicalArtifactSha256 = canonicalArtifact.sha256;
   report.legacyExtras = legacyExtras;
   report.legacyExtraSecurityIssues = extraSecurityIssues;
   report.mode = "dry-run";

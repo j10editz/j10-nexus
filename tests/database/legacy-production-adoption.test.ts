@@ -11,7 +11,9 @@ import {
   compareCanonicalContracts,
   fingerprint,
   inventoryLegacyExtras,
+  migrationVersions,
   validateLegacyExtraSecurity,
+  validateCanonicalManifestArtifact,
   normalizeManifest,
   parseSupabaseQueryOutput,
 } from "../../scripts/lib/legacy-production-adoption.mjs";
@@ -21,6 +23,12 @@ const canonical = {
   columns: [{ table: "workspaces", name: "id", type: "uuid", notNull: true }],
   functions: [{ name: "has_workspace_role", identity: "target_workspace_id uuid, allowed_roles text[]" }],
 };
+const migrationSet = migrationVersions(resolve(process.cwd(), "supabase", "migrations"));
+const canonicalSourceSha = "8efd3b1722a1b3853b26d88392a3671ac1aee990";
+
+function canonicalArtifact() {
+  return buildCanonicalManifestArtifact({ canonicalSourceSha, manifest: canonical, versions: migrationSet });
+}
 
 describe("legacy Production adoption", () => {
   it("accepts only the explicit Production project and hostname", () => {
@@ -36,15 +44,30 @@ describe("legacy Production adoption", () => {
   });
 
   it("builds a non-secret, checksummed artifact from the disposable canonical manifest only", () => {
-    const artifact = buildCanonicalManifestArtifact({
-      canonicalSourceSha: "0608a640a3250c29eb3a04e134a7ff1d6bb48bc0",
-      manifest: canonical,
-      versions: Array.from({ length: 45 }, (_, index) => index === 44 ? "20261013" : String(20260820 + index)),
-    });
-    expect(artifact.canonicalSourceSha).toBe("0608a640a3250c29eb3a04e134a7ff1d6bb48bc0");
+    const artifact = canonicalArtifact();
+    expect(artifact.canonicalSourceSha).toBe(canonicalSourceSha);
     expect(artifact.certifiedMigrationRange.through).toBe("20261013");
     expect(artifact.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(artifact)).not.toMatch(/https?:\/\/[^\s/:@]+:[^\s@]+@|\b(?:gh[pousr]_|sk_|eyJ)/i);
+  });
+
+  it("accepts only the verified versioned CI artifact and reads normalizedSchemaManifest directly", () => {
+    const artifact = canonicalArtifact();
+    expect(validateCanonicalManifestArtifact(artifact, { expectedSourceSha: canonicalSourceSha, expectedVersions: migrationSet })).toMatchObject({
+      canonicalSourceSha,
+      manifest: normalizeManifest(canonical),
+      sha256: artifact.sha256,
+    });
+  });
+
+  it("rejects malformed, legacy-shaped, stale, wrong-source, and modified artifacts", () => {
+    const artifact = canonicalArtifact();
+    const options = { expectedSourceSha: canonicalSourceSha, expectedVersions: migrationSet };
+    expect(() => validateCanonicalManifestArtifact({ manifest: canonical }, options)).toThrow("CANONICAL_MANIFEST_ARTIFACT_MALFORMED");
+    expect(() => validateCanonicalManifestArtifact(artifact, { ...options, expectedSourceSha: "0608a640a3250c29eb3a04e134a7ff1d6bb48bc0" })).toThrow("CANONICAL_MANIFEST_SOURCE_SHA_MISMATCH");
+    expect(() => validateCanonicalManifestArtifact({ ...artifact, migrationVersions: [...artifact.migrationVersions].reverse() }, options)).toThrow("CANONICAL_MANIFEST_MIGRATION_RANGE_INVALID");
+    expect(() => validateCanonicalManifestArtifact({ ...artifact, normalizedSchemaManifest: { ...artifact.normalizedSchemaManifest, relations: [] } }, options)).toThrow("CANONICAL_MANIFEST_FINGERPRINT_INVALID");
+    expect(() => validateCanonicalManifestArtifact({ ...artifact, sha256: "0".repeat(64) }, options)).toThrow("CANONICAL_MANIFEST_CHECKSUM_INVALID");
   });
 
   it("fails closed when a representative legacy database diverges or an invariant is nonzero", () => {
