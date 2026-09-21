@@ -34,7 +34,7 @@ resolved AS (
   SELECT requested.regprocedure, to_regprocedure(requested.regprocedure) AS oid
   FROM requested
 )
-SELECT jsonb_agg(jsonb_build_object(
+SELECT jsonb_build_object('manifest', jsonb_build_object('functions', COALESCE(jsonb_agg(jsonb_build_object(
   'regprocedure', resolved.regprocedure,
   'identity', pg_get_function_identity_arguments(p.oid),
   'owner', pg_get_userbyid(p.proowner),
@@ -43,7 +43,7 @@ SELECT jsonb_agg(jsonb_build_object(
   'grants', COALESCE((SELECT jsonb_agg(jsonb_build_object('grantee', grantee, 'privilege', privilege_type) ORDER BY grantee, privilege_type) FROM information_schema.routine_privileges rp WHERE rp.routine_schema='public' AND rp.specific_name=p.proname || '_' || p.oid), '[]'::jsonb),
   'dependencies', COALESCE((SELECT jsonb_agg(DISTINCT pg_describe_object(d.refclassid,d.refobjid,d.refobjsubid) ORDER BY pg_describe_object(d.refclassid,d.refobjid,d.refobjsubid)) FROM pg_depend d WHERE d.objid=p.oid AND d.deptype IN ('n','a')), '[]'::jsonb),
   'definition', pg_get_functiondef(p.oid)
-) ORDER BY resolved.regprocedure) AS functions
+) ORDER BY resolved.regprocedure), '[]'::jsonb))) AS manifest
 FROM resolved
 LEFT JOIN pg_proc p ON p.oid=resolved.oid;
 `;
@@ -51,8 +51,9 @@ LEFT JOIN pg_proc p ON p.oid=resolved.oid;
 try {
   const raw = runSupabaseCli({ args: ["db", "query", "--local", "--output", "json"], sql, cwd: repoRoot });
   const [row] = parseSupabaseQueryOutput(raw).rows;
-  if (!row?.functions || row.functions.length !== REQUIRED_FUNCTION_REGPROCEDURES.length) throw new Error("CANONICAL_FUNCTION_PLAN_UNAVAILABLE");
-  const functions = row.functions.map((entry) => ({
+  const exportedFunctions = row?.manifest?.functions;
+  if (!exportedFunctions || exportedFunctions.length !== REQUIRED_FUNCTION_REGPROCEDURES.length) throw new Error("CANONICAL_FUNCTION_PLAN_UNAVAILABLE");
+  const functions = exportedFunctions.map((entry) => ({
     ...entry,
     sourceMigration: FUNCTION_SOURCE_MIGRATIONS[entry.regprocedure],
     definitionHash: sha256(entry.definition),
