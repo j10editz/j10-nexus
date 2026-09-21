@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 export const PRODUCTION_PROJECT_REF = "qtzhcnyxbjocfgimtvvm";
 export const PRODUCTION_DATABASE_HOST = "db.qtzhcnyxbjocfgimtvvm.supabase.co";
 export const ADOPTION_CUTOFF = "20261013";
+export const CANONICAL_MANIFEST_ARTIFACT_VERSION = 1;
+export const CANONICAL_MANIFEST_ARTIFACT_PURPOSE = "disposable-supabase-canonical-schema-manifest";
 
 export function assertProductionTarget(projectRef, hostname) {
   if (projectRef !== PRODUCTION_PROJECT_REF || hostname !== PRODUCTION_DATABASE_HOST) {
@@ -48,12 +50,36 @@ function containsSecretLikeValue(value) {
   return value && typeof value === "object" && Object.values(value).some(containsSecretLikeValue);
 }
 
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function artifactPayload(artifact) {
+  return {
+    artifactVersion: artifact.artifactVersion,
+    purpose: artifact.purpose,
+    canonicalSourceSha: artifact.canonicalSourceSha,
+    certifiedMigrationRange: artifact.certifiedMigrationRange,
+    migrationVersions: artifact.migrationVersions,
+    normalizedSchemaManifest: artifact.normalizedSchemaManifest,
+    normalizedSchemaFingerprint: artifact.normalizedSchemaFingerprint,
+  };
+}
+
+function artifactChecksum(payload) {
+  return createHash("sha256").update(JSON.stringify(normalizeManifest(payload))).digest("hex");
+}
+
 export function buildCanonicalManifestArtifact({ canonicalSourceSha, manifest, versions }) {
   if (!/^[0-9a-f]{40}$/i.test(canonicalSourceSha)) throw new Error("CANONICAL_SOURCE_SHA_INVALID");
   if (versions.length !== 45 || versions.at(-1) !== ADOPTION_CUTOFF) throw new Error("CANONICAL_MIGRATION_RANGE_INVALID");
   const artifact = normalizeManifest({
-    artifactVersion: 1,
-    purpose: "disposable-supabase-canonical-schema-manifest",
+    artifactVersion: CANONICAL_MANIFEST_ARTIFACT_VERSION,
+    purpose: CANONICAL_MANIFEST_ARTIFACT_PURPOSE,
     canonicalSourceSha,
     certifiedMigrationRange: { from: versions[0], through: ADOPTION_CUTOFF },
     migrationVersions: versions,
@@ -61,7 +87,75 @@ export function buildCanonicalManifestArtifact({ canonicalSourceSha, manifest, v
     normalizedSchemaFingerprint: fingerprint(manifest),
   });
   if (containsSecretLikeValue(artifact)) throw new Error("CANONICAL_MANIFEST_SECRET_LIKE_MATERIAL");
-  return { ...artifact, sha256: createHash("sha256").update(JSON.stringify(artifact)).digest("hex") };
+  return { ...artifact, sha256: artifactChecksum(artifact) };
+}
+
+/**
+ * Accept only the versioned artifact emitted by the disposable Supabase CI
+ * workflow. The old `{ manifest }` export has no provenance or integrity
+ * checksum and is deliberately rejected without a compatibility fallback.
+ */
+export function validateCanonicalManifestArtifact(artifact, { expectedSourceSha, expectedVersions }) {
+  if (!isRecord(artifact)) throw new Error("CANONICAL_MANIFEST_ARTIFACT_MALFORMED");
+  if (!/^[0-9a-f]{40}$/i.test(expectedSourceSha ?? "")) throw new Error("CANONICAL_MANIFEST_EXPECTED_SOURCE_SHA_INVALID");
+  if (!Array.isArray(expectedVersions) || expectedVersions.length !== 45 || new Set(expectedVersions).size !== 45 || expectedVersions.at(-1) !== ADOPTION_CUTOFF) {
+    throw new Error("CANONICAL_MIGRATION_SET_INVALID: expected 45 unique versions through 20261013.");
+  }
+
+  const expectedKeys = [
+    "artifactVersion",
+    "canonicalSourceSha",
+    "certifiedMigrationRange",
+    "migrationVersions",
+    "normalizedSchemaFingerprint",
+    "normalizedSchemaManifest",
+    "purpose",
+    "sha256",
+  ].sort();
+  if (!sameJson(Object.keys(artifact).sort(), expectedKeys)) throw new Error("CANONICAL_MANIFEST_ARTIFACT_MALFORMED");
+  if (artifact.artifactVersion !== CANONICAL_MANIFEST_ARTIFACT_VERSION || artifact.purpose !== CANONICAL_MANIFEST_ARTIFACT_PURPOSE) {
+    throw new Error("CANONICAL_MANIFEST_ARTIFACT_VERSION_INVALID");
+  }
+  if (!/^[0-9a-f]{40}$/i.test(artifact.canonicalSourceSha ?? "")) throw new Error("CANONICAL_MANIFEST_SOURCE_SHA_INVALID");
+  if (artifact.canonicalSourceSha.toLowerCase() !== expectedSourceSha.toLowerCase()) throw new Error("CANONICAL_MANIFEST_SOURCE_SHA_MISMATCH");
+  if (!isRecord(artifact.certifiedMigrationRange)
+    || !sameJson(Object.keys(artifact.certifiedMigrationRange).sort(), ["from", "through"])
+    || artifact.certifiedMigrationRange.from !== expectedVersions[0]
+    || artifact.certifiedMigrationRange.through !== ADOPTION_CUTOFF
+    || !sameJson(artifact.migrationVersions, expectedVersions)) {
+    throw new Error("CANONICAL_MANIFEST_MIGRATION_RANGE_INVALID");
+  }
+  if (!isRecord(artifact.normalizedSchemaManifest) || Object.keys(artifact.normalizedSchemaManifest).length === 0
+    || !Object.values(artifact.normalizedSchemaManifest).every(Array.isArray)
+    || !sameJson(artifact.normalizedSchemaManifest, normalizeManifest(artifact.normalizedSchemaManifest))) {
+    throw new Error("CANONICAL_MANIFEST_SCHEMA_CONTENT_INVALID");
+  }
+  if (!/^[0-9a-f]{64}$/i.test(artifact.normalizedSchemaFingerprint ?? "")
+    || artifact.normalizedSchemaFingerprint !== fingerprint(artifact.normalizedSchemaManifest)) {
+    throw new Error("CANONICAL_MANIFEST_FINGERPRINT_INVALID");
+  }
+  const payload = artifactPayload(artifact);
+  if (!/^[0-9a-f]{64}$/i.test(artifact.sha256 ?? "") || artifact.sha256 !== artifactChecksum(payload)) {
+    throw new Error("CANONICAL_MANIFEST_CHECKSUM_INVALID");
+  }
+  if (containsSecretLikeValue(payload)) throw new Error("CANONICAL_MANIFEST_SECRET_LIKE_MATERIAL");
+
+  return {
+    canonicalSourceSha: artifact.canonicalSourceSha,
+    manifest: artifact.normalizedSchemaManifest,
+    normalizedSchemaFingerprint: artifact.normalizedSchemaFingerprint,
+    sha256: artifact.sha256,
+  };
+}
+
+export function loadCanonicalManifestArtifact(file, options) {
+  let artifact;
+  try {
+    artifact = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    throw new Error("CANONICAL_MANIFEST_ARTIFACT_MALFORMED");
+  }
+  return validateCanonicalManifestArtifact(artifact, options);
 }
 
 export function compareManifests(canonical, candidate) {
