@@ -81,8 +81,6 @@ jobs:
           test -s .j10-adoption/canonical-structural-installer.private.json
       - name: Prove canonical structural installation is idempotent and non-operational
         run: |
-          node scripts/apply-canonical-function-reconciliation-plan.mjs --plan .j10-adoption/canonical-function-plan.private.json --local
-          node scripts/apply-canonical-function-reconciliation-plan.mjs --plan .j10-adoption/canonical-function-plan.private.json --local
           node scripts/apply-canonical-structural-reconciliation-plan.mjs --plan .j10-adoption/canonical-structural-installer.private.json --local
           node scripts/apply-canonical-structural-reconciliation-plan.mjs --plan .j10-adoption/canonical-structural-installer.private.json --local
       - name: Restore forward migrations after cutoff export

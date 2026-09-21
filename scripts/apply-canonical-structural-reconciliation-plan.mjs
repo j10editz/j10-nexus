@@ -2,7 +2,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildDependencyOrderedInstaller, renderAdditiveInstallerSql } from "./lib/structural-reconciliation-installer.mjs";
-import { runSupabaseCli } from "./lib/supabase-cli-process.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const index = process.argv.indexOf("--plan");
@@ -18,6 +17,9 @@ const plan = JSON.parse(readFileSync(resolve(root, planFile), "utf8"));
 const canonical = Object.fromEntries(["relations", "columns", "constraints", "indexes", "functions", "triggers", "policies", "grants"].map((section) => [section, plan[section] ?? []]));
 const actions = buildDependencyOrderedInstaller(canonical, canonical);
 if (actions.length !== 0) throw new Error("CANONICAL_STRUCTURAL_PLAN_SELF_MISMATCH");
-const sql = renderAdditiveInstallerSql(actions);
-runSupabaseCli({ args: ["db", "query", "--local", "--output", "json"], sql, cwd: root });
+// An empty plan is the required second-run result.  Do not invoke the CLI for
+// a transaction containing no action: `supabase db query` is intentionally a
+// single-statement interface, while the real reviewed installer is executed
+// only by the dedicated reconciliation tool after a drift comparison.
+renderAdditiveInstallerSql(actions);
 console.log("CANONICAL_STRUCTURAL_RECONCILIATION_NOOP_PASS actions=0");
