@@ -74,6 +74,91 @@ export function compareManifests(canonical, candidate) {
   };
 }
 
+function itemFingerprint(item) {
+  return JSON.stringify(stable(item));
+}
+
+/**
+ * Compare only the contract exported from the disposable canonical database.
+ * A ledgerless legacy database may have additional, security-safe objects; an
+ * extra must never make a required canonical object appear to exist.
+ */
+export function compareCanonicalContracts(canonical, candidate) {
+  const missing = [];
+  for (const [section, required] of Object.entries(canonical)) {
+    if (!Array.isArray(required)) continue;
+    const actual = new Set((Array.isArray(candidate?.[section]) ? candidate[section] : []).map(itemFingerprint));
+    for (const item of required) {
+      if (!actual.has(itemFingerprint(item))) missing.push({ section, item: stable(item) });
+    }
+  }
+  return {
+    equal: missing.length === 0,
+    missing,
+    canonicalFingerprint: fingerprint(canonical),
+    candidateFingerprint: fingerprint(candidate),
+  };
+}
+
+export const LEGACY_WORKFLOW_RELATIONS = Object.freeze([
+  "workflows",
+  "workflow_runs",
+  "workflow_run_steps",
+  "automation_execution_locks",
+]);
+
+export const LEGACY_RUNTIME_CONTRACTS = Object.freeze({
+  workflows: ["id", "workspace_id", "status", "runs_count"],
+  automation_execution_locks: ["user_id", "lock_key", "owner_token", "scope", "automation_id", "run_id", "expires_at", "created_at", "updated_at"],
+});
+
+export function inventoryLegacyExtras(canonical, candidate) {
+  const canonicalRelations = new Set((canonical?.relations ?? []).filter((relation) => relation.schema === "public").map((relation) => relation.name));
+  const candidateRelations = (candidate?.relations ?? []).filter((relation) => relation.schema === "public");
+  return candidateRelations
+    .filter((relation) => !canonicalRelations.has(relation.name))
+    .map((relation) => ({
+      name: relation.name,
+      kind: relation.kind,
+      rls: relation.rls,
+      runtimeRequiredColumns: LEGACY_RUNTIME_CONTRACTS[relation.name] ?? [],
+      classification: LEGACY_WORKFLOW_RELATIONS.includes(relation.name)
+        ? (LEGACY_RUNTIME_CONTRACTS[relation.name] ? "runtime-validated-legacy-extra" : "preserved-legacy-extra")
+        : "legacy-extra",
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function validateLegacyExtraSecurity(candidate, extras) {
+  const columns = candidate?.columns ?? [];
+  const policies = candidate?.policies ?? [];
+  const issues = [];
+  for (const extra of extras.filter((entry) => LEGACY_WORKFLOW_RELATIONS.includes(entry.name))) {
+    const relation = (candidate?.relations ?? []).find((entry) => entry.schema === "public" && entry.name === extra.name);
+    if (!relation?.rls) {
+      issues.push({ relation: extra.name, reason: "rls_not_enabled" });
+      continue;
+    }
+    const presentColumns = new Set(columns.filter((column) => column.table === extra.name).map((column) => column.name));
+    for (const required of extra.runtimeRequiredColumns) {
+      if (!presentColumns.has(required)) issues.push({ relation: extra.name, reason: `runtime_column_missing:${required}` });
+    }
+    const relationPolicies = policies.filter((policy) => policy.table === extra.name);
+    if (relationPolicies.length === 0) {
+      issues.push({ relation: extra.name, reason: "rls_policy_missing" });
+      continue;
+    }
+    for (const policy of relationPolicies) {
+      const publicRole = !Array.isArray(policy.roles) || policy.roles.length === 0 || policy.roles.includes("anon");
+      const expression = `${policy.using ?? ""} ${policy.check ?? ""}`;
+      if (publicRole && !/auth\.uid\(\)|has_workspace_role\(/.test(expression)) {
+        issues.push({ relation: extra.name, reason: `public_policy_not_identity_scoped:${policy.name}` });
+      }
+    }
+  }
+  return issues;
+}
+
 export function parseSupabaseQueryOutput(raw) {
   const starts = [];
   for (let index = raw.indexOf("{"); index >= 0; index = raw.indexOf("{", index + 1)) starts.push(index);
