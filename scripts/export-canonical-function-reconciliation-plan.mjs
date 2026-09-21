@@ -27,12 +27,18 @@ if (!privateOutput || !attestationOutput) {
   throw new Error("USAGE: --private-output <access-controlled.json> --attestation-output <non-secret.json>");
 }
 
-const values = REQUIRED_FUNCTION_REGPROCEDURES.map((value) => `('${value.replaceAll("'", "''")}')`).join(",");
+const values = REQUIRED_FUNCTION_REGPROCEDURES.map((value) => {
+  const name = value.match(/^public\.([^\(]+)/)?.[1];
+  if (!name) throw new Error("CANONICAL_FUNCTION_PLAN_PROCEDURE_MALFORMED");
+  return `('${value.replaceAll("'", "''")}', '${name.replaceAll("'", "''")}')`;
+}).join(",");
 const sql = `
-WITH requested(regprocedure) AS (VALUES ${values}),
+WITH requested(regprocedure, name) AS (VALUES ${values}),
 resolved AS (
-  SELECT requested.regprocedure, to_regprocedure(requested.regprocedure) AS oid
+  SELECT requested.regprocedure, p.oid
   FROM requested
+  JOIN pg_proc p ON p.proname=requested.name
+  JOIN pg_namespace n ON n.oid=p.pronamespace AND n.nspname='public'
 )
 SELECT jsonb_build_object('manifest', jsonb_build_object('functions', COALESCE(jsonb_agg(jsonb_build_object(
   'regprocedure', resolved.regprocedure,
@@ -45,7 +51,7 @@ SELECT jsonb_build_object('manifest', jsonb_build_object('functions', COALESCE(j
   'definition', pg_get_functiondef(p.oid)
 ) ORDER BY resolved.regprocedure), '[]'::jsonb))) AS manifest
 FROM resolved
-LEFT JOIN pg_proc p ON p.oid=resolved.oid;
+JOIN pg_proc p ON p.oid=resolved.oid;
 `;
 
 try {
