@@ -185,7 +185,7 @@ function policyDefinition(item) {
   if (!command || !Array.isArray(item.roles) || item.roles.length === 0) throw new Error(`STRUCTURAL_PLAN_POLICY_METADATA_INVALID:${item.name}`);
   const using = item.using ? ` USING (${item.using})` : "";
   const check = item.check ? ` WITH CHECK (${item.check})` : "";
-  return `CREATE POLICY ${quoted(item.name)} ON public.${quoted(item.table)} FOR ${command} TO ${item.roles.map(quoted).join(", ")}${using}${check}`;
+  return `CREATE POLICY ${quoted(item.name)} ON public.${quoted(item.table)} FOR ${command} TO ${item.roles.map((role) => role === "PUBLIC" ? "PUBLIC" : quoted(role)).join(", ")}${using}${check}`;
 }
 
 function grantDefinition(item) {

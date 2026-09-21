@@ -76,4 +76,10 @@ describe("dependency-ordered structural reconciliation installer", () => {
     expect(hydrated.policies[0].definitionSql).toContain("CREATE POLICY");
     expect(hydrated.grants[0].definitionSql).toContain("GRANT SELECT");
   });
+
+  it("preserves PostgreSQL's explicit PUBLIC policy role instead of broadening an empty role list", () => {
+    const plan = { ...canonical, policies: [{ ...canonical.policies[0], roles: ["PUBLIC"] }] };
+    const hydrated = hydrateInstallerPlan(plan, "CREATE TABLE public.integrations (\n  id uuid NOT NULL\n);\n");
+    expect(hydrated.policies[0].definitionSql).toContain("TO PUBLIC");
+  });
 });
