@@ -43,6 +43,7 @@ describe("dependency-ordered structural reconciliation installer", () => {
   it("rejects operational definitions and never models schedules or provider calls", () => {
     const unsafe = { ...canonical, functions: [{ ...functionItem, definition: "SELECT cron.schedule('* * * * *', 'select 1')" }] };
     expect(() => buildDependencyOrderedInstaller(unsafe, { functions: [] })).toThrow("STRUCTURAL_PLAN_OPERATIONAL_OBJECT");
+    expect(buildDependencyOrderedInstaller(unsafe, unsafe)).toEqual([]);
   });
 
   it("preserves unselected legacy extras without including them in the canonical fingerprint", () => {

@@ -62,10 +62,10 @@ export function buildDependencyOrderedInstaller(canonical, observed) {
     const canonicalItems = (canonical?.[section] ?? []).filter((item) => selected(section, item));
     const observedByKey = new Map((observed?.[section] ?? []).map((item) => [stableKey(section, item), item]));
     for (const item of canonicalItems) {
-      ensureSafeDefinition(item);
       const key = stableKey(section, item);
       const existing = observedByKey.get(key);
       if (!existing) {
+        ensureSafeDefinition(item);
         actions.push({ phase: PHASES[section], section, key, expectedFingerprint: itemHash(item), item });
         continue;
       }
