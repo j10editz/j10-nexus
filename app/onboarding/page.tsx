@@ -100,9 +100,9 @@ export default function OnboardingPage() {
         throw new Error(data.error || "Failed to provision workspace.");
       }
 
-      // Successfully provisioned in PostgreSQL via RPC
-      const planIntent = selectedPlan === "enterprise" ? "enterprise" : selectedPlan;
-      router.push(`/dashboard/settings/billing?plan=${planIntent}${trialIntent ? "&trial=1" : ""}`);
+      // A workspace alone never starts a trial. The owner must complete and
+      // approve outcome onboarding before the database activates one.
+      router.push("/onboarding/outcome");
     } catch (err: any) {
       setCreateError(err.message || "An unexpected error occurred during workspace creation.");
     } finally {
@@ -317,7 +317,7 @@ export default function OnboardingPage() {
             {trialIntent && (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-400/[0.08] border border-emerald-400/20 px-3 py-2 text-[11px] text-emerald-300">
                 <ShieldCheck size={14} className="shrink-0" />
-                <span>14-day free trial will automatically activate upon workspace initialization.</span>
+                <span>A 72-hour trial is available after business outcome onboarding and owner approval.</span>
               </div>
             )}
 

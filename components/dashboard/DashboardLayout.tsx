@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
+import { TrialDashboardBanner } from "@/components/trial/TrialDashboardBanner";
 
 export default function DashboardLayout({
   children,
@@ -48,6 +49,7 @@ export default function DashboardLayout({
         />
 
         <main className="min-h-[calc(100dvh-72px)] min-w-0 overflow-x-hidden bg-transparent">
+          <TrialDashboardBanner />
           {children}
         </main>
       </div>

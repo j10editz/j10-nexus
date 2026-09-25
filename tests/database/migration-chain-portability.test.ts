@@ -32,6 +32,7 @@ describe("Supabase migration-chain portability", () => {
     expect(migrationNames).toContain("20261011_tenantization_contract_reconciliation.sql");
     expect(migrationNames).toContain("20261012_crm_contacts_tenantization_reconciliation.sql");
     expect(migrationNames).toContain("20261013_integration_credential_envelope_reconciliation.sql");
+    expect(migrationNames).toContain("20261014_72h_trial_outcome_onboarding.sql");
     expect(migrationNames).not.toContain("20260915b_atomic_founder_ownership_transfer.sql");
     expect(migrationNames).not.toContain("20260918b_restrict_tier0g_rpc_execute.sql");
     expect(migrationNames).not.toContain("20260919b_restrict_tier1_authenticated_table_privileges.sql");
