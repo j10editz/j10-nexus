@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261015_workflows_workspace_canonicalization.sql"), "utf8");
+// The migration is SQL, so assertions must be independent of checkout line
+// endings. This preserves the exact migration bytes while keeping the
+// canonicalization contract test portable across Windows and Linux CI.
+const migration = readFileSync(resolve(process.cwd(), "supabase/migrations/20261015_workflows_workspace_canonicalization.sql"), "utf8").replace(/\r\n/g, "\n");
 
 describe("legacy workflows workspace canonicalization", () => {
   it("backfills only a single distinct active workspace membership", () => {
