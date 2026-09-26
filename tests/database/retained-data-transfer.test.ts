@@ -25,8 +25,17 @@ describe("retained-data transfer rehearsal", () => {
     expect(source).not.toMatch(/console\.log\([^\n]*(encrypted_payload|initialization_vector|authentication_tag|fixture-password)/i);
   });
 
-  it("fails closed on second execution, migration drift, count drift, or RLS failure", () => {
-    for (const code of ["TRANSFER_TARGET_NOT_EMPTY", "TRANSFER_MIGRATION_LEDGER_MISMATCH", "TRANSFER_ROW_COUNT_MISMATCH", "TRANSFER_REFERENTIAL_INTEGRITY_FAILED", "TRANSFER_TENANT_ISOLATION_FAILED", "TRANSFER_AUTH_LOGIN_FAILED"]) {
+  it("accepts an explicitly ledgerless source but derives an exact SHA-bound target ledger", () => {
+    expect(source).toContain("J10_TRANSFER_CANONICAL_SHA");
+    expect(source).toContain("TRANSFER_CANONICAL_SHA_MISMATCH");
+    expect(source).toContain("readdirSync(resolve(repositoryRoot, \"supabase\", \"migrations\")");
+    expect(source).toContain("targetLedger.map((row) => row.version).join(\",\") !== canonical.versions.join(\",\")");
+    expect(source).toContain("TRANSFER_TARGET_CANONICAL_LEDGER_MISMATCH");
+    expect(source).not.toMatch(/canonicalMigrationCount\s*=\s*\d+/);
+  });
+
+  it("fails closed on second execution, SHA or target ledger drift, count drift, or RLS failure", () => {
+    for (const code of ["TRANSFER_TARGET_NOT_EMPTY", "TRANSFER_CANONICAL_SHA_MISMATCH", "TRANSFER_TARGET_CANONICAL_LEDGER_MISMATCH", "TRANSFER_ROW_COUNT_MISMATCH", "TRANSFER_REFERENTIAL_INTEGRITY_FAILED", "TRANSFER_TENANT_ISOLATION_FAILED", "TRANSFER_AUTH_LOGIN_FAILED"]) {
       expect(source).toContain(code);
     }
   });
