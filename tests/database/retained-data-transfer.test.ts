@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { assertTarget } from "../../scripts/rehearse-retained-data-transfer.mjs";
 
 const source = readFileSync(resolve(process.cwd(), "scripts/rehearse-retained-data-transfer.mjs"), "utf8");
 
@@ -8,6 +9,16 @@ describe("retained-data transfer rehearsal", () => {
   it("requires explicit, distinct source and target guards", () => {
     expect(source).toContain("TRANSFER_SOURCE_TARGET_MUST_DIFFER");
     expect(source).toContain("TRANSFER_${side}_HOST_MISMATCH");
+    expect(source).toContain("parsed.port === \"5432\"");
+    expect(source).toContain("parsed.username === `postgres.${ref}`");
+    expect(source).toContain("Transaction poolers are intentionally rejected");
+  });
+
+  it("accepts only a project-bound Supabase session pooler and rejects transaction poolers", () => {
+    const ref = "fulzdhltboospethnwfk";
+    expect(() => assertTarget(ref, `postgresql://postgres.${ref}:private@aws-0-us-east-1.pooler.supabase.com:5432/postgres`, "TARGET")).not.toThrow();
+    expect(() => assertTarget(ref, `postgresql://postgres.${ref}:private@aws-0-us-east-1.pooler.supabase.com:6543/postgres`, "TARGET")).toThrow("TRANSFER_TARGET_HOST_MISMATCH");
+    expect(() => assertTarget(ref, "postgresql://postgres.other-project:private@aws-0-us-east-1.pooler.supabase.com:5432/postgres", "TARGET")).toThrow("TRANSFER_TARGET_HOST_MISMATCH");
   });
 
   it("copies the required auth, tenant, inbox, integration, credential, and binding records in dependency order", () => {

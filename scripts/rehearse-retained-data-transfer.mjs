@@ -2,6 +2,7 @@ import { createDecipheriv, createCipheriv, randomBytes, randomUUID } from "node:
 import { readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 
 const retainedTables = [
@@ -47,7 +48,14 @@ function assertTarget(ref, url, side) {
   if (!/^[a-z0-9]{20}$/.test(ref)) fail(`TRANSFER_${side}_REF_INVALID`);
   let parsed;
   try { parsed = new URL(url); } catch { fail(`TRANSFER_${side}_URL_INVALID`); }
-  if (parsed.hostname !== `db.${ref}.supabase.co`) fail(`TRANSFER_${side}_HOST_MISMATCH`);
+  const isDirectConnection = parsed.hostname === `db.${ref}.supabase.co`;
+  // Supabase session poolers authenticate a project through the pooler role
+  // name, not the hostname.  Transaction poolers are intentionally rejected:
+  // this transfer needs a session-stable connection for its import transaction.
+  const isSessionPooler = /^[a-z0-9-]+\.pooler\.supabase\.com$/.test(parsed.hostname)
+    && parsed.port === "5432"
+    && parsed.username === `postgres.${ref}`;
+  if (!isDirectConnection && !isSessionPooler) fail(`TRANSFER_${side}_HOST_MISMATCH`);
 }
 
 async function columns(sql, [schema, table]) {
@@ -191,4 +199,8 @@ async function main() {
   } finally { await source.end({ timeout: 5 }); await target.end({ timeout: 5 }); }
 }
 
-main().catch((error) => { console.error(error.message); process.exitCode = 1; });
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => { console.error(error.message); process.exitCode = 1; });
+}
+
+export { assertTarget };
