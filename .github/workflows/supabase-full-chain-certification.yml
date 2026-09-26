@@ -225,8 +225,10 @@ jobs:
           set +a
           export J10_TRANSFER_SOURCE_PROJECT_REF=local-source
           export J10_TRANSFER_TARGET_PROJECT_REF=local-target
-          export J10_TRANSFER_TARGET_DB_URL="$DB_URL"
-          export J10_TRANSFER_SOURCE_DB_URL="${DB_URL%/postgres}/j10_retained_source"
+          # The Supabase local DB URL is intentionally a non-superuser role.
+          # Auth-schema import needs the disposable cluster's administrative role.
+          export J10_TRANSFER_TARGET_DB_URL="${DB_URL/postgres:postgres@/supabase_admin:postgres@}"
+          export J10_TRANSFER_SOURCE_DB_URL="${J10_TRANSFER_TARGET_DB_URL%/postgres}/j10_retained_source"
           export J10_TRANSFER_TARGET_API_URL="$API_URL"
           export J10_TRANSFER_TARGET_PUBLISHABLE_KEY="$PUBLISHABLE_KEY"
           export J10_INTEGRATION_ENCRYPTION_KEY="MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
