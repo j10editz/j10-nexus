@@ -193,3 +193,52 @@ jobs:
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup
+
+  retained-data-transfer-rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+      - name: Build an empty canonical target database
+        run: |
+          supabase start
+          supabase db reset --local --no-seed
+      - name: Run retained-data transfer rehearsal twice and reject accidental replay
+        run: |
+          prepare_source() {
+            db_container=$(docker ps --filter 'name=supabase_db_' --format '{{.ID}}' | head -n 1)
+            test -n "$db_container"
+            docker exec "$db_container" createdb -U supabase_admin -T template0 j10_retained_source
+            docker exec "$db_container" sh -c 'pg_dump -U supabase_admin -d postgres --schema-only --no-owner --no-privileges --exclude-extension=pg_cron --exclude-extension=pg_net | psql -q -v ON_ERROR_STOP=1 -U supabase_admin -d j10_retained_source'
+            docker exec "$db_container" sh -c 'pg_dump -U supabase_admin -d postgres --data-only --table=supabase_migrations.schema_migrations | psql -q -v ON_ERROR_STOP=1 -U supabase_admin -d j10_retained_source'
+          }
+          set -a
+          source <(supabase status -o env)
+          set +a
+          export J10_TRANSFER_SOURCE_PROJECT_REF=local-source
+          export J10_TRANSFER_TARGET_PROJECT_REF=local-target
+          export J10_TRANSFER_TARGET_DB_URL="$DB_URL"
+          export J10_TRANSFER_SOURCE_DB_URL="${DB_URL%/postgres}/j10_retained_source"
+          export J10_TRANSFER_TARGET_API_URL="$API_URL"
+          export J10_TRANSFER_TARGET_PUBLISHABLE_KEY="$PUBLISHABLE_KEY"
+          export J10_INTEGRATION_ENCRYPTION_KEY="MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+          prepare_source
+          node scripts/rehearse-retained-data-transfer.mjs --allow-local-fixture --seed-fixture
+          supabase db reset --local --no-seed
+          prepare_source
+          node scripts/rehearse-retained-data-transfer.mjs --allow-local-fixture --seed-fixture
+          if node scripts/rehearse-retained-data-transfer.mjs --allow-local-fixture; then
+            echo 'unexpected retained-data replay success' >&2
+            exit 1
+          fi
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
