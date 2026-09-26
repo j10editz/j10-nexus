@@ -1,4 +1,7 @@
 import { createDecipheriv, createCipheriv, randomBytes, randomUUID } from "node:crypto";
+import { readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
 import postgres from "postgres";
 
 const retainedTables = [
@@ -9,6 +12,7 @@ const retainedTables = [
   ["public", "integrations"], ["public", "integration_credentials"],
   ["public", "telegram_business_connections"],
 ];
+const repositoryRoot = resolve(import.meta.dirname, "..");
 
 const identifier = (value) => `"${value.replaceAll('"', '""')}"`;
 const tableName = ([schema, table]) => `${identifier(schema)}.${identifier(table)}`;
@@ -21,6 +25,18 @@ function required(name) {
   const value = process.env[name]?.trim();
   if (!value) fail(`${name}_REQUIRED`);
   return value;
+}
+
+function canonicalMigrationVersions() {
+  const checkedOutSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
+  const expectedSha = required("J10_TRANSFER_CANONICAL_SHA");
+  if (expectedSha !== checkedOutSha) fail("TRANSFER_CANONICAL_SHA_MISMATCH");
+  const versions = readdirSync(resolve(repositoryRoot, "supabase", "migrations"), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^\d{8}_.+\.sql$/.test(entry.name))
+    .map((entry) => entry.name.slice(0, 8))
+    .sort();
+  if (!versions.length || new Set(versions).size !== versions.length) fail("TRANSFER_CANONICAL_MIGRATION_MANIFEST_INVALID");
+  return { checkedOutSha, versions };
 }
 
 function assertTarget(ref, url, side) {
@@ -155,12 +171,15 @@ async function main() {
   const source = postgres(sourceUrl, { max: 1, onnotice: () => {} });
   const target = postgres(targetUrl, { max: 1, onnotice: () => {} });
   try {
+    const canonical = canonicalMigrationVersions();
     if (seedFixture) await seed(source, key);
     const targetExisting = (await Promise.all(retainedTables.map((pair) => exactCount(target, pair)))).reduce((sum, count) => sum + count, 0);
     if (targetExisting !== 0) fail('TRANSFER_TARGET_NOT_EMPTY');
-    const sourceLedger = await source`select count(*)::bigint as count from supabase_migrations.schema_migrations`;
-    const targetLedger = await target`select count(*)::bigint as count from supabase_migrations.schema_migrations`;
-    if (Number(sourceLedger[0].count) !== Number(targetLedger[0].count)) fail('TRANSFER_MIGRATION_LEDGER_MISMATCH');
+    const targetLedger = await target`select version::text as version from supabase_migrations.schema_migrations order by version`;
+    // Legacy Production intentionally has no migration ledger.  It is never
+    // copied or synthesized; only the freshly rebuilt target must prove the
+    // complete, exact canonical chain before retained rows are imported.
+    if (targetLedger.map((row) => row.version).join(",") !== canonical.versions.join(",")) fail('TRANSFER_TARGET_CANONICAL_LEDGER_MISMATCH');
     const transferred = {};
     // The import itself is atomic.  Source reads are performed while the target
     // transaction is open, but no target row survives if a later dependency fails.
@@ -168,7 +187,7 @@ async function main() {
       for (const pair of retainedTables) transferred[pair.join('.')] = await copyTable(source, tx, pair);
     });
     const counts = await verify(source, target, key);
-    console.log(JSON.stringify({ ok: true, transferred, counts, credentialEnvelope: 'compatible', externalActivity: 0 }));
+    console.log(JSON.stringify({ ok: true, canonicalSha: canonical.checkedOutSha, canonicalMigrationCount: canonical.versions.length, transferred, counts, credentialEnvelope: 'compatible', externalActivity: 0 }));
   } finally { await source.end({ timeout: 5 }); await target.end({ timeout: 5 }); }
 }
 

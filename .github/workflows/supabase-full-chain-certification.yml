@@ -218,13 +218,16 @@ jobs:
             test -n "$db_container"
             docker exec "$db_container" createdb -U supabase_admin -T template0 j10_retained_source
             docker exec "$db_container" sh -c 'pg_dump -U supabase_admin -d postgres --schema-only --no-owner --no-privileges --exclude-extension=pg_cron --exclude-extension=pg_net | psql -q -v ON_ERROR_STOP=1 -U supabase_admin -d j10_retained_source'
-            docker exec "$db_container" sh -c 'pg_dump -U supabase_admin -d postgres --data-only --table=supabase_migrations.schema_migrations | psql -q -v ON_ERROR_STOP=1 -U supabase_admin -d j10_retained_source'
+            # Model the approved legacy Production source: application tables
+            # exist, but no Supabase migration ledger can be copied or invented.
+            docker exec "$db_container" psql -q -U supabase_admin -d j10_retained_source -c 'drop table supabase_migrations.schema_migrations'
           }
           set -a
           source <(supabase status -o env)
           set +a
           export J10_TRANSFER_SOURCE_PROJECT_REF=local-source
           export J10_TRANSFER_TARGET_PROJECT_REF=local-target
+          export J10_TRANSFER_CANONICAL_SHA="$GITHUB_SHA"
           # The Supabase local DB URL is intentionally a non-superuser role.
           # Auth-schema import needs the disposable cluster's administrative role.
           export J10_TRANSFER_TARGET_DB_URL="${DB_URL/postgres:postgres@/supabase_admin:postgres@}"
