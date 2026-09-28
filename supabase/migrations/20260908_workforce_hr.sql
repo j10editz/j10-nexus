@@ -1,4 +1,4 @@
-﻿-- J10 NEXUS Hybrid Workforce & HR Schema
+-- J10 NEXUS Hybrid Workforce & HR Schema
 -- Migration: 20260908_workforce_hr.sql
 
 create table if not exists public.workforce_members (

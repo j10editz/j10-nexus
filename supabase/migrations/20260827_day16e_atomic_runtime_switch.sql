@@ -1,4 +1,4 @@
-﻿begin;
+begin;
 
 /*
   Day 16E
