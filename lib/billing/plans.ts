@@ -1,4 +1,6 @@
-export type PlanId = "founders3" | "starter" | "growth" | "enterprise";
+export type PlanId = "starter" | "growth" | "business" | "enterprise" | "founders3";
+
+export type PublicPlanId = "starter" | "growth" | "business" | "enterprise";
 
 export type PlanFeatureKey =
   | "whatsapp_broadcasts"
@@ -27,9 +29,9 @@ export interface PlanDefinition {
   id: PlanId;
   name: string;
   price: number;
+  annualPrice?: number;
   standardPrice?: number;
   introductoryCycleDuration?: number;
-  annualPrice?: number;
   interval: string;
   description: string;
   messageLimit: number;
@@ -37,78 +39,42 @@ export interface PlanDefinition {
   seatsAllowed?: number;
   connectedChannelsAllowed?: number;
   popular?: boolean;
+  quoteOnly?: boolean;
+  privateOnly?: boolean;
   features: string[];
   stripePriceMonthly?: string;
-  stripeStandardPriceMonthly?: string;
-  stripePriceLookupKey?: string;
-  stripeStandardPriceLookupKey?: string;
   stripePriceAnnual?: string;
+  stripePriceLookupKey?: string;
+  stripeStandardPriceMonthly?: string;
+  stripeStandardPriceLookupKey?: string;
   entitlements: PlanEntitlements;
 }
 
 export const PLANS: PlanDefinition[] = [
   {
-    id: "founders3",
-    name: "Founder's 3 Pilot",
-    price: 99,
-    standardPrice: 149,
-    introductoryCycleDuration: 12,
-    interval: "month",
-    description: "Introductory Founder's 3 package for the first 3 qualifying service businesses. $99/mo for your first 12 successfully paid billing cycles, then $149/mo. Cancel anytime.",
-    messageLimit: 1000,
-    aiEmployees: 3,
-    seatsAllowed: 3,
-    connectedChannelsAllowed: 2,
-    popular: true,
-    stripePriceMonthly: "price_founders3_monthly_99",
-    stripeStandardPriceMonthly: "price_standard_monthly_149",
-    stripePriceLookupKey: "j10_founders3_monthly_99",
-    stripeStandardPriceLookupKey: "j10_standard_monthly_149",
-    features: [
-      "$99/mo for your first 12 paid months (then $149/mo)",
-      "Tenant-grounded AI Receptionist",
-      "Website lead capture & booking-link handoff",
-      "Telegram messaging integration",
-      "Unified Inbox & CRM contact persistence",
-      "Lead qualification & human takeover",
-      "Services, pricing, business hours & FAQ grounding",
-      "Founder concierge setup & direct engineering support",
-      "1,000 AI-handled conversations/mo",
-      "3 team member seats",
-      "No setup fee — cancel anytime",
-    ],
-    entitlements: {
-      whatsappBroadcasts: false,
-      aiEmployeesQuota: 3,
-      knowledgeArticlesQuota: 100,
-      customSystemPrompts: true,
-      dedicatedMetaThroughput: false,
-      customWebhooksErp: false,
-      teamSeatsQuota: 3,
-      prioritySla: true,
-      multiAgentCoordination: true,
-      sopSuggestedReplies: true,
-    },
-  },
-  {
     id: "starter",
     name: "Starter",
-    price: 49,
-    annualPrice: 39,
+    price: 19,
+    annualPrice: 190,
     interval: "month",
-    description: "Perfect for emerging businesses automating WhatsApp and lead capture.",
+    description: "Essential revenue automation for emerging businesses.",
     messageLimit: 1000,
     aiEmployees: 2,
     seatsAllowed: 1,
     connectedChannelsAllowed: 1,
-    stripePriceMonthly: "price_starter_monthly",
+    popular: false,
+    quoteOnly: false,
+    privateOnly: false,
+    stripePriceLookupKey: "j10_starter_monthly_19",
     features: [
+      "$19/month or $190/year (10 monthly payments)",
       "1,000 automated messages/mo",
       "2 active AI Employees",
-      "WhatsApp Cloud API integration",
-      "CRM contacts & pipeline sync",
+      "WhatsApp & Telegram integrations",
+      "CRM contacts & unified pipeline sync",
       "Knowledge Hub grounding (10 articles)",
       "Standard email support",
+      "Provider usage charges billed separately",
     ],
     entitlements: {
       whatsappBroadcasts: false,
@@ -126,8 +92,8 @@ export const PLANS: PlanDefinition[] = [
   {
     id: "growth",
     name: "Growth",
-    price: 149,
-    annualPrice: 119,
+    price: 49,
+    annualPrice: 490,
     interval: "month",
     description: "For scaling teams that need autonomous multi-agent sales & marketing.",
     messageLimit: 10000,
@@ -135,8 +101,11 @@ export const PLANS: PlanDefinition[] = [
     seatsAllowed: 5,
     connectedChannelsAllowed: 5,
     popular: true,
-    stripePriceMonthly: "price_growth_monthly",
+    quoteOnly: false,
+    privateOnly: false,
+    stripePriceLookupKey: "j10_growth_monthly_49",
     features: [
+      "$49/month or $490/year (10 monthly payments)",
       "10,000 automated messages/mo",
       "10 active AI Employees",
       "WhatsApp & Marketing Broadcasts",
@@ -144,6 +113,7 @@ export const PLANS: PlanDefinition[] = [
       "SOP-grounded AI reply suggestions",
       "Stripe payment webhooks & finance sync",
       "Priority latency routing",
+      "Provider usage charges billed separately",
     ],
     entitlements: {
       whatsappBroadcasts: true,
@@ -159,26 +129,66 @@ export const PLANS: PlanDefinition[] = [
     },
   },
   {
+    id: "business",
+    name: "Business",
+    price: 99,
+    annualPrice: 990,
+    interval: "month",
+    description: "Comprehensive operations platform with expanded capacity and priority throughput.",
+    messageLimit: 30000,
+    aiEmployees: 25,
+    seatsAllowed: 15,
+    connectedChannelsAllowed: 10,
+    popular: false,
+    quoteOnly: false,
+    privateOnly: false,
+    stripePriceLookupKey: "j10_business_monthly_99",
+    features: [
+      "$99/month or $990/year (10 monthly payments)",
+      "30,000 automated messages/mo",
+      "25 active AI Employees",
+      "Advanced multi-agent coordination",
+      "Dedicated channel throughput & ERP webhooks",
+      "Full Knowledge Hub & custom SOPs",
+      "Priority SLA & dedicated onboarding",
+      "Provider usage charges billed separately",
+    ],
+    entitlements: {
+      whatsappBroadcasts: true,
+      aiEmployeesQuota: 25,
+      knowledgeArticlesQuota: 5000,
+      customSystemPrompts: true,
+      dedicatedMetaThroughput: false,
+      customWebhooksErp: true,
+      teamSeatsQuota: 15,
+      prioritySla: true,
+      multiAgentCoordination: true,
+      sopSuggestedReplies: true,
+    },
+  },
+  {
     id: "enterprise",
     name: "Enterprise",
-    price: 499,
-    annualPrice: 399,
+    price: 199,
     interval: "month",
-    description: "High-volume infrastructure for large operations with custom SLA.",
+    description: "Dedicated infrastructure, custom SLAs, and custom AI agent workflows. Starting from $199/mo.",
     messageLimit: 100000,
     aiEmployees: 999,
     seatsAllowed: 999,
     connectedChannelsAllowed: 999,
-    stripePriceMonthly: "price_enterprise_monthly",
-    stripePriceAnnual: "tier_enterprise_annual",
+    popular: false,
+    quoteOnly: true,
+    privateOnly: false,
     features: [
-      "100,000 automated messages/mo",
-      "Unlimited AI Employees",
+      "Starting from $199/month (custom quote)",
+      "Contact sales — no self-service checkout",
+      "100,000+ automated messages/mo",
+      "Unlimited AI Employees & custom system prompts",
       "Dedicated Meta Graph API throughput",
-      "Custom system prompts & model routing",
-      "Multi-user RBAC & team management",
       "Custom webhooks & ERP integrations",
+      "Multi-user RBAC & team management",
       "24/7 dedicated engineering SLA",
+      "Provider usage charges billed separately",
     ],
     entitlements: {
       whatsappBroadcasts: true,
@@ -193,7 +203,51 @@ export const PLANS: PlanDefinition[] = [
       sopSuggestedReplies: true,
     },
   },
+  {
+    id: "founders3",
+    name: "Founder's 3 Pilot",
+    price: 29,
+    standardPrice: 49,
+    introductoryCycleDuration: 12,
+    interval: "month",
+    description: "Private offer limited to the first three eligible paying customers—Growth tier for $29/month for 12 months, then automatically transitions to normal $49/month Growth price.",
+    messageLimit: 10000,
+    aiEmployees: 10,
+    seatsAllowed: 5,
+    connectedChannelsAllowed: 5,
+    popular: false,
+    quoteOnly: false,
+    privateOnly: true,
+    stripePriceLookupKey: "j10_founders3_monthly_29",
+    stripeStandardPriceLookupKey: "j10_growth_monthly_49",
+    features: [
+      "$29/mo for your first 12 paid months (then $49/mo Growth)",
+      "10,000 automated messages/mo (Growth tier)",
+      "10 active AI Employees",
+      "WhatsApp & Telegram messaging integrations",
+      "Unified Inbox & CRM contact persistence",
+      "Lead qualification & human takeover",
+      "Services, pricing, business hours & FAQ grounding",
+      "Founder concierge setup & direct engineering support",
+      "5 team member seats",
+      "Provider usage charges billed separately",
+    ],
+    entitlements: {
+      whatsappBroadcasts: true,
+      aiEmployeesQuota: 10,
+      knowledgeArticlesQuota: 1000,
+      customSystemPrompts: false,
+      dedicatedMetaThroughput: false,
+      customWebhooksErp: false,
+      teamSeatsQuota: 5,
+      prioritySla: true,
+      multiAgentCoordination: true,
+      sopSuggestedReplies: true,
+    },
+  },
 ];
+
+export const PUBLIC_PLANS: PlanDefinition[] = PLANS.filter((p) => !p.privateOnly);
 
 export function getPlanById(planId: string): PlanDefinition {
   const normalized = (planId || "").trim().toLowerCase();

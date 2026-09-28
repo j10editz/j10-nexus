@@ -53,18 +53,23 @@ describe("Launch Phase 2: P0 Blockers Certification Suite", () => {
   });
 
   describe("P0-2: Multi-Plan Stripe Checkout Price Resolution", () => {
-    it("resolves configured price IDs across all 4 tiers (founders3, starter, growth, enterprise)", () => {
+    it("resolves configured price IDs across tiers (starter, growth, business, founders3) and treats enterprise as quote-only", () => {
       process.env.STRIPE_FOUNDERS3_PRICE_ID = "price_f3_monthly";
       process.env.STRIPE_STARTER_PRICE_ID = "price_starter_monthly";
-      process.env.STRIPE_GROWTH_PRICE_ID = "price_growth_monthly";
-      process.env.STRIPE_ENTERPRISE_PRICE_ID = "price_enterprise_monthly";
       process.env.STRIPE_STARTER_ANNUAL_PRICE_ID = "price_starter_annual";
+      process.env.STRIPE_GROWTH_PRICE_ID = "price_growth_monthly";
+      process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID = "price_growth_annual";
+      process.env.STRIPE_BUSINESS_PRICE_ID = "price_business_monthly";
+      process.env.STRIPE_BUSINESS_ANNUAL_PRICE_ID = "price_business_annual";
 
       expect(resolvePlanPriceId("founders3")).toBe("price_f3_monthly");
       expect(resolvePlanPriceId("starter")).toBe("price_starter_monthly");
       expect(resolvePlanPriceId("starter", "year")).toBe("price_starter_annual");
       expect(resolvePlanPriceId("growth")).toBe("price_growth_monthly");
-      expect(resolvePlanPriceId("enterprise")).toBe("price_enterprise_monthly");
+      expect(resolvePlanPriceId("growth", "year")).toBe("price_growth_annual");
+      expect(resolvePlanPriceId("business")).toBe("price_business_monthly");
+      expect(resolvePlanPriceId("business", "year")).toBe("price_business_annual");
+      expect(resolvePlanPriceId("enterprise")).toBeUndefined();
     });
 
     it("fails closed in production with plan-specific error when Price ID is missing", async () => {
@@ -98,7 +103,17 @@ describe("Launch Phase 2: P0 Blockers Certification Suite", () => {
       expect(res.error).toContain("Missing STRIPE_FOUNDERS3_PRICE_ID");
     });
 
-    it("creates checkout session for growth tier when price ID is configured", async () => {
+    it("safely rejects enterprise checkout attempts", async () => {
+      const mockSupabase = {} as any;
+      await expect(
+        createWorkspaceSubscriptionCheckout(mockSupabase, {
+          workspaceId: "ws_test_ent",
+          planId: "enterprise",
+        })
+      ).rejects.toThrow(/Enterprise plans require a custom quote/);
+    });
+
+    it("creates checkout session for growth tier ($49) when price ID is configured", async () => {
       process.env.STRIPE_GROWTH_PRICE_ID = "price_growth_test_123";
       delete process.env.STRIPE_SECRET_KEY; // Sandbox mode
 
@@ -123,7 +138,7 @@ describe("Launch Phase 2: P0 Blockers Certification Suite", () => {
       });
 
       expect(checkout.planId).toBe("growth");
-      expect(checkout.amount).toBe(149);
+      expect(checkout.amount).toBe(49);
       expect(checkout.checkoutUrl).toBeDefined();
     });
   });

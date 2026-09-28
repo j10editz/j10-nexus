@@ -27,8 +27,6 @@ function isTestPriceId(id: string): boolean {
   const lower = id.toLowerCase().trim();
   return (
     lower.includes("test") ||
-    lower === "price_1uglljbzalw19ysvhnytvnxa" ||
-    lower === "price_1uglljbzalw19ysvbq7js6c8" ||
     lower.startsWith("price_sim_") ||
     lower.startsWith("price_mock_")
   );
@@ -38,14 +36,15 @@ export function resolveSchedulePrices(secretKey?: string): { fPrice: string; std
   const key = secretKey || process.env.STRIPE_SECRET_KEY;
   const isProduction = process.env.NODE_ENV === "production" || Boolean(key && key.startsWith("sk_live_"));
 
+  const fPrice = process.env.STRIPE_FOUNDERS3_PRICE_ID?.trim();
+  const stdPrice = (process.env.STRIPE_GROWTH_PRICE_ID || process.env.STRIPE_STANDARD_PRICE_ID)?.trim();
+
   if (isProduction) {
-    if (!process.env.STRIPE_FOUNDERS3_PRICE_ID || !process.env.STRIPE_STANDARD_PRICE_ID) {
+    if (!fPrice || !stdPrice) {
       throw new Error(
-        "Missing STRIPE_FOUNDERS3_PRICE_ID or STRIPE_STANDARD_PRICE_ID: Production subscription schedules require configured live Price IDs. Fail closed."
+        "Missing STRIPE_FOUNDERS3_PRICE_ID or STRIPE_STANDARD_PRICE_ID (or STRIPE_GROWTH_PRICE_ID): Production subscription schedules require configured live Price IDs. Fail closed."
       );
     }
-    const fPrice = process.env.STRIPE_FOUNDERS3_PRICE_ID.trim();
-    const stdPrice = process.env.STRIPE_STANDARD_PRICE_ID.trim();
     if (isTestPriceId(fPrice) || isTestPriceId(stdPrice)) {
       throw new Error("Stripe-mode inconsistency: Test-mode price IDs cannot be used in production subscription schedules.");
     }
@@ -53,9 +52,10 @@ export function resolveSchedulePrices(secretKey?: string): { fPrice: string; std
   }
 
   // Non-production test/sandbox fallbacks
-  const fPrice = process.env.STRIPE_FOUNDERS3_PRICE_ID || "price_1UGLljBzAlW19YsvHNYtvNxA";
-  const stdPrice = process.env.STRIPE_STANDARD_PRICE_ID || "price_1UGLljBzAlW19YsvbQ7js6c8";
-  return { fPrice, stdPrice };
+  return {
+    fPrice: fPrice || "price_1UGLljBzAlW19YsvHNYtvNxA",
+    stdPrice: stdPrice || "price_1UGLljBzAlW19YsvbQ7js6c8",
+  };
 }
 
 /**
@@ -466,9 +466,9 @@ export async function reconcileSubscriptionSchedule({
   alert?: string;
 }> {
   const isStandardPriceInvoiced =
+    invoicedPriceId?.includes("growth") ||
     invoicedPriceId?.includes("standard") ||
-    invoicedPriceId?.includes("149") ||
-    (invoicedAmount !== undefined && invoicedAmount >= 149);
+    (invoicedAmount !== undefined && invoicedAmount >= 49);
 
   let transitionStatus: PriceTransitionStatus = "introductory";
   let alert: string | undefined;
@@ -494,7 +494,9 @@ export async function reconcileSubscriptionSchedule({
   return {
     reconciled: true,
     priceTransitionStatus: transitionStatus,
-    currentPrice: isStandardPriceInvoiced ? "price_standard_monthly_149" : "price_founders3_monthly_99",
+    currentPrice: isStandardPriceInvoiced
+      ? (process.env.STRIPE_GROWTH_PRICE_ID || "price_growth_monthly_49")
+      : (process.env.STRIPE_FOUNDERS3_PRICE_ID || "price_founders3_monthly_29"),
     isStandardPrice: isStandardPriceInvoiced,
     alert,
   };

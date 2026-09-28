@@ -307,7 +307,7 @@ describe("Tier 0G: SaaS Billing & Subscription Architecture", () => {
       });
 
       expect(checkout.planId).toBe("growth");
-      expect(checkout.amount).toBe(149);
+      expect(checkout.amount).toBe(49);
       expect(checkout.mode).toBe("simulated");
       expect(checkout.providerMode).toBe("sandbox");
       expect(checkout.checkoutUrl).toContain("checkout.stripe.com");
