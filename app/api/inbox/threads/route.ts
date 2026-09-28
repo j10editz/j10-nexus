@@ -5,10 +5,19 @@ import { createServerSupabaseClient } from "@/lib/auth";
 export async function GET(req: Request) {
   try {
     const context = await getActiveWorkspaceContext();
-    if (!context) {
+    if (!context || !context.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized." },
         { status: 401 }
+      );
+    }
+
+    const wsId = context.workspace?.id;
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!wsId || !UUID_REGEX.test(wsId)) {
+      return NextResponse.json(
+        { success: false, error: "Active workspace required." },
+        { status: 400 }
       );
     }
 
@@ -19,7 +28,6 @@ export async function GET(req: Request) {
     const priorityOnly = searchParams.get("priorityOnly") === "true";
 
     const supabase = createServerSupabaseClient();
-    const wsId = context.workspace.id;
 
     // Build query scoped strictly to active workspace
     let query = supabase
@@ -184,10 +192,19 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await getActiveWorkspaceContext();
-    if (!context) {
+    if (!context || !context.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized." },
         { status: 401 }
+      );
+    }
+
+    const wsId = context.workspace?.id;
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!wsId || !UUID_REGEX.test(wsId)) {
+      return NextResponse.json(
+        { success: false, error: "Active workspace required." },
+        { status: 400 }
       );
     }
 
@@ -212,7 +229,6 @@ export async function POST(req: Request) {
     }
 
     const supabase = createServerSupabaseClient();
-    const wsId = context.workspace.id;
 
     // 1. Create or resolve contact within active workspace
     const isEmail = contactIdentifier.includes("@");

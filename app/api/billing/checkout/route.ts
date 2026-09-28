@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiWorkspaceContext } from "@/lib/workspaces/server";
 import { createServerSupabaseClient } from "@/lib/auth";
-import { createWorkspaceSubscriptionCheckout } from "@/lib/billing/checkout";
+import { createWorkspaceSubscriptionCheckout, resolvePlanPriceId } from "@/lib/billing/checkout";
 import { getPlanById, type PlanId } from "@/lib/billing/plans";
 
 export async function POST(request: NextRequest) {
@@ -26,10 +26,7 @@ export async function POST(request: NextRequest) {
     const invitationCode = typeof body.invitationCode === "string" ? body.invitationCode.trim() : undefined;
     const supabase = createServerSupabaseClient();
 
-    const priceId =
-      planId === "founders3"
-        ? process.env.STRIPE_FOUNDERS3_PRICE_ID || undefined
-        : undefined;
+    const priceId = body.priceId || resolvePlanPriceId(planId, interval);
 
     const checkoutResult = await createWorkspaceSubscriptionCheckout(supabase, {
       workspaceId: context.workspace.id,

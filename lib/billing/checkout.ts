@@ -29,6 +29,31 @@ export interface SubscriptionCheckoutResult {
 }
 
 /**
+ * Resolves configured Stripe Price ID for any supported plan and interval.
+ */
+export function resolvePlanPriceId(planId: PlanId, interval: "month" | "year" = "month"): string | undefined {
+  if (planId === "founders3") {
+    return process.env.STRIPE_FOUNDERS3_PRICE_ID || process.env.STRIPE_STANDARD_PRICE_ID || undefined;
+  }
+  if (planId === "starter") {
+    return interval === "year"
+      ? (process.env.STRIPE_STARTER_ANNUAL_PRICE_ID || process.env.STRIPE_STARTER_PRICE_ID || undefined)
+      : (process.env.STRIPE_STARTER_PRICE_ID || undefined);
+  }
+  if (planId === "growth") {
+    return interval === "year"
+      ? (process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID || process.env.STRIPE_GROWTH_PRICE_ID || undefined)
+      : (process.env.STRIPE_GROWTH_PRICE_ID || undefined);
+  }
+  if (planId === "enterprise") {
+    return interval === "year"
+      ? (process.env.STRIPE_ENTERPRISE_ANNUAL_PRICE_ID || process.env.STRIPE_ENTERPRISE_PRICE_ID || undefined)
+      : (process.env.STRIPE_ENTERPRISE_PRICE_ID || undefined);
+  }
+  return undefined;
+}
+
+/**
  * Validates real Stripe Price before initiating Checkout.
  * Enforces: active=true, currency=usd, unit_amount=14900 (for founders3), recurring.interval=month.
  */
@@ -51,12 +76,18 @@ export async function validateStripePriceForCheckout({
   }
 
   // If a specific priceId is provided or configured in env
-  const targetPriceId = priceId || (planId === "founders3" ? process.env.STRIPE_FOUNDERS3_PRICE_ID : undefined);
+  const targetPriceId = priceId || resolvePlanPriceId(planId);
   if (!targetPriceId) {
     if (isProduction) {
+      if (planId === "founders3") {
+        return {
+          valid: false,
+          error: "Missing STRIPE_FOUNDERS3_PRICE_ID: Production checkout requires an authoritative Stripe Price ID.",
+        };
+      }
       return {
         valid: false,
-        error: "Missing STRIPE_FOUNDERS3_PRICE_ID: Production checkout requires an authoritative Stripe Price ID.",
+        error: `Missing STRIPE_${planId.toUpperCase()}_PRICE_ID: Production checkout requires an authoritative Stripe Price ID for plan "${planId}".`,
       };
     }
     // In non-production test-mode or standard price_data inline mode, return valid
@@ -225,14 +256,14 @@ export async function createWorkspaceSubscriptionCheckout(
   const amount = interval === "year" && plan.annualPrice ? plan.annualPrice * 12 : plan.price;
   const secretKey = process.env.STRIPE_SECRET_KEY;
   const isProduction = process.env.NODE_ENV === "production" || Boolean(secretKey && secretKey.startsWith("sk_live_"));
-  const effectivePriceId = options.priceId || (options.planId === "founders3" ? process.env.STRIPE_FOUNDERS3_PRICE_ID : undefined);
+  const effectivePriceId = options.priceId || resolvePlanPriceId(options.planId, interval);
 
   if (isProduction) {
     if (options.planId === "founders3" && !effectivePriceId) {
       throw new Error("Missing STRIPE_FOUNDERS3_PRICE_ID: Production checkout requires an authoritative Stripe Price ID. Fail closed.");
     }
     if (!effectivePriceId) {
-      throw new Error("Inline price_data is forbidden in production. Configured Stripe Price ID is required.");
+      throw new Error(`Missing STRIPE_${options.planId.toUpperCase()}_PRICE_ID: Production checkout requires an authoritative Stripe Price ID for plan "${options.planId}". Fail closed.`);
     }
   }
 

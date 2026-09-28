@@ -459,10 +459,12 @@ export default function UnifiedInboxPage() {
       });
 
       const data = await response.json();
-      const checkoutUrl =
-        data.checkoutUrl ||
-        `https://checkout.stripe.com/c/pay/cs_test_${Math.random().toString(36).slice(2, 10)}`;
+      if (!response.ok || !data.checkoutUrl) {
+        alert(data.error || "Failed to generate Stripe checkout session. Please verify Stripe configuration.");
+        return;
+      }
 
+      const checkoutUrl = data.checkoutUrl;
       const paymentMessage = `Here is your official Stripe checkout link for ${stripeProduct} ($${stripeAmount.toLocaleString()} USD):\n${checkoutUrl}`;
 
       if (isLivePersisted) {

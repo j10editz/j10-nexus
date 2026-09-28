@@ -8,10 +8,19 @@ export async function POST(
 ) {
   try {
     const context = await getActiveWorkspaceContext();
-    if (!context) {
+    if (!context || !context.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized." },
         { status: 401 }
+      );
+    }
+
+    const wsId = context.workspace?.id;
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!wsId || !UUID_REGEX.test(wsId)) {
+      return NextResponse.json(
+        { success: false, error: "Active workspace required." },
+        { status: 400 }
       );
     }
 
@@ -32,7 +41,6 @@ export async function POST(
       );
     }
 
-    const wsId = context.workspace.id;
     const supabase = createServerSupabaseClient();
 
     // 1. Verify thread belongs to active workspace
