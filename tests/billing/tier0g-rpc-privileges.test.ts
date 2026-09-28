@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const migration = readFileSync(
   resolve(
     __dirname,
-    "../../supabase/migrations/20260918b_restrict_tier0g_rpc_execute.sql"
+    "../../supabase/migrations/20260918_tier0g_saas_billing.sql"
   ),
   "utf-8"
 );
@@ -19,10 +19,13 @@ describe("Tier 0G RPC execution privileges", () => {
       "record_verified_workspace_usage(UUID, TEXT, INT, TEXT, TEXT, UUID, JSONB)",
       "activate_workspace_trial(UUID, TEXT, INT)",
     ]) {
-      expect(migration).toContain(`REVOKE ALL ON FUNCTION public.${signature} FROM PUBLIC;`);
-      expect(migration).toContain(`REVOKE ALL ON FUNCTION public.${signature} FROM anon;`);
+      expect(migration).toContain(`REVOKE ALL ON FUNCTION public.${signature} FROM PUBLIC`);
+      expect(migration).toContain(`REVOKE ALL ON FUNCTION public.${signature} FROM anon`);
       expect(migration).toContain(
-        `GRANT EXECUTE ON FUNCTION public.${signature} TO authenticated, service_role;`
+        `GRANT EXECUTE ON FUNCTION public.${signature} TO authenticated`
+      );
+      expect(migration).toContain(
+        `GRANT EXECUTE ON FUNCTION public.${signature} TO service_role`
       );
     }
   });

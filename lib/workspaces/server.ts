@@ -145,11 +145,10 @@ export const DEMO_WORKSPACE_CONTEXT: ActiveWorkspaceContext = {
 export async function getActiveWorkspaceContext(): Promise<ActiveWorkspaceContext | null> {
   const cookieStore = await cookies();
   const requestedWorkspaceId = cookieStore.get(ACTIVE_WORKSPACE_COOKIE)?.value;
-  const isDemoCookie = cookieStore.get("j10_dashboard_mode")?.value === "demo";
 
   const user = await getCurrentUser();
   if (!user) {
-    return DEMO_WORKSPACE_CONTEXT;
+    return null;
   }
 
   const supabase = createServerSupabaseClient();
@@ -277,18 +276,18 @@ export async function requireWorkspaceContext(
   minRole?: WorkspaceRole,
   returnUrl?: string
 ): Promise<ActiveWorkspaceContext> {
+  const user = await getCurrentUser();
+  if (!user) {
+    const loginUrl = returnUrl ? `/login?next=${encodeURIComponent(returnUrl)}` : "/login";
+    redirect(loginUrl);
+  }
+
   const context = await getActiveWorkspaceContext();
   if (context) {
     if (minRole && !hasMinimumRole(context.membership.role, minRole)) {
       redirect("/dashboard");
     }
     return context;
-  }
-
-  const user = await getCurrentUser();
-  if (!user) {
-    const loginUrl = returnUrl ? `/login?next=${encodeURIComponent(returnUrl)}` : "/login";
-    redirect(loginUrl);
   }
 
   redirect("/onboarding");

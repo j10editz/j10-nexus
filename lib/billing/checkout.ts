@@ -29,18 +29,51 @@ export interface SubscriptionCheckoutResult {
 }
 
 /**
+ * Resolves configured Stripe Price ID for any supported plan and interval.
+ * Enterprise is quote-only and has no self-service checkout Price ID.
+ */
+export function resolvePlanPriceId(planId: PlanId, interval: "month" | "year" = "month"): string | undefined {
+  if (planId === "founders3") {
+    return process.env.STRIPE_FOUNDERS3_PRICE_ID || undefined;
+  }
+  if (planId === "starter") {
+    return interval === "year"
+      ? (process.env.STRIPE_STARTER_ANNUAL_PRICE_ID || undefined)
+      : (process.env.STRIPE_STARTER_PRICE_ID || undefined);
+  }
+  if (planId === "growth") {
+    return interval === "year"
+      ? (process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID || undefined)
+      : (process.env.STRIPE_GROWTH_PRICE_ID || undefined);
+  }
+  if (planId === "business") {
+    return interval === "year"
+      ? (process.env.STRIPE_BUSINESS_ANNUAL_PRICE_ID || undefined)
+      : (process.env.STRIPE_BUSINESS_PRICE_ID || undefined);
+  }
+  // Enterprise is quote-only. No self-service Price ID exists.
+  return undefined;
+}
+
+/**
  * Validates real Stripe Price before initiating Checkout.
- * Enforces: active=true, currency=usd, unit_amount=14900 (for founders3), recurring.interval=month.
+ * Enforces approved amounts, currency=usd, matching recurring interval, and environment consistency.
  */
 export async function validateStripePriceForCheckout({
   secretKey,
   priceId,
   planId,
+  interval = "month",
 }: {
   secretKey: string;
   priceId?: string;
   planId: PlanId;
+  interval?: "month" | "year";
 }): Promise<{ valid: boolean; priceId?: string; error?: string }> {
+  if (planId === "enterprise") {
+    return { valid: false, error: "Enterprise plans require a custom quote. Please contact sales." };
+  }
+
   const isProduction = process.env.NODE_ENV === "production" || secretKey.startsWith("sk_live_");
 
   if (!secretKey.startsWith("sk_")) {
@@ -50,16 +83,14 @@ export async function validateStripePriceForCheckout({
     return { valid: true };
   }
 
-  // If a specific priceId is provided or configured in env
-  const targetPriceId = priceId || (planId === "founders3" ? process.env.STRIPE_FOUNDERS3_PRICE_ID : undefined);
+  const targetPriceId = priceId || resolvePlanPriceId(planId, interval);
   if (!targetPriceId) {
     if (isProduction) {
       return {
         valid: false,
-        error: "Missing STRIPE_FOUNDERS3_PRICE_ID: Production checkout requires an authoritative Stripe Price ID.",
+        error: `Missing STRIPE_${planId.toUpperCase()}${interval === "year" ? "_ANNUAL" : ""}_PRICE_ID: Production checkout requires an authoritative Stripe Price ID for plan "${planId}".`,
       };
     }
-    // In non-production test-mode or standard price_data inline mode, return valid
     return { valid: true };
   }
 
@@ -103,22 +134,35 @@ export async function validateStripePriceForCheckout({
       return { valid: false, error: `Stripe price ${targetPriceId} currency must be USD.` };
     }
 
-    if (planId === "founders3") {
-      const isStandardPrice =
-        targetPriceId === process.env.STRIPE_STANDARD_PRICE_ID ||
-        targetPriceId.includes("standard") ||
-        targetPriceId.includes("149");
-      const expectedAmount = isStandardPrice ? 14900 : 9900;
-      if (priceObj.unit_amount !== expectedAmount) {
+    const expectedInterval = interval;
+    if (priceObj.recurring?.interval !== expectedInterval) {
+      return {
+        valid: false,
+        error: `Stripe price ${targetPriceId} recurring interval must be '${expectedInterval}', got '${priceObj.recurring?.interval}'.`,
+      };
+    }
+
+    // Expected amount validation based on approved pricing
+    const EXPECTED_AMOUNTS: Record<string, { month: number; year: number }> = {
+      starter: { month: 1900, year: 19000 },
+      growth: { month: 4900, year: 49000 },
+      business: { month: 9900, year: 99000 },
+      founders3: { month: 2900, year: 2900 },
+    };
+
+    if (EXPECTED_AMOUNTS[planId]) {
+      const expectedUnitAmount = EXPECTED_AMOUNTS[planId][interval];
+      if (planId === "founders3") {
+        if (priceObj.unit_amount !== 2900 && priceObj.unit_amount !== 9900) {
+          return {
+            valid: false,
+            error: `Stripe price ${targetPriceId} unit_amount must be 2900 ($29.00 USD) or unit_amount must be 9900 ($99.00 USD), got ${priceObj.unit_amount}.`,
+          };
+        }
+      } else if (priceObj.unit_amount !== expectedUnitAmount) {
         return {
           valid: false,
-          error: `Stripe price ${targetPriceId} unit_amount must be ${expectedAmount} (${isStandardPrice ? "$149.00" : "$99.00"} USD), got ${priceObj.unit_amount}.`,
-        };
-      }
-      if (priceObj.recurring?.interval !== "month") {
-        return {
-          valid: false,
-          error: `Stripe price ${targetPriceId} recurring interval must be 'month', got ${priceObj.recurring?.interval}.`,
+          error: `Stripe price ${targetPriceId} unit_amount must be ${expectedUnitAmount} ($${(expectedUnitAmount / 100).toFixed(2)} USD), got ${priceObj.unit_amount}.`,
         };
       }
     }
@@ -220,19 +264,23 @@ export async function createWorkspaceSubscriptionCheckout(
   supabase: SupabaseClient,
   options: CreateSubscriptionCheckoutOptions
 ): Promise<SubscriptionCheckoutResult> {
+  if (options.planId === "enterprise") {
+    throw new Error("Enterprise plans require a custom quote. Please contact sales.");
+  }
+
   const plan = getPlanById(options.planId);
   const interval = options.interval || "month";
-  const amount = interval === "year" && plan.annualPrice ? plan.annualPrice * 12 : plan.price;
+  const amount = interval === "year" && plan.annualPrice ? plan.annualPrice : plan.price;
   const secretKey = process.env.STRIPE_SECRET_KEY;
   const isProduction = process.env.NODE_ENV === "production" || Boolean(secretKey && secretKey.startsWith("sk_live_"));
-  const effectivePriceId = options.priceId || (options.planId === "founders3" ? process.env.STRIPE_FOUNDERS3_PRICE_ID : undefined);
+  const effectivePriceId = resolvePlanPriceId(options.planId, interval);
 
   if (isProduction) {
     if (options.planId === "founders3" && !effectivePriceId) {
       throw new Error("Missing STRIPE_FOUNDERS3_PRICE_ID: Production checkout requires an authoritative Stripe Price ID. Fail closed.");
     }
     if (!effectivePriceId) {
-      throw new Error("Inline price_data is forbidden in production. Configured Stripe Price ID is required.");
+      throw new Error(`Missing STRIPE_${options.planId.toUpperCase()}${interval === "year" ? "_ANNUAL" : ""}_PRICE_ID: Production checkout requires an authoritative Stripe Price ID for plan "${options.planId}". Fail closed.`);
     }
   }
 
@@ -252,6 +300,7 @@ export async function createWorkspaceSubscriptionCheckout(
       secretKey,
       priceId: effectivePriceId,
       planId: options.planId,
+      interval,
     });
     if (!priceVal.valid) {
       throw new Error(`Stripe Price Validation Error: ${priceVal.error}`);

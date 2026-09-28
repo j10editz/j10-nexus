@@ -30,7 +30,6 @@ export function isTestPriceId(id: string): boolean {
 export function isQualifyingFounderPrice(priceKey?: string): boolean {
   if (!priceKey) return false;
   const p = priceKey.toLowerCase().trim();
-  if (p.includes("standard") || p.includes("149")) return false;
 
   const isProd = process.env.NODE_ENV === "production";
   if (isProd && isTestPriceId(p)) {
@@ -44,7 +43,7 @@ export function isQualifyingFounderPrice(priceKey?: string): boolean {
   }
 
   // 2. Approved lookup key
-  if (p === "j10_founders3_monthly_99") {
+  if (p === "j10_founders3_monthly_29" || p === "j10_founders3_monthly_99") {
     return true;
   }
 
@@ -58,13 +57,14 @@ export function isQualifyingFounderPrice(priceKey?: string): boolean {
     p.includes("founders3") ||
     p.includes("founders_3") ||
     p === "price_1uglljbzalw19ysvhnytvnxa" ||
+    p === "price_founders3_monthly_29" ||
     p === "price_founders3_monthly_99" ||
     p === "price_founders3_test"
   );
 }
 
 export function getAuthoritativePriceConfig(priceKey?: string): {
-  planId: "founders3" | "starter" | "growth" | "enterprise";
+  planId: "founders3" | "starter" | "growth" | "business" | "enterprise";
   monthlyMessageLimit: number;
 } | null {
   if (!priceKey) return null;
@@ -76,20 +76,51 @@ export function getAuthoritativePriceConfig(priceKey?: string): {
     return null;
   }
 
-  // 1. Configured live environment variables
-  const envFoundersId = process.env.STRIPE_FOUNDERS3_PRICE_ID?.trim().toLowerCase();
-  const envStandardId = process.env.STRIPE_STANDARD_PRICE_ID?.trim().toLowerCase();
+  // 1. Configured environment variables
+  const envFounders = process.env.STRIPE_FOUNDERS3_PRICE_ID?.trim().toLowerCase();
+  const envStarter = process.env.STRIPE_STARTER_PRICE_ID?.trim().toLowerCase();
+  const envStarterAnnual = process.env.STRIPE_STARTER_ANNUAL_PRICE_ID?.trim().toLowerCase();
+  const envGrowth = process.env.STRIPE_GROWTH_PRICE_ID?.trim().toLowerCase();
+  const envGrowthAnnual = process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID?.trim().toLowerCase();
+  const envBusiness = process.env.STRIPE_BUSINESS_PRICE_ID?.trim().toLowerCase();
+  const envBusinessAnnual = process.env.STRIPE_BUSINESS_ANNUAL_PRICE_ID?.trim().toLowerCase();
+  const envStandard = process.env.STRIPE_STANDARD_PRICE_ID?.trim().toLowerCase();
 
-  if (envFoundersId && normalized === envFoundersId) {
+  if (envFounders && normalized === envFounders) {
+    const limit = (normalized.includes("99") || envFounders.includes("99")) ? 1_000 : 10_000;
+    return { planId: "founders3", monthlyMessageLimit: limit };
+  }
+  if (envStandard && normalized === envStandard) {
     return { planId: "founders3", monthlyMessageLimit: 1_000 };
   }
-  if (envStandardId && normalized === envStandardId) {
-    return { planId: "founders3", monthlyMessageLimit: 1_000 };
+  if ((envStarter && normalized === envStarter) || (envStarterAnnual && normalized === envStarterAnnual)) {
+    return { planId: "starter", monthlyMessageLimit: 1_000 };
+  }
+  if ((envGrowth && normalized === envGrowth) || (envGrowthAnnual && normalized === envGrowthAnnual)) {
+    return { planId: "growth", monthlyMessageLimit: 10_000 };
+  }
+  if ((envBusiness && normalized === envBusiness) || (envBusinessAnnual && normalized === envBusinessAnnual)) {
+    return { planId: "business", monthlyMessageLimit: 30_000 };
   }
 
   // 2. Approved lookup keys
-  if (normalized === "j10_founders3_monthly_99" || normalized === "j10_standard_monthly_149") {
+  if (normalized === "j10_founders3_monthly_99") {
     return { planId: "founders3", monthlyMessageLimit: 1_000 };
+  }
+  if (normalized === "j10_founders3_monthly_29") {
+    return { planId: "founders3", monthlyMessageLimit: 10_000 };
+  }
+  if (normalized === "j10_standard_monthly_149") {
+    return { planId: "founders3", monthlyMessageLimit: 1_000 };
+  }
+  if (normalized === "j10_starter_monthly_19" || normalized === "j10_starter_annual_190") {
+    return { planId: "starter", monthlyMessageLimit: 1_000 };
+  }
+  if (normalized === "j10_growth_monthly_49" || normalized === "j10_growth_annual_490") {
+    return { planId: "growth", monthlyMessageLimit: 10_000 };
+  }
+  if (normalized === "j10_business_monthly_99" || normalized === "j10_business_annual_990") {
+    return { planId: "business", monthlyMessageLimit: 30_000 };
   }
 
   // 3. In production, fail closed for unknown or unconfigured prices
@@ -110,25 +141,38 @@ export interface StripeWebhookVerificationResult {
 
 export const STRIPE_PRICE_ALLOWLIST: Record<
   string,
-  { planId: "founders3" | "starter" | "growth" | "enterprise"; monthlyMessageLimit: number }
+  { planId: "founders3" | "starter" | "growth" | "business" | "enterprise"; monthlyMessageLimit: number }
 > = {
+  price_founders3_monthly_29: { planId: "founders3", monthlyMessageLimit: 10_000 },
+  j10_founders3_monthly_29: { planId: "founders3", monthlyMessageLimit: 10_000 },
+  price_founders3_test: { planId: "founders3", monthlyMessageLimit: 10_000 },
+  founders3: { planId: "founders3", monthlyMessageLimit: 10_000 },
+  founders_3: { planId: "founders3", monthlyMessageLimit: 10_000 },
+  price_starter_monthly: { planId: "starter", monthlyMessageLimit: 1_000 },
+  price_starter_annual: { planId: "starter", monthlyMessageLimit: 1_000 },
+  j10_starter_monthly_19: { planId: "starter", monthlyMessageLimit: 1_000 },
+  j10_starter_annual_190: { planId: "starter", monthlyMessageLimit: 1_000 },
+  starter: { planId: "starter", monthlyMessageLimit: 1_000 },
+  price_growth_monthly: { planId: "growth", monthlyMessageLimit: 10_000 },
+  price_growth_annual: { planId: "growth", monthlyMessageLimit: 10_000 },
+  j10_growth_monthly_49: { planId: "growth", monthlyMessageLimit: 10_000 },
+  j10_growth_annual_490: { planId: "growth", monthlyMessageLimit: 10_000 },
+  growth: { planId: "growth", monthlyMessageLimit: 10_000 },
+  price_business_monthly: { planId: "business", monthlyMessageLimit: 30_000 },
+  price_business_annual: { planId: "business", monthlyMessageLimit: 30_000 },
+  j10_business_monthly_99: { planId: "business", monthlyMessageLimit: 30_000 },
+  j10_business_annual_990: { planId: "business", monthlyMessageLimit: 30_000 },
+  business: { planId: "business", monthlyMessageLimit: 30_000 },
+  price_enterprise_monthly: { planId: "enterprise", monthlyMessageLimit: 100_000 },
+  tier_enterprise_annual: { planId: "enterprise", monthlyMessageLimit: 100_000 },
+  enterprise: { planId: "enterprise", monthlyMessageLimit: 100_000 },
+  // Backward compatibility stubs for legacy test suites
   price_founders3_monthly_99: { planId: "founders3", monthlyMessageLimit: 1_000 },
   price_1uglljbzalw19ysvhnytvnxa: { planId: "founders3", monthlyMessageLimit: 1_000 },
   price_1uglljbzalw19ysvhnytvnxa_standard: { planId: "founders3", monthlyMessageLimit: 1_000 },
-  price_founders3_monthly_149: { planId: "founders3", monthlyMessageLimit: 1_000 },
   price_standard_monthly_149: { planId: "founders3", monthlyMessageLimit: 1_000 },
   j10_founders3_monthly_99: { planId: "founders3", monthlyMessageLimit: 1_000 },
   j10_standard_monthly_149: { planId: "founders3", monthlyMessageLimit: 1_000 },
-  price_founders3_test: { planId: "founders3", monthlyMessageLimit: 1_000 },
-  founders3: { planId: "founders3", monthlyMessageLimit: 1_000 },
-  founders_3: { planId: "founders3", monthlyMessageLimit: 1_000 },
-  price_starter_monthly: { planId: "starter", monthlyMessageLimit: 1_000 },
-  price_growth_monthly: { planId: "growth", monthlyMessageLimit: 10_000 },
-  price_enterprise_monthly: { planId: "enterprise", monthlyMessageLimit: 100_000 },
-  tier_enterprise_annual: { planId: "enterprise", monthlyMessageLimit: 100_000 },
-  starter: { planId: "starter", monthlyMessageLimit: 1_000 },
-  growth: { planId: "growth", monthlyMessageLimit: 10_000 },
-  enterprise: { planId: "enterprise", monthlyMessageLimit: 100_000 },
 };
 
 export function verifyStripeWebhookSignature({
@@ -191,7 +235,7 @@ export function verifyStripeWebhookSignature({
 }
 
 export function resolvePlanLimits(planKey: string): {
-  planId: "founders3" | "starter" | "growth" | "enterprise";
+  planId: "founders3" | "starter" | "growth" | "business" | "enterprise";
   monthlyMessageLimit: number;
 } {
   const authConfig = getAuthoritativePriceConfig(planKey);
@@ -201,10 +245,13 @@ export function resolvePlanLimits(planKey: string): {
   const normalized = planKey.trim().toLowerCase();
   if (process.env.NODE_ENV !== "production") {
     if (normalized.includes("founders3") || normalized.includes("founders_3")) {
-      return { planId: "founders3", monthlyMessageLimit: 1_000 };
+      return { planId: "founders3", monthlyMessageLimit: 10_000 };
     }
     if (normalized.includes("enterprise")) {
       return { planId: "enterprise", monthlyMessageLimit: 100_000 };
+    }
+    if (normalized.includes("business")) {
+      return { planId: "business", monthlyMessageLimit: 30_000 };
     }
     if (normalized.includes("growth")) {
       return { planId: "growth", monthlyMessageLimit: 10_000 };

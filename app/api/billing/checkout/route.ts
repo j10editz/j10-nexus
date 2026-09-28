@@ -14,28 +14,33 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const rawPlanId = String(body.planId || "").toLowerCase();
 
-    if (!["founders3", "starter", "growth", "enterprise"].includes(rawPlanId)) {
+    const allowedPlans: PlanId[] = ["starter", "growth", "business", "enterprise", "founders3"];
+    if (!allowedPlans.includes(rawPlanId as PlanId)) {
       return NextResponse.json(
-        { success: false, error: "Invalid planId. Must be one of: founders3, starter, growth, enterprise." },
+        { success: false, error: "Invalid planId. Must be one of: starter, growth, business, enterprise, founders3." },
         { status: 400 }
       );
     }
 
     const planId = rawPlanId as PlanId;
+
+    // Enterprise is quote-only. Direct self-service checkout is rejected safely.
+    if (planId === "enterprise") {
+      return NextResponse.json(
+        { success: false, error: "Enterprise plans require a custom quote. Please contact sales." },
+        { status: 400 }
+      );
+    }
+
     const interval = body.interval === "year" ? "year" : "month";
     const invitationCode = typeof body.invitationCode === "string" ? body.invitationCode.trim() : undefined;
     const supabase = createServerSupabaseClient();
 
-    const priceId =
-      planId === "founders3"
-        ? process.env.STRIPE_FOUNDERS3_PRICE_ID || undefined
-        : undefined;
-
+    // Authoritative server-side pricing resolution only — never accept arbitrary amounts or Price IDs from the browser
     const checkoutResult = await createWorkspaceSubscriptionCheckout(supabase, {
       workspaceId: context.workspace.id,
       planId,
       interval,
-      priceId,
       customerEmail: context.user.email,
       actorUserId: context.user.id,
       successUrl: body.successUrl,
@@ -58,6 +63,12 @@ export async function POST(request: NextRequest) {
     const isDbOrSchemaLeak =
       /relation|constraint|column|violates|not-null|pgrst|pg_|syntax error|table/i.test(rawMessage);
 
+    const isClientError =
+      rawMessage.includes("require a custom quote") ||
+      rawMessage.includes("invite-only") ||
+      rawMessage.includes("Invalid") ||
+      rawMessage.includes("reservation");
+
     const safeMessage =
       isDbOrSchemaLeak || !rawMessage
         ? "Unable to initialize checkout session. Please try again in a few moments."
@@ -65,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       { success: false, error: safeMessage },
-      { status: 500 }
+      { status: isClientError ? 400 : 500 }
     );
   }
 }

@@ -36,6 +36,7 @@ export async function createStripePaymentLink({
   const cleanTitle = stripEmojis(title);
   const cleanDesc = stripEmojis(description || "");
   const secretKey = process.env.STRIPE_SECRET_KEY;
+  const isProduction = process.env.NODE_ENV === "production" || Boolean(secretKey && secretKey.startsWith("sk_live_"));
 
   if (secretKey && secretKey.startsWith("sk_")) {
     try {
@@ -86,12 +87,27 @@ export async function createStripePaymentLink({
           provider_mode: "live",
         };
       }
+
+      if (isProduction) {
+        throw new Error(
+          `Stripe API call failed: ${data?.error?.message || response.statusText || "Missing checkout session URL"}`
+        );
+      }
     } catch (err) {
-      console.warn("Stripe API call failed, falling back to simulated sandbox session:", err);
+      if (isProduction) {
+        throw err;
+      }
+      console.warn("Stripe API call failed, falling back to simulated sandbox session in development:", err);
     }
   }
 
-  // Simulated sandbox checkout link
+  if (isProduction) {
+    throw new Error(
+      "Stripe billing secret key is missing in production environment. Simulated checkouts are forbidden."
+    );
+  }
+
+  // Simulated sandbox checkout link (development and test environments only)
   const sessionId = `cs_test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const checkoutUrl = `https://checkout.stripe.com/c/pay/${sessionId}#fidkdWxOYHwnPyd1blpxYHZxWjA0`;
 
