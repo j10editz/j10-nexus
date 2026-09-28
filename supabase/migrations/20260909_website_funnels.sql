@@ -1,4 +1,4 @@
-﻿-- J10 NEXUS AI Website & Conversion Funnel Engine Schema
+-- J10 NEXUS AI Website & Conversion Funnel Engine Schema
 -- Migration: 20260909_website_funnels.sql
 
 create table if not exists public.website_funnels (

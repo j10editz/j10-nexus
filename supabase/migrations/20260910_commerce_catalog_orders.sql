@@ -1,4 +1,4 @@
-﻿-- J10 NEXUS E-Commerce Catalog & Orders Schema
+-- J10 NEXUS E-Commerce Catalog & Orders Schema
 -- Migration: 20260910_commerce_catalog_orders.sql
 
 create table if not exists public.commerce_products (

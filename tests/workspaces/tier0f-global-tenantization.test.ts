@@ -30,7 +30,9 @@ describe("Tier 0F: Global Tenantization, Launch Integrity & Atomic Boundary Veri
       ];
 
       for (const table of legacyTables) {
-        expect(migrationLower).toContain(`alter table public.${table} add column workspace_id uuid references public.workspaces(id)`);
+        expect(migrationLower).toMatch(
+          new RegExp(`alter table public\\.${table} add column (?:if not exists )?workspace_id uuid references public\\.workspaces\\(id\\)`)
+        );
       }
     });
 

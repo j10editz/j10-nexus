@@ -1,4 +1,4 @@
-﻿-- J10 NEXUS Finance & Invoicing Operations Schema
+-- J10 NEXUS Finance & Invoicing Operations Schema
 -- Migration: 20260907_finance_invoices.sql
 
 create table if not exists public.finance_invoices (

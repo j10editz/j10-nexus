@@ -5,7 +5,7 @@
 
 -- 1. Enable required network and scheduling extensions if supported
 CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
-CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
+-- CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
 
 -- 2. Dedicated secure worker invocation function via pg_net
 CREATE OR REPLACE FUNCTION public.trigger_telegram_ai_worker_cron(
