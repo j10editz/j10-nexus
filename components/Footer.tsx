@@ -89,7 +89,17 @@ export default function Footer() {
         </div>
 
         <div className="mt-16 flex flex-col gap-3 border-t border-white/[0.08] pt-8 text-xs text-[#5f697d] sm:flex-row sm:items-center sm:justify-between">
-          <span>© 2026 J10 NEXUS. All rights reserved.</span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span>© 2026 J10 NEXUS. All rights reserved.</span>
+            <a
+              href="https://www.linkedin.com/in/jeefthe-osne-143a9126b/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#8d96a8] hover:text-cyan-300 transition-colors inline-flex items-center gap-1"
+            >
+              Founded by Jeefthe Osne
+            </a>
+          </div>
           <span>Conversations → Revenue. One connected operating system.</span>
         </div>
       </div>

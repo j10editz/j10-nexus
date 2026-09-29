@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { J10Mascot } from "@/components/brand/J10Mascot";
+import { FounderBlock } from "@/components/marketing/FounderBlock";
 
 interface SlideData {
   num: string;
@@ -523,6 +524,11 @@ export default function LaunchHome() {
           </div>
 
         </section>
+
+        {/* ─────────────────────────────────────────────────────────────
+            FOUNDER ATTRIBUTION & PURPOSE
+            ───────────────────────────────────────────────────────────── */}
+        <FounderBlock />
 
         {/* ─────────────────────────────────────────────────────────────
             5. FINAL CALL TO ACTION STRIP

@@ -1,44 +1,44 @@
 import { NextResponse } from "next/server";
-import { probeDatabaseReachability } from "@/lib/health/probe";
+import { probeSystemHealth } from "@/lib/health/system-health";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const health = await probeDatabaseReachability();
+  const health = await probeSystemHealth();
+  const dbComponent = health.components.find((c) => c.id === "database");
+  const isHealthy = dbComponent?.status === "Operational";
 
-  const stripeConfigured = Boolean(
-    process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET
-  );
-  const whatsappConfigured = Boolean(
-    process.env.WHATSAPP_ACCESS_TOKEN || process.env.META_WHATSAPP_TOKEN
-  );
-  const openaiConfigured = Boolean(process.env.OPENAI_API_KEY);
-  const geminiConfigured = Boolean(
-    process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_STUDIO_API_KEY
-  );
+  const authComp = health.components.find((c) => c.id === "auth");
+  const workflowComp = health.components.find((c) => c.id === "workflow");
+  const whatsappComp = health.components.find((c) => c.id === "whatsapp");
+  const stripeComp = health.components.find((c) => c.id === "stripe");
+  const aiComp = health.components.find((c) => c.id === "ai");
 
   return NextResponse.json(
     {
-      status: health.reachable ? "healthy" : "degraded",
-      timestamp: new Date().toISOString(),
+      status: isHealthy ? "healthy" : "degraded",
+      timestamp: health.timestamp,
       database: {
-        status: health.reachable ? "connected" : "error",
-        latencyMs: health.latencyMs,
-        probe: health.label,
-        error: health.error ?? null,
+        status: dbComponent?.status === "Operational" ? "connected" : "error",
+        latencyMs: dbComponent?.latencyMs ?? 0,
+        probe: "Database reachable through server connection",
+        error: dbComponent?.status === "Operational" ? null : "Database query failed or timed out",
       },
       services: {
-        database: health.reachable ? "operational" : "degraded",
-        stripe: stripeConfigured ? "configured" : "not_configured",
-        whatsapp: whatsappConfigured ? "configured" : "not_configured",
-        openai: openaiConfigured ? "configured" : "not_configured",
-        gemini: geminiConfigured ? "configured" : "not_configured",
+        database: dbComponent?.status.toLowerCase() ?? "degraded",
+        auth: authComp?.status.toLowerCase() ?? "unknown",
+        workflow: workflowComp?.status.toLowerCase() ?? "unknown",
+        whatsapp: whatsappComp?.status.toLowerCase() ?? "unknown",
+        stripe: stripeComp?.status.toLowerCase() ?? "unknown",
+        openai: aiComp?.status.toLowerCase() ?? "unknown",
+        gemini: aiComp?.status.toLowerCase() ?? "unknown",
       },
+      components: health.components,
     },
     {
-      status: health.reachable ? 200 : 503,
+      status: isHealthy ? 200 : 503,
       headers: {
-        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Cache-Control": "public, max-age=10, stale-while-revalidate=20",
       },
     }
   );

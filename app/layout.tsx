@@ -42,6 +42,40 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
+const organizationAndPersonJsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://j10-nexus.com/#organization",
+      "name": "J10 NEXUS",
+      "url": "https://j10-nexus.com",
+      "logo": "https://j10-nexus.com/brand/j10-logo.png",
+      "description":
+        "The AI Revenue & Operations System for service businesses. Answering, qualifying, following up, booking, and collecting payment automatically.",
+      "founder": {
+        "@type": "Person",
+        "@id": "https://j10-nexus.com/#founder",
+        "name": "Jeefthe Osne",
+        "jobTitle": "Founder & CEO, J10 NEXUS",
+        "sameAs": ["https://www.linkedin.com/in/jeefthe-osne-143a9126b/"],
+        "image": "https://j10-nexus.com/images/founder/jeefthe-osne-founder-ceo.png",
+      },
+    },
+    {
+      "@type": "Person",
+      "@id": "https://j10-nexus.com/#founder",
+      "name": "Jeefthe Osne",
+      "jobTitle": "Founder & CEO, J10 NEXUS",
+      "worksFor": {
+        "@id": "https://j10-nexus.com/#organization",
+      },
+      "sameAs": ["https://www.linkedin.com/in/jeefthe-osne-143a9126b/"],
+      "image": "https://j10-nexus.com/images/founder/jeefthe-osne-founder-ceo.png",
+    },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -52,6 +86,14 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${caveat.variable} h-full antialiased`}
     >
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(organizationAndPersonJsonLd),
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
