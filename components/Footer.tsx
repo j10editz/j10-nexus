@@ -59,8 +59,11 @@ export default function Footer() {
                 href="/login?intent=signup&plan=growth&trial=1"
                 className="inline-flex items-center gap-1.5 text-sm font-semibold text-cyan-300 transition hover:text-cyan-200"
               >
-                Start Free 14-Day Trial <ArrowUpRight size={14} />
+                Start Free 72-Hour Trial <ArrowUpRight size={14} />
               </Link>
+              <p className="mt-2 text-xs text-[#8d96a8]">
+                Your 72-hour free trial starts after you complete and approve Outcome Onboarding.
+              </p>
             </div>
           </div>
 
