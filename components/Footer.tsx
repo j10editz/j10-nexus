@@ -97,7 +97,7 @@ export default function Footer() {
               rel="noopener noreferrer"
               className="text-[#8d96a8] hover:text-cyan-300 transition-colors inline-flex items-center gap-1"
             >
-              Founded by Jeefthe Osne
+              Founded by Jeefthe Richeder Osne
             </a>
           </div>
           <span>Conversations → Revenue. One connected operating system.</span>

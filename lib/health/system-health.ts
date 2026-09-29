@@ -7,6 +7,13 @@ export type ComponentStatus =
   | "Outage"
   | "Unknown";
 
+export type OverallStatus =
+  | "Operational"
+  | "Configured"
+  | "Degraded"
+  | "Outage"
+  | "Unknown";
+
 export interface ComponentHealth {
   id: string;
   name: string;
@@ -18,22 +25,33 @@ export interface ComponentHealth {
 }
 
 export interface SystemHealthReport {
-  overallStatus: "Operational" | "Degraded" | "Outage";
+  overallStatus: OverallStatus;
   timestamp: string;
   components: ComponentHealth[];
 }
+
+export const REQUIRED_COMPONENT_IDS = [
+  "database",
+  "auth",
+  "workflow",
+  "stripe",
+] as const;
+
+export const OPTIONAL_COMPONENT_IDS = ["whatsapp", "ai"] as const;
 
 interface CacheEntry {
   report: SystemHealthReport;
   cachedAt: number;
 }
 
-const CACHE_TTL_MS = 10_000; // 10 seconds TTL
+// 60-second in-memory TTL to prevent public probe abuse and API rate hammering
+const CACHE_TTL_MS = 60_000;
 let cachedHealth: CacheEntry | null = null;
 let inFlightProbe: Promise<SystemHealthReport> | null = null;
 
 /**
  * Safe timeout fetch helper with sanitized error handling.
+ * Enforces headers-only auth so secrets never appear in query URLs or request logs.
  */
 async function safeFetchPing(
   url: string,
@@ -90,7 +108,8 @@ async function checkDatabase(checkedAt: string): Promise<ComponentHealth> {
 }
 
 /**
- * 2. Authentication & Workspace Boundaries Probe
+ * 2. Authentication Service Probe
+ * Verifies Supabase Auth reachability. Does NOT claim to continuously monitor workspace boundaries or tenant isolation.
  */
 async function checkAuth(checkedAt: string): Promise<ComponentHealth> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -99,7 +118,7 @@ async function checkAuth(checkedAt: string): Promise<ComponentHealth> {
   if (!supabaseUrl) {
     return {
       id: "auth",
-      name: "Authentication & Workspace Boundaries",
+      name: "Authentication Service",
       category: "Security & Identity",
       status: "Unknown",
       lastChecked: checkedAt,
@@ -119,18 +138,18 @@ async function checkAuth(checkedAt: string): Promise<ComponentHealth> {
     if (res.ok || res.status === 200) {
       return {
         id: "auth",
-        name: "Authentication & Workspace Boundaries",
+        name: "Authentication Service",
         category: "Security & Identity",
         status: "Operational",
         latencyMs: res.latencyMs,
         lastChecked: checkedAt,
-        explanation: "Identity boundary and session authentication service active.",
+        explanation: "Authentication service endpoint reachable and responsive.",
       };
     }
 
     return {
       id: "auth",
-      name: "Authentication & Workspace Boundaries",
+      name: "Authentication Service",
       category: "Security & Identity",
       status: "Degraded",
       latencyMs: res.latencyMs,
@@ -140,7 +159,7 @@ async function checkAuth(checkedAt: string): Promise<ComponentHealth> {
   } catch {
     return {
       id: "auth",
-      name: "Authentication & Workspace Boundaries",
+      name: "Authentication Service",
       category: "Security & Identity",
       status: "Degraded",
       lastChecked: checkedAt,
@@ -150,22 +169,24 @@ async function checkAuth(checkedAt: string): Promise<ComponentHealth> {
 }
 
 /**
- * 3. Workflow Execution Engine Probe
+ * 3. Workflow Execution Engine Check
+ * Database connectivity alone does NOT prove workflow runtime is operational.
+ * Reports 'Configured' when definitions and database dependencies exist.
+ * Never claims runtime dispatch queue or state transition engine is ready based solely on DB health.
  */
 async function checkWorkflow(
   checkedAt: string,
   dbHealth: ComponentHealth
 ): Promise<ComponentHealth> {
-  // Workflow engine runtime depends on operational database storage and dispatch state
-  if (dbHealth.status === "Operational") {
+  // If backing storage has an outage or is degraded, workflow engine is impacted
+  if (dbHealth.status === "Outage") {
     return {
       id: "workflow",
       name: "Workflow Execution Engine",
       category: "Automation Runtime",
-      status: "Operational",
-      latencyMs: dbHealth.latencyMs,
+      status: "Outage",
       lastChecked: checkedAt,
-      explanation: "Runtime dispatch queue and state transition engine ready.",
+      explanation: "Automation engine paused; storage backend unavailable.",
     };
   }
 
@@ -180,19 +201,42 @@ async function checkWorkflow(
     };
   }
 
+  // When database dependencies are verified and engine modules are available,
+  // report honestly as Configured (unless an actual non-mutating runtime probe is executed)
+  try {
+    // Check if node catalog and automation modules are loadable
+    const { J10_FLOW_NODE_CATALOG } = await import("@/lib/automation/node-catalog");
+    if (Array.isArray(J10_FLOW_NODE_CATALOG) && J10_FLOW_NODE_CATALOG.length > 0) {
+      return {
+        id: "workflow",
+        name: "Workflow Execution Engine",
+        category: "Automation Runtime",
+        status: "Configured",
+        latencyMs: dbHealth.latencyMs,
+        lastChecked: checkedAt,
+        explanation:
+          "Workflow definitions and dependencies provisioned; execution runtime configured.",
+      };
+    }
+  } catch {
+    // Module or definition lookup error
+  }
+
   return {
     id: "workflow",
     name: "Workflow Execution Engine",
     category: "Automation Runtime",
-    status: "Outage",
+    status: "Unknown",
     lastChecked: checkedAt,
-    explanation: "Automation engine paused; storage backend unavailable.",
+    explanation: "Workflow execution engine configuration or definitions unavailable.",
   };
 }
 
 /**
  * 4. Meta WhatsApp Cloud API Gateway Probe
- * NEVER sends WhatsApp messages. Read-only token inspection or readiness verification.
+ * NEVER sends messages or mutates conversations.
+ * Uses Authorization header (no access_token in URL query strings).
+ * Uses supported project Graph API version (v26.0).
  */
 async function checkWhatsApp(checkedAt: string): Promise<ComponentHealth> {
   const token =
@@ -209,13 +253,19 @@ async function checkWhatsApp(checkedAt: string): Promise<ComponentHealth> {
     };
   }
 
+  const graphVersion =
+    process.env.META_WHATSAPP_GRAPH_API_VERSION?.trim() || "v26.0";
+
   try {
-    // Strictly read-only Graph API self-read probe with 1500ms timeout
+    // Strictly read-only self-inspection endpoint using Authorization header (no secret in URL)
     const res = await safeFetchPing(
-      `https://graph.facebook.com/v18.0/me?access_token=${encodeURIComponent(
-        token
-      )}`,
-      { method: "GET" },
+      `https://graph.facebook.com/${graphVersion}/me`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
       1500
     );
 
@@ -227,7 +277,7 @@ async function checkWhatsApp(checkedAt: string): Promise<ComponentHealth> {
         status: "Operational",
         latencyMs: res.latencyMs,
         lastChecked: checkedAt,
-        explanation: "Meta Cloud API webhook gateway reachable and authenticated.",
+        explanation: "Meta API credentials authenticated and provider endpoint reachable.",
       };
     }
 
@@ -254,7 +304,8 @@ async function checkWhatsApp(checkedAt: string): Promise<ComponentHealth> {
 
 /**
  * 5. Stripe Billing & Subscriptions Probe
- * NEVER creates sessions, charges, customers, or invoices. Strictly read-only balance check.
+ * NEVER creates sessions, charges, customers, or invoices. Strictly read-only balance retrieve.
+ * Uses Authorization header (no secret in URL).
  */
 async function checkStripe(checkedAt: string): Promise<ComponentHealth> {
   const secretKey = process.env.STRIPE_SECRET_KEY;
@@ -271,7 +322,6 @@ async function checkStripe(checkedAt: string): Promise<ComponentHealth> {
   }
 
   try {
-    // Strictly read-only balance retrieve with 1500ms timeout
     const res = await safeFetchPing(
       "https://api.stripe.com/v1/balance",
       {
@@ -319,6 +369,7 @@ async function checkStripe(checkedAt: string): Promise<ComponentHealth> {
 /**
  * 6. AI Model Gateway Probe
  * NEVER executes paid generations. Strictly read-only model list metadata.
+ * Uses x-goog-api-key or Authorization headers (no API keys in URL query strings).
  */
 async function checkAI(checkedAt: string): Promise<ComponentHealth> {
   const geminiKey =
@@ -342,16 +393,19 @@ async function checkAI(checkedAt: string): Promise<ComponentHealth> {
     let res: { ok: boolean; status: number; latencyMs: number } | null = null;
 
     if (geminiKey) {
-      // Free metadata list probe on Google Gemini API
+      // Free metadata list probe on Google Gemini API using header without query credentials
       res = await safeFetchPing(
-        `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=${encodeURIComponent(
-          geminiKey
-        )}`,
-        { method: "GET" },
+        "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1",
+        {
+          method: "GET",
+          headers: {
+            "x-goog-api-key": geminiKey,
+          },
+        },
         1500
       );
     } else if (openAIKey) {
-      // Free metadata list probe on OpenAI models API
+      // Free metadata list probe on OpenAI models API using Authorization header
       res = await safeFetchPing(
         "https://api.openai.com/v1/models",
         {
@@ -372,7 +426,7 @@ async function checkAI(checkedAt: string): Promise<ComponentHealth> {
         status: "Operational",
         latencyMs: res.latencyMs,
         lastChecked: checkedAt,
-        explanation: "Model routing gateway and inference runtime reachable.",
+        explanation: "AI provider metadata endpoint authenticated and reachable.",
       };
     }
 
@@ -395,6 +449,60 @@ async function checkAI(checkedAt: string): Promise<ComponentHealth> {
       explanation: "AI gateway probe timed out or connection failed.",
     };
   }
+}
+
+/**
+ * Aggregates individual component statuses into a system-wide status according to strict rules:
+ * 1. Any verified required component outage produces overall 'Outage'.
+ * 2. Any degraded required component produces overall 'Degraded'.
+ * 3. Any degraded optional integration produces overall 'Degraded'.
+ * 4. Configured and Unknown components are not silently counted as Operational.
+ * 5. Overall 'Operational' requires every required component to pass its live readiness probe.
+ * 6. Database health alone never determines the complete system status.
+ */
+export function calculateOverallStatus(components: ComponentHealth[]): OverallStatus {
+  // 1. Any required component in Outage -> overall Outage
+  const hasRequiredOutage = components.some(
+    (c) => REQUIRED_COMPONENT_IDS.includes(c.id as any) && c.status === "Outage"
+  );
+  if (hasRequiredOutage) {
+    return "Outage";
+  }
+
+  // 2. Any degraded component (required or configured optional integration) -> overall Degraded
+  const hasAnyDegraded = components.some((c) => c.status === "Degraded");
+  if (hasAnyDegraded) {
+    return "Degraded";
+  }
+
+  // 3. Any optional component outage -> Degraded
+  const hasOptionalOutage = components.some(
+    (c) => OPTIONAL_COMPONENT_IDS.includes(c.id as any) && c.status === "Outage"
+  );
+  if (hasOptionalOutage) {
+    return "Degraded";
+  }
+
+  // 4. Check required components for Operational status
+  const requiredComponents = components.filter((c) =>
+    REQUIRED_COMPONENT_IDS.includes(c.id as any)
+  );
+
+  const allRequiredOperational =
+    requiredComponents.length > 0 &&
+    requiredComponents.every((c) => c.status === "Operational");
+
+  if (allRequiredOperational) {
+    return "Operational";
+  }
+
+  // 5. If any required component is Configured or Unknown without degradation, overall is Configured
+  const hasConfigured = components.some((c) => c.status === "Configured");
+  if (hasConfigured) {
+    return "Configured";
+  }
+
+  return "Unknown";
 }
 
 /**
@@ -434,7 +542,7 @@ async function executeProbes(): Promise<SystemHealthReport> {
       ? authRes.value
       : {
           id: "auth",
-          name: "Authentication & Workspace Boundaries",
+          name: "Authentication Service",
           category: "Security & Identity",
           status: "Degraded",
           lastChecked: checkedAt,
@@ -482,16 +590,7 @@ async function executeProbes(): Promise<SystemHealthReport> {
         },
   ];
 
-  const hasOutage = components.some((c) => c.status === "Outage");
-  const hasDegraded = components.some(
-    (c) => c.id === "database" && c.status === "Degraded"
-  );
-
-  const overallStatus = hasOutage
-    ? "Outage"
-    : hasDegraded
-    ? "Degraded"
-    : "Operational";
+  const overallStatus = calculateOverallStatus(components);
 
   return {
     overallStatus,
@@ -501,14 +600,13 @@ async function executeProbes(): Promise<SystemHealthReport> {
 }
 
 /**
- * Public function to probe system health with short TTL caching and in-flight de-duplication.
+ * Public function to probe system health with 60s TTL caching and in-flight de-duplication.
+ * Public force-refresh option is removed to prevent probe abuse.
  */
-export async function probeSystemHealth(
-  forceFresh = false
-): Promise<SystemHealthReport> {
+export async function probeSystemHealth(): Promise<SystemHealthReport> {
   const now = Date.now();
 
-  if (!forceFresh && cachedHealth && now - cachedHealth.cachedAt < CACHE_TTL_MS) {
+  if (cachedHealth && now - cachedHealth.cachedAt < CACHE_TTL_MS) {
     return cachedHealth.report;
   }
 

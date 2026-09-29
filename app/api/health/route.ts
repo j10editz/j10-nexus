@@ -5,9 +5,15 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const health = await probeSystemHealth();
-  const dbComponent = health.components.find((c) => c.id === "database");
-  const isHealthy = dbComponent?.status === "Operational";
+  const overall = health.overallStatus;
 
+  // The API status, HTTP response status, and status page use the same aggregation policy:
+  // Outage -> 503
+  // Operational, Configured, Degraded -> 200 (with accurate payload)
+  const isOutage = overall === "Outage";
+  const httpStatus = isOutage ? 503 : 200;
+
+  const dbComponent = health.components.find((c) => c.id === "database");
   const authComp = health.components.find((c) => c.id === "auth");
   const workflowComp = health.components.find((c) => c.id === "workflow");
   const whatsappComp = health.components.find((c) => c.id === "whatsapp");
@@ -16,16 +22,25 @@ export async function GET() {
 
   return NextResponse.json(
     {
-      status: isHealthy ? "healthy" : "degraded",
+      status:
+        overall === "Operational"
+          ? "healthy"
+          : overall === "Configured"
+          ? "configured"
+          : overall.toLowerCase(),
+      overallStatus: overall,
       timestamp: health.timestamp,
       database: {
         status: dbComponent?.status === "Operational" ? "connected" : "error",
         latencyMs: dbComponent?.latencyMs ?? 0,
         probe: "Database reachable through server connection",
-        error: dbComponent?.status === "Operational" ? null : "Database query failed or timed out",
+        error:
+          dbComponent?.status === "Operational"
+            ? null
+            : "Database query failed or timed out",
       },
       services: {
-        database: dbComponent?.status.toLowerCase() ?? "degraded",
+        database: dbComponent?.status.toLowerCase() ?? "unknown",
         auth: authComp?.status.toLowerCase() ?? "unknown",
         workflow: workflowComp?.status.toLowerCase() ?? "unknown",
         whatsapp: whatsappComp?.status.toLowerCase() ?? "unknown",
@@ -36,9 +51,9 @@ export async function GET() {
       components: health.components,
     },
     {
-      status: isHealthy ? 200 : 503,
+      status: httpStatus,
       headers: {
-        "Cache-Control": "public, max-age=10, stale-while-revalidate=20",
+        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=30",
       },
     }
   );

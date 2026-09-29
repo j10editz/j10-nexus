@@ -18,8 +18,18 @@ const caveat = Caveat({
   subsets: ["latin"],
 });
 
+const siteUrl = (
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  process.env.NEXT_PUBLIC_APP_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "https://j10-nexus.vercel.app")
+).replace(/\/$/, "");
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://j10-nexus.com"),
+  metadataBase: new URL(siteUrl),
   title: {
     default: "J10 NEXUS | AI Revenue & Operations System",
     template: "%s | J10 NEXUS",
@@ -47,31 +57,31 @@ const organizationAndPersonJsonLd = {
   "@graph": [
     {
       "@type": "Organization",
-      "@id": "https://j10-nexus.com/#organization",
+      "@id": `${siteUrl}/#organization`,
       "name": "J10 NEXUS",
-      "url": "https://j10-nexus.com",
-      "logo": "https://j10-nexus.com/brand/j10-logo.png",
+      "url": siteUrl,
+      "logo": `${siteUrl}/brand/j10-logo.png`,
       "description":
         "The AI Revenue & Operations System for service businesses. Answering, qualifying, following up, booking, and collecting payment automatically.",
       "founder": {
         "@type": "Person",
-        "@id": "https://j10-nexus.com/#founder",
-        "name": "Jeefthe Osne",
-        "jobTitle": "Founder & CEO, J10 NEXUS",
+        "@id": `${siteUrl}/#founder`,
+        "name": "Jeefthe Richeder Osne",
+        "jobTitle": "Founder and CEO of J10 NEXUS",
         "sameAs": ["https://www.linkedin.com/in/jeefthe-osne-143a9126b/"],
-        "image": "https://j10-nexus.com/images/founder/jeefthe-osne-founder-ceo.png",
+        "image": `${siteUrl}/images/founder/jeefthe-osne-founder-ceo.webp`,
       },
     },
     {
       "@type": "Person",
-      "@id": "https://j10-nexus.com/#founder",
-      "name": "Jeefthe Osne",
-      "jobTitle": "Founder & CEO, J10 NEXUS",
+      "@id": `${siteUrl}/#founder`,
+      "name": "Jeefthe Richeder Osne",
+      "jobTitle": "Founder and CEO of J10 NEXUS",
       "worksFor": {
-        "@id": "https://j10-nexus.com/#organization",
+        "@id": `${siteUrl}/#organization`,
       },
       "sameAs": ["https://www.linkedin.com/in/jeefthe-osne-143a9126b/"],
-      "image": "https://j10-nexus.com/images/founder/jeefthe-osne-founder-ceo.png",
+      "image": `${siteUrl}/images/founder/jeefthe-osne-founder-ceo.webp`,
     },
   ],
 };

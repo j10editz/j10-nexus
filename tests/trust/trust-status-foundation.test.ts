@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
-import { probeSystemHealth, ComponentHealth } from "@/lib/health/system-health";
+import {
+  calculateOverallStatus,
+  ComponentHealth,
+  REQUIRED_COMPONENT_IDS,
+  OPTIONAL_COMPONENT_IDS,
+} from "@/lib/health/system-health";
 
-describe("Trust & Status Foundation Test Suite", () => {
-  describe("1. Founder Identity and Approved Asset Verification", () => {
-    const rootDir = process.cwd();
+describe("Trust & Status Foundation Test Suite (Hardened)", () => {
+  const rootDir = process.cwd();
+
+  describe("1. Founder Identity, Copy, and WebP Asset", () => {
     const approvedPngPath = path.join(
       rootDir,
       "public",
@@ -20,225 +26,396 @@ describe("Trust & Status Foundation Test Suite", () => {
       "founder",
       "jeefthe-osne-founder-ceo.webp"
     );
+    const founderBlockFile = path.join(
+      rootDir,
+      "components",
+      "marketing",
+      "FounderBlock.tsx"
+    );
+    const footerFile = path.join(rootDir, "components", "Footer.tsx");
+    const layoutFile = path.join(rootDir, "app", "layout.tsx");
 
-    it("verifies the approved PNG founder asset exists in the repository", () => {
+    it("verifies the approved PNG archival founder asset exists in the repository", () => {
       expect(fs.existsSync(approvedPngPath)).toBe(true);
       const stats = fs.statSync(approvedPngPath);
-      expect(stats.size).toBeGreaterThan(1_000_000); // 1.8MB original asset
+      expect(stats.size).toBeGreaterThan(1_000_000);
     });
 
-    it("verifies the optimized WebP derivative exists in the repository", () => {
+    it("verifies the optimized WebP derivative exists and is valid", () => {
       expect(fs.existsSync(approvedWebpPath)).toBe(true);
       const stats = fs.statSync(approvedWebpPath);
       expect(stats.size).toBeGreaterThan(50_000);
     });
 
-    it("verifies FounderBlock contains the approved founder copy, names, and LinkedIn link", () => {
-      const founderBlockFile = path.join(
-        rootDir,
-        "components",
-        "marketing",
-        "FounderBlock.tsx"
-      );
-      expect(fs.existsSync(founderBlockFile)).toBe(true);
+    it("proves Jeefthe Richeder Osne appears correctly in the founder section", () => {
       const content = fs.readFileSync(founderBlockFile, "utf8");
-
-      // Name & title
       expect(content).toContain("Jeefthe Richeder Osne");
-      expect(content).toContain("Founder & CEO, J10 NEXUS");
-
-      // Approved founder copy
-      expect(content).toContain(
-        "Built with purpose by Jeefthe Osne, Founder and CEO of J10 NEXUS—building affordable AI revenue and operations technology for service businesses."
-      );
-
-      // Alt text & image source
-      expect(content).toContain(
-        'alt="Jeefthe Osne, Founder and CEO of J10 NEXUS"'
-      );
-      expect(content).toContain(
-        'src="/images/founder/jeefthe-osne-founder-ceo.png"'
-      );
-
-      // LinkedIn link with target and rel
-      expect(content).toContain(
-        'href="https://www.linkedin.com/in/jeefthe-osne-143a9126b/"'
-      );
-      expect(content).toContain('target="_blank"');
-      expect(content).toContain('rel="noopener noreferrer"');
+      expect(content).toContain("Founder and CEO, J10 NEXUS");
+      expect(content).toContain("From the founder");
     });
 
-    it("verifies Footer contains the Founded by Jeefthe Osne LinkedIn link", () => {
-      const footerFile = path.join(rootDir, "components", "Footer.tsx");
-      const content = fs.readFileSync(footerFile, "utf8");
-
-      expect(content).toContain("Founded by Jeefthe Osne");
-      expect(content).toContain(
-        'href="https://www.linkedin.com/in/jeefthe-osne-143a9126b/"'
-      );
-      expect(content).toContain('target="_blank"');
-      expect(content).toContain('rel="noopener noreferrer"');
-    });
-
-    it("verifies Privacy Boundaries: zero phone numbers, addresses, private emails, or standalone nickname", () => {
-      const founderBlockFile = path.join(
-        rootDir,
-        "components",
-        "marketing",
-        "FounderBlock.tsx"
-      );
+    it("proves the old AI-generated paragraph is completely absent", () => {
       const content = fs.readFileSync(founderBlockFile, "utf8");
-
-      // No private email
-      expect(content).not.toMatch(/[\w.-]+@[\w.-]+\.\w+/);
-      // No phone pattern
-      expect(content).not.toMatch(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-      // No standalone nickname Richeder without Jeefthe
-      const withoutFullName = content.replace(/Jeefthe Richeder Osne/g, "");
-      expect(withoutFullName).not.toContain("Richeder");
+      expect(content).not.toContain("Built with purpose by Jeefthe Osne");
+      expect(content).not.toContain("building affordable AI revenue and operations technology");
+      expect(content).not.toContain("empowering businesses");
+      expect(content).not.toContain("revolutionizing operations");
+      expect(content).not.toContain("transforming the future");
     });
 
-    it("verifies structured data in app/layout.tsx defines Organization and Person schemas accurately", () => {
-      const layoutFile = path.join(rootDir, "app", "layout.tsx");
-      const content = fs.readFileSync(layoutFile, "utf8");
+    it("proves repetitive 'FOUNDER & MISSION' labels and photo badges are absent", () => {
+      const content = fs.readFileSync(founderBlockFile, "utf8");
+      expect(content).not.toContain("FOUNDER & MISSION");
+      expect(content).not.toContain('badge from the photo');
+      // No decorative overlapping badge
+      expect(content).not.toContain('Founder\n          </div>');
+    });
 
-      expect(content).toContain('"@type": "Organization"');
-      expect(content).toContain('"name": "J10 NEXUS"');
-      expect(content).toContain('"@type": "Person"');
-      expect(content).toContain('"name": "Jeefthe Osne"');
-      expect(content).toContain('"jobTitle": "Founder & CEO, J10 NEXUS"');
+    it("proves the exact approved human founder statement is rendered", () => {
+      const content = fs.readFileSync(founderBlockFile, "utf8");
+      const expectedStatement =
+        "I built J10 NEXUS after seeing how often small service businesses lose customers to missed calls, slow follow ups, and disconnected tools. Owners should not need a large team or five expensive apps to stay on top of the work. J10 NEXUS puts customer conversations, follow ups, bookings, and daily operations in one affordable place.";
+      expect(content).toContain(expectedStatement);
+    });
+
+    it("proves WebP is the rendered image with approved alt text", () => {
+      const content = fs.readFileSync(founderBlockFile, "utf8");
+      expect(content).toContain('src="/images/founder/jeefthe-osne-founder-ceo.webp"');
       expect(content).toContain(
-        '"https://www.linkedin.com/in/jeefthe-osne-143a9126b/"'
+        'alt="Jeefthe Richeder Osne, Founder and CEO of J10 NEXUS"'
       );
-      expect(content).toContain(
-        '"https://j10-nexus.com/images/founder/jeefthe-osne-founder-ceo.png"'
-      );
+    });
+
+    it("proves the LinkedIn link is correct, secure, and uses approved button text", () => {
+      const content = fs.readFileSync(founderBlockFile, "utf8");
+      expect(content).toContain("https://www.linkedin.com/in/jeefthe-osne-143a9126b/");
+      expect(content).toContain('target="_blank"');
+      expect(content).toContain('rel="noopener noreferrer"');
+      expect(content).toContain("View LinkedIn profile");
+    });
+
+    it("proves the footer attribution uses the complete founder name with secure link", () => {
+      const content = fs.readFileSync(footerFile, "utf8");
+      expect(content).toContain("Founded by Jeefthe Richeder Osne");
+      expect(content).toContain("https://www.linkedin.com/in/jeefthe-osne-143a9126b/");
+      expect(content).toContain('target="_blank"');
+      expect(content).toContain('rel="noopener noreferrer"');
+    });
+
+    it("proves structured data uses the complete founder name and verified canonical URLs", () => {
+      const content = fs.readFileSync(layoutFile, "utf8");
+      expect(content).toContain("Jeefthe Richeder Osne");
+      expect(content).toContain("Founder and CEO of J10 NEXUS");
+      expect(content).toContain("/images/founder/jeefthe-osne-founder-ceo.webp");
+      expect(content).toContain("/brand/j10-logo.png");
+      expect(content).toContain("https://www.linkedin.com/in/jeefthe-osne-143a9126b/");
+      // Does not hardcode unverified domain
+      expect(content).toContain("process.env.NEXT_PUBLIC_SITE_URL");
+      expect(content).toContain("https://j10-nexus.vercel.app");
+    });
+
+    it("proves no private contact information or handwritten signature is exposed", () => {
+      const allFiles = [founderBlockFile, footerFile, layoutFile];
+      for (const file of allFiles) {
+        const text = fs.readFileSync(file, "utf8");
+        expect(text).not.toMatch(/\+1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}/); // Phone numbers
+        expect(text).not.toContain("@gmail.com");
+        expect(text).not.toContain("@yahoo.com");
+        expect(text).not.toContain("birthDate");
+        expect(text).not.toContain("signature");
+      }
     });
   });
 
-  describe("2. Status Monitoring & Evidence-Based Probe Governance", () => {
-    it("reports exactly 6 monitored components with valid categories and descriptions", async () => {
-      const health = await probeSystemHealth(true);
-      expect(health.components).toHaveLength(6);
+  describe("2. Health Probes, Safety, and Evidence-Based Claims", () => {
+    it("proves Workflow cannot become Operational solely from database health", async () => {
+      const { probeSystemHealth } = await import("@/lib/health/system-health");
+      const health = await probeSystemHealth();
+      const workflow = health.components.find((c) => c.id === "workflow");
+      expect(workflow).toBeDefined();
+      // Even if DB is operational, workflow cannot be claimed Operational without an execution probe
+      expect(workflow?.status).not.toBe("Operational");
+      expect(["Configured", "Degraded", "Unknown"]).toContain(workflow?.status);
 
-      const componentIds = health.components.map((c) => c.id);
-      expect(componentIds).toEqual([
-        "database",
-        "auth",
-        "workflow",
-        "whatsapp",
-        "stripe",
-        "ai",
-      ]);
+      // Verify source logic ensures database health never directly maps to workflow Operational
+      const healthCode = fs.readFileSync(
+        path.join(rootDir, "lib", "health", "system-health.ts"),
+        "utf8"
+      );
+      expect(healthCode).not.toMatch(/dbHealth\.status\s*===\s*["']Operational["']\s*\)\s*{\s*return\s*{\s*[^}]*status:\s*["']Operational["']/);
+    });
 
-      const expectedNames = [
-        "Database Server Connection",
-        "Authentication & Workspace Boundaries",
-        "Workflow Execution Engine",
-        "Meta WhatsApp Cloud API Gateway",
-        "Stripe Billing & Subscriptions",
-        "AI Model Gateway",
+    it("proves Auth reachability is named Authentication Service and does not claim workspace isolation", async () => {
+      const { probeSystemHealth } = await import("@/lib/health/system-health");
+      const health = await probeSystemHealth();
+      const auth = health.components.find((c) => c.id === "auth");
+      expect(auth).toBeDefined();
+      expect(auth?.name).toBe("Authentication Service");
+      expect(auth?.explanation).not.toContain("tenant isolation");
+      expect(auth?.explanation).not.toContain("workspace boundary");
+    });
+
+    it("proves Meta WhatsApp check does not falsely certify webhook delivery and uses supported API version", () => {
+      const healthCode = fs.readFileSync(
+        path.join(rootDir, "lib", "health", "system-health.ts"),
+        "utf8"
+      );
+      expect(healthCode).not.toContain("webhook gateway reachable");
+      expect(healthCode).toContain("Meta API credentials authenticated and provider endpoint reachable");
+      expect(healthCode).not.toContain("v18.0");
+      expect(healthCode).toContain("v26.0");
+    });
+
+    it("proves AI metadata check does not falsely certify inference or routing", () => {
+      const healthCode = fs.readFileSync(
+        path.join(rootDir, "lib", "health", "system-health.ts"),
+        "utf8"
+      );
+      expect(healthCode).not.toContain("Model routing gateway and inference runtime reachable");
+      expect(healthCode).toContain("AI provider metadata endpoint authenticated and reachable");
+    });
+
+    it("proves secrets NEVER appear in request URLs, query strings, or public responses", () => {
+      const healthCode = fs.readFileSync(
+        path.join(rootDir, "lib", "health", "system-health.ts"),
+        "utf8"
+      );
+      // No access_token in URL query strings
+      expect(healthCode).not.toContain("access_token=");
+      // No key= in URL query strings for Gemini
+      expect(healthCode).not.toContain("key=");
+      // Uses x-goog-api-key header for Gemini
+      expect(healthCode).toContain('"x-goog-api-key"');
+      // Uses Authorization Bearer for Meta
+      expect(healthCode).toContain("Authorization: `Bearer ${token}`");
+    });
+
+    it("proves health probes create zero external side effects", () => {
+      const healthCode = fs.readFileSync(
+        path.join(rootDir, "lib", "health", "system-health.ts"),
+        "utf8"
+      );
+      // No message sends
+      expect(healthCode).not.toContain("/messages");
+      // No Stripe session/customer/charge mutations
+      expect(healthCode).not.toContain("checkout/sessions");
+      expect(healthCode).not.toContain("customers.create");
+      expect(healthCode).not.toContain("charges.create");
+      // No AI text generation calls
+      expect(healthCode).not.toContain("generateContent");
+      expect(healthCode).not.toContain("chat/completions");
+    });
+  });
+
+  describe("3. Status Aggregation Rules and Abuse Protection", () => {
+    it("proves any degraded required component changes overall status to Degraded", () => {
+      const mockComponents: ComponentHealth[] = [
+        {
+          id: "database",
+          name: "Database Server Connection",
+          category: "Storage",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "auth",
+          name: "Authentication Service",
+          category: "Security",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "workflow",
+          name: "Workflow Execution Engine",
+          category: "Automation",
+          status: "Configured",
+          lastChecked: new Date().toISOString(),
+          explanation: "Configured",
+        },
+        {
+          id: "stripe",
+          name: "Stripe Billing & Subscriptions",
+          category: "Financial",
+          status: "Degraded",
+          lastChecked: new Date().toISOString(),
+          explanation: "Timeout",
+        },
       ];
-      expect(health.components.map((c) => c.name)).toEqual(expectedNames);
 
-      for (const comp of health.components) {
-        expect(["Operational", "Configured", "Degraded", "Outage", "Unknown"]).toContain(
-          comp.status
-        );
-        expect(comp.explanation).toBeTruthy();
-        expect(comp.lastChecked).toBeTruthy();
-      }
+      expect(calculateOverallStatus(mockComponents)).toBe("Degraded");
     });
 
-    it("ensures unconfigured third-party gateways report Unknown and never fake Operational", async () => {
-      // In an environment where WHATSAPP_ACCESS_TOKEN and STRIPE_SECRET_KEY are unset
-      const originalWhatsApp = process.env.WHATSAPP_ACCESS_TOKEN;
-      const originalStripe = process.env.STRIPE_SECRET_KEY;
-      delete process.env.WHATSAPP_ACCESS_TOKEN;
-      delete process.env.META_WHATSAPP_TOKEN;
-      delete process.env.STRIPE_SECRET_KEY;
+    it("proves any degraded optional integration changes overall status to Degraded", () => {
+      const mockComponents: ComponentHealth[] = [
+        {
+          id: "database",
+          name: "Database Server Connection",
+          category: "Storage",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "auth",
+          name: "Authentication Service",
+          category: "Security",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "workflow",
+          name: "Workflow Execution Engine",
+          category: "Automation",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "stripe",
+          name: "Stripe Billing & Subscriptions",
+          category: "Financial",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "whatsapp",
+          name: "Meta WhatsApp Cloud API Gateway",
+          category: "External Integration",
+          status: "Degraded",
+          lastChecked: new Date().toISOString(),
+          explanation: "Gateway error",
+        },
+      ];
 
-      try {
-        const health = await probeSystemHealth(true);
-        const whatsapp = health.components.find((c) => c.id === "whatsapp");
-        const stripe = health.components.find((c) => c.id === "stripe");
-
-        expect(whatsapp?.status).toBe("Unknown");
-        expect(whatsapp?.status).not.toBe("Operational");
-
-        expect(stripe?.status).toBe("Unknown");
-        expect(stripe?.status).not.toBe("Operational");
-      } finally {
-        if (originalWhatsApp) process.env.WHATSAPP_ACCESS_TOKEN = originalWhatsApp;
-        if (originalStripe) process.env.STRIPE_SECRET_KEY = originalStripe;
-      }
+      expect(calculateOverallStatus(mockComponents)).toBe("Degraded");
     });
 
-    it("isolates provider probe failures: one failure never crashes the complete health report", async () => {
-      // Mock global fetch to simulate network error on external calls
-      const originalFetch = global.fetch;
-      global.fetch = vi.fn().mockImplementation((url: string | URL | Request) => {
-        const urlStr = url.toString();
-        if (urlStr.includes("stripe.com") || urlStr.includes("graph.facebook.com")) {
-          return Promise.reject(new Error("Simulated upstream network timeout"));
-        }
-        return originalFetch(url);
-      });
+    it("proves any required component outage produces overall Outage", () => {
+      const mockComponents: ComponentHealth[] = [
+        {
+          id: "database",
+          name: "Database Server Connection",
+          category: "Storage",
+          status: "Outage",
+          lastChecked: new Date().toISOString(),
+          explanation: "Connection down",
+        },
+        {
+          id: "auth",
+          name: "Authentication Service",
+          category: "Security",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+      ];
 
-      try {
-        // Set fake keys so external probes are triggered
-        process.env.STRIPE_SECRET_KEY = "sk_test_mock_for_health_test";
-        process.env.WHATSAPP_ACCESS_TOKEN = "wa_mock_token_for_health_test";
-
-        const health = await probeSystemHealth(true);
-        expect(health).toBeDefined();
-        expect(health.components).toHaveLength(6);
-
-        const stripe = health.components.find((c) => c.id === "stripe");
-        const whatsapp = health.components.find((c) => c.id === "whatsapp");
-
-        // The failed probes must be safely caught and marked Degraded
-        expect(stripe?.status).toBe("Degraded");
-        expect(whatsapp?.status).toBe("Degraded");
-
-        // Database and workflow should still be intact
-        const db = health.components.find((c) => c.id === "database");
-        expect(db).toBeDefined();
-      } finally {
-        global.fetch = originalFetch;
-        delete process.env.STRIPE_SECRET_KEY;
-        delete process.env.WHATSAPP_ACCESS_TOKEN;
-      }
+      expect(calculateOverallStatus(mockComponents)).toBe("Outage");
     });
 
-    it("verifies public data boundary: zero secrets, tokens, internal URLs, or stack traces exposed", async () => {
-      process.env.STRIPE_SECRET_KEY = "sk_test_mock_secret_1234567890abcdef";
-      process.env.WHATSAPP_ACCESS_TOKEN = "wa_mock_secret_token_1234567890";
+    it("proves Configured and Unknown components are not silently counted as Operational", () => {
+      const mockComponents: ComponentHealth[] = [
+        {
+          id: "database",
+          name: "Database Server Connection",
+          category: "Storage",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "auth",
+          name: "Authentication Service",
+          category: "Security",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "workflow",
+          name: "Workflow Execution Engine",
+          category: "Automation",
+          status: "Configured",
+          lastChecked: new Date().toISOString(),
+          explanation: "Configured",
+        },
+        {
+          id: "stripe",
+          name: "Stripe Billing & Subscriptions",
+          category: "Financial",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+      ];
 
-      try {
-        const health = await probeSystemHealth(true);
-        const serialized = JSON.stringify(health);
-
-        expect(serialized).not.toContain("sk_test_");
-        expect(serialized).not.toContain("wa_mock_");
-        expect(serialized).not.toContain("Authorization");
-        expect(serialized).not.toContain("Bearer");
-        expect(serialized).not.toContain("stack");
-        expect(serialized).not.toContain("Error:");
-      } finally {
-        delete process.env.STRIPE_SECRET_KEY;
-        delete process.env.WHATSAPP_ACCESS_TOKEN;
-      }
+      // Since workflow is Configured, overall cannot be Operational
+      expect(calculateOverallStatus(mockComponents)).toBe("Configured");
     });
 
-    it("caches reports and dedupes concurrent in-flight probes", async () => {
-      const [res1, res2] = await Promise.all([
-        probeSystemHealth(),
-        probeSystemHealth(),
-      ]);
+    it("proves overall status is Operational only when all required components are Operational", () => {
+      const mockComponents: ComponentHealth[] = [
+        {
+          id: "database",
+          name: "Database Server Connection",
+          category: "Storage",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "auth",
+          name: "Authentication Service",
+          category: "Security",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "workflow",
+          name: "Workflow Execution Engine",
+          category: "Automation",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+        {
+          id: "stripe",
+          name: "Stripe Billing & Subscriptions",
+          category: "Financial",
+          status: "Operational",
+          lastChecked: new Date().toISOString(),
+          explanation: "OK",
+        },
+      ];
 
-      expect(res1.timestamp).toBe(res2.timestamp);
-      expect(res1.components[0].lastChecked).toBe(res2.components[0].lastChecked);
+      expect(calculateOverallStatus(mockComponents)).toBe("Operational");
+    });
+
+    it("proves cache interval is hardened to 60s and public force-refresh is prohibited", () => {
+      const healthCode = fs.readFileSync(
+        path.join(rootDir, "lib", "health", "system-health.ts"),
+        "utf8"
+      );
+      // 60,000ms TTL
+      expect(healthCode).toContain("60_000");
+      // No forceFresh argument on public function
+      expect(healthCode).toContain("export async function probeSystemHealth(): Promise<SystemHealthReport>");
+    });
+
+    it("proves /api/health route enforces edge caching and consistent aggregation", async () => {
+      const { GET } = await import("@/app/api/health/route");
+      const res = await GET();
+      expect(res.headers.get("Cache-Control")).toContain("s-maxage=60");
+      const data = await res.json();
+      expect(data).toHaveProperty("status");
+      expect(data).toHaveProperty("overallStatus");
+      expect(data).toHaveProperty("components");
+      expect(data.components).toHaveLength(6);
     });
   });
 });

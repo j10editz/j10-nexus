@@ -126,9 +126,13 @@ export default async function StatusPage() {
               className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold ${
                 health.overallStatus === "Operational"
                   ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                  : health.overallStatus === "Configured"
+                  ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
                   : health.overallStatus === "Degraded"
                   ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
-                  : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                  : health.overallStatus === "Outage"
+                  ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                  : "bg-slate-500/10 border-slate-500/30 text-slate-300"
               }`}
             >
               Overall: {health.overallStatus}
