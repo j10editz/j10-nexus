@@ -107,7 +107,7 @@ export default function LoginPage() {
           <p className="mt-2 text-xs text-[#8d96a8]">
             {mode === "signin"
               ? "Sign in to access your workspace operating center."
-              : "Set up your workspace and start your 14-day free trial."}
+              : "Your 72-hour free trial starts after you complete and approve Outcome Onboarding."}
           </p>
         </div>
 

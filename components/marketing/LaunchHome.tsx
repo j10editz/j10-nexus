@@ -232,7 +232,7 @@ export default function LaunchHome() {
               {/* Trust Copy */}
               <div className="mt-4 flex items-center gap-2 text-xs text-[#8d96a8]">
                 <ShieldCheck size={14} className="text-cyan-400 shrink-0" />
-                <span>14-day free trial · Instant setup · No credit card required</span>
+                <span>Your 72-hour free trial starts after you complete and approve Outcome Onboarding.</span>
               </div>
             </div>
 
@@ -540,7 +540,7 @@ export default function LaunchHome() {
                 href="/login?intent=signup&plan=growth&trial=1"
                 className="j10-btn-primary group inline-flex items-center gap-2 rounded-xl px-7 py-3.5 text-sm font-semibold text-white shadow-[0_10px_25px_rgba(0,217,255,0.3)] hover:scale-[1.02] transition-all"
               >
-                Start Free 14-Day Trial
+                Start Free 72-Hour Trial
                 <ArrowRight size={14} className="transition-transform duration-200 group-hover:translate-x-1" />
               </Link>
               <Link
@@ -550,6 +550,9 @@ export default function LaunchHome() {
                 Contact Sales
               </Link>
             </div>
+            <p className="mt-3.5 text-xs text-[#8d96a8]">
+              Your 72-hour free trial starts after you complete and approve Outcome Onboarding.
+            </p>
           </div>
         </section>
 

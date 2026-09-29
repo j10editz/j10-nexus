@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import { TrialDashboardBanner } from "@/components/trial/TrialDashboardBanner";
+import { TrialProvider } from "@/components/trial/TrialContext";
 
 export default function DashboardLayout({
   children,
@@ -35,24 +36,26 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="j10-canvas min-h-dvh text-white">
-      <Sidebar
-        mobileOpen={mobileOpen}
-        onClose={() => setMobileOpen(false)}
-      />
-
-      <div className="min-h-dvh min-w-0 lg:pl-[260px]">
-        <Topbar
-          onOpenNavigation={() =>
-            setMobileOpen(true)
-          }
+    <TrialProvider>
+      <div className="j10-canvas min-h-dvh text-white">
+        <Sidebar
+          mobileOpen={mobileOpen}
+          onClose={() => setMobileOpen(false)}
         />
 
-        <main className="min-h-[calc(100dvh-72px)] min-w-0 overflow-x-hidden bg-transparent">
-          <TrialDashboardBanner />
-          {children}
-        </main>
+        <div className="min-h-dvh min-w-0 lg:pl-[260px]">
+          <Topbar
+            onOpenNavigation={() =>
+              setMobileOpen(true)
+            }
+          />
+
+          <main className="min-h-[calc(100dvh-72px)] min-w-0 overflow-x-hidden bg-transparent">
+            <TrialDashboardBanner />
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </TrialProvider>
   );
 }

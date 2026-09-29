@@ -28,10 +28,10 @@ export const FALLBACK_WORKSPACE_SHARDS: KnowledgeGroundingSource[] = [
   },
   {
     id: "kb_shard_3",
-    title: "Refund Policy & Cancellation Terms",
+    title: "Trial, Refund Policy & Cancellation Terms",
     category: "policies_compliance",
     snippet:
-      "All J10 NEXUS plans include a 14-day money-back guarantee for first-time customers. Subscriptions can be cancelled anytime with zero cancellation fees.",
+      "Your 72-hour free trial starts after you complete and approve Outcome Onboarding. First-time customers also receive a 14-day money-back guarantee. Subscriptions can be cancelled anytime with zero cancellation fees.",
   },
   {
     id: "kb_shard_4",
@@ -106,6 +106,9 @@ export function generateGroundedGroupAnswer(options: {
       "• *Starter ($29/mo)*: 1 WhatsApp number & 1,000 automated messages/mo\n" +
       "• *Growth ($99/mo)*: 3 WhatsApp numbers & 10,000 automated messages/mo\n" +
       "• *Enterprise ($299/mo)*: Unlimited messages, dedicated SLA & custom AI agents.";
+  } else if (qLower.includes("trial") || qLower.includes("free trial")) {
+    answer =
+      "Your 72-hour free trial starts after you complete and approve Outcome Onboarding. No card is charged upfront, and subscriptions can be upgraded or canceled at any time.";
   } else if (qLower.includes("refund") || qLower.includes("cancel") || qLower.includes("guarantee")) {
     answer =
       "We provide a *14-day money-back guarantee* for all first-time customers. Subscriptions can be paused or cancelled at any time directly from the billing portal with zero penalty.";

@@ -175,7 +175,7 @@ export default function Pricing() {
                 <p className="mt-2 text-center text-[10px] text-[#6b768a]">
                   {isEnterprise
                     ? "Tailored SLA · Dedicated onboarding"
-                    : "No card charged today · 72-hour trial"}
+                    : "Your 72-hour free trial starts after you complete and approve Outcome Onboarding."}
                 </p>
               </div>
             </article>
@@ -189,7 +189,7 @@ export default function Pricing() {
           <strong className="text-white">Provider Usage Disclosures:</strong> Third-party provider infrastructure fees (including Meta WhatsApp Cloud API conversation charges, AI model compute, and telephony carriers) are billed separately based on direct provider consumption.
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-center text-[11px] leading-relaxed text-[#758197]">
-          72-hour trial included with all qualifying new workspaces. Enterprise tier requires a custom sales agreement. Subscriptions can be modified or canceled anytime directly in workspace billing settings.
+          Your 72-hour free trial starts after you complete and approve Outcome Onboarding. Enterprise tier requires a custom sales agreement. Subscriptions can be modified or canceled anytime directly in workspace billing settings.
         </div>
       </div>
     </div>
