@@ -5,26 +5,27 @@ export function FounderBlock() {
   return (
     <section
       aria-labelledby="founder-heading"
-      className="my-16 sm:my-20 rounded-2xl border border-white/[0.08] bg-[#0b1020]/70 p-6 sm:p-8 lg:p-10 shadow-xl"
+      className="my-10 md:my-12 mx-auto max-w-5xl rounded-2xl border border-white/[0.08] bg-[#0b1020]/70 p-5 md:p-7 shadow-xl"
     >
-      <div className="grid grid-cols-1 md:grid-cols-[300px_1fr] lg:grid-cols-[340px_1fr] items-center gap-8 lg:gap-12">
-        {/* Photograph on the left on desktop, stacks above on mobile */}
-        <div className="mx-auto w-full max-w-[280px] sm:max-w-[320px] md:max-w-none">
-          <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-white/[0.12] bg-[#07090f] shadow-lg">
+      <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] items-center gap-7 md:gap-8">
+        {/* Compact Portrait: centered on mobile, max 240px on desktop */}
+        <div className="mx-auto w-[200px] h-[200px] sm:w-[220px] sm:h-[220px] md:w-[220px] md:h-[220px] max-w-[240px] max-h-[240px]">
+          <div className="relative aspect-square w-full h-full overflow-hidden rounded-xl border border-white/[0.12] bg-[#07090f] shadow-lg">
             <Image
-              src="/images/founder/jeefthe-osne-founder-ceo.webp"
+              src="/images/founder/jeefthe-osne-founder-ceo.png"
               alt="Jeefthe Richeder Osne, Founder and CEO of J10 NEXUS"
-              width={680}
-              height={680}
+              width={1254}
+              height={1254}
+              quality={95}
               loading="lazy"
-              sizes="(max-width: 768px) 320px, 340px"
+              sizes="(max-width: 768px) 220px, 240px"
               className="h-full w-full object-cover object-top"
             />
           </div>
         </div>
 
-        {/* Founder statement on the right */}
-        <div className="flex flex-col justify-center text-left space-y-4">
+        {/* Founder statement: vertically centered */}
+        <div className="flex flex-col justify-center text-left space-y-3">
           <p className="text-xs font-semibold uppercase tracking-widest text-cyan-400">
             From the founder
           </p>
@@ -32,25 +33,25 @@ export function FounderBlock() {
           <div>
             <h3
               id="founder-heading"
-              className="text-2xl sm:text-3xl font-bold tracking-tight text-white"
+              className="text-xl sm:text-2xl font-bold tracking-tight text-white"
             >
               Jeefthe Richeder Osne
             </h3>
-            <p className="mt-1 text-sm text-[#8d96a8]">
+            <p className="mt-0.5 text-sm text-[#8d96a8]">
               Founder and CEO, J10 NEXUS
             </p>
           </div>
 
-          <p className="text-sm sm:text-base leading-relaxed text-[#c4cdd5]">
+          <p className="text-sm leading-relaxed text-[#c4cdd5]">
             I built J10 NEXUS after seeing how often small service businesses lose customers to missed calls, slow follow ups, and disconnected tools. Owners should not need a large team or five expensive apps to stay on top of the work. J10 NEXUS puts customer conversations, follow ups, bookings, and daily operations in one affordable place.
           </p>
 
-          <div className="pt-2">
+          <div className="pt-1">
             <a
               href="https://www.linkedin.com/in/jeefthe-osne-143a9126b/"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg border border-white/[0.12] bg-white/[0.04] px-4 py-2.5 text-xs font-semibold text-white transition hover:border-cyan-400/40 hover:bg-white/[0.08] hover:text-cyan-200"
+              className="inline-flex items-center gap-2 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3.5 py-2 text-xs font-semibold text-white transition hover:border-cyan-400/40 hover:bg-white/[0.08] hover:text-cyan-200"
             >
               <svg
                 className="w-4 h-4 text-[#0a66c2] fill-current"

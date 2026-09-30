@@ -69,7 +69,7 @@ const organizationAndPersonJsonLd = {
         "name": "Jeefthe Richeder Osne",
         "jobTitle": "Founder and CEO of J10 NEXUS",
         "sameAs": ["https://www.linkedin.com/in/jeefthe-osne-143a9126b/"],
-        "image": `${siteUrl}/images/founder/jeefthe-osne-founder-ceo.webp`,
+        "image": `${siteUrl}/images/founder/jeefthe-osne-founder-ceo.png`,
       },
     },
     {
@@ -81,7 +81,7 @@ const organizationAndPersonJsonLd = {
         "@id": `${siteUrl}/#organization`,
       },
       "sameAs": ["https://www.linkedin.com/in/jeefthe-osne-143a9126b/"],
-      "image": `${siteUrl}/images/founder/jeefthe-osne-founder-ceo.webp`,
+      "image": `${siteUrl}/images/founder/jeefthe-osne-founder-ceo.png`,
     },
   ],
 };

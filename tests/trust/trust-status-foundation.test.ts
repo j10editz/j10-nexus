@@ -11,20 +11,13 @@ import {
 describe("Trust & Status Foundation Test Suite (Hardened)", () => {
   const rootDir = process.cwd();
 
-  describe("1. Founder Identity, Copy, and WebP Asset", () => {
+  describe("1. Founder Identity, Copy, and Archival PNG Asset", () => {
     const approvedPngPath = path.join(
       rootDir,
       "public",
       "images",
       "founder",
       "jeefthe-osne-founder-ceo.png"
-    );
-    const approvedWebpPath = path.join(
-      rootDir,
-      "public",
-      "images",
-      "founder",
-      "jeefthe-osne-founder-ceo.webp"
     );
     const founderBlockFile = path.join(
       rootDir,
@@ -35,16 +28,49 @@ describe("Trust & Status Foundation Test Suite (Hardened)", () => {
     const footerFile = path.join(rootDir, "components", "Footer.tsx");
     const layoutFile = path.join(rootDir, "app", "layout.tsx");
 
-    it("verifies the approved PNG archival founder asset exists in the repository", () => {
+    it("verifies the approved PNG archival founder asset exists with exactly 1254x1254 dimensions and verified SHA256", async () => {
       expect(fs.existsSync(approvedPngPath)).toBe(true);
       const stats = fs.statSync(approvedPngPath);
-      expect(stats.size).toBeGreaterThan(1_000_000);
+      expect(stats.size).toBe(1_825_876);
+
+      const crypto = await import("crypto");
+      const sharp = (await import("sharp")).default;
+      const buf = fs.readFileSync(approvedPngPath);
+      const hash = crypto.createHash("sha256").update(buf).digest("hex");
+      expect(hash).toBe("6d79a677529c53707ee488db84d357bb3508693be3efd4eeb9be4895c26776a0");
+
+      const meta = await sharp(buf).metadata();
+      expect(meta.width).toBe(1254);
+      expect(meta.height).toBe(1254);
+      expect(meta.format).toBe("png");
     });
 
-    it("verifies the optimized WebP derivative exists and is valid", () => {
-      expect(fs.existsSync(approvedWebpPath)).toBe(true);
-      const stats = fs.statSync(approvedWebpPath);
-      expect(stats.size).toBeGreaterThan(50_000);
+    it("proves the founder component renders the high-quality original PNG with quality={95} and not the WebP", () => {
+      const content = fs.readFileSync(founderBlockFile, "utf8");
+      expect(content).toContain('src="/images/founder/jeefthe-osne-founder-ceo.png"');
+      expect(content).not.toContain('jeefthe-osne-founder-ceo.webp');
+      expect(content).toContain("quality={95}");
+      expect(content).toContain("width={1254}");
+      expect(content).toContain("height={1254}");
+    });
+
+    it("proves the desktop portrait width never exceeds 240px and section is compacted", () => {
+      const content = fs.readFileSync(founderBlockFile, "utf8");
+      // Portrait container max width
+      expect(content).toContain("max-w-[240px]");
+      expect(content).toContain("max-h-[240px]");
+      // Desktop grid limit
+      expect(content).toContain("md:grid-cols-[240px_1fr]");
+      // Max section width ~1024px
+      expect(content).toContain("max-w-5xl");
+    });
+
+    it("proves the mobile layout is compact, stacked, centered, and left-aligned", () => {
+      const content = fs.readFileSync(founderBlockFile, "utf8");
+      expect(content).toContain("grid-cols-1");
+      expect(content).toContain("mx-auto");
+      expect(content).toContain("text-left");
+      expect(content).toContain("p-5");
     });
 
     it("proves Jeefthe Richeder Osne appears correctly in the founder section", () => {
@@ -78,14 +104,6 @@ describe("Trust & Status Foundation Test Suite (Hardened)", () => {
       expect(content).toContain(expectedStatement);
     });
 
-    it("proves WebP is the rendered image with approved alt text", () => {
-      const content = fs.readFileSync(founderBlockFile, "utf8");
-      expect(content).toContain('src="/images/founder/jeefthe-osne-founder-ceo.webp"');
-      expect(content).toContain(
-        'alt="Jeefthe Richeder Osne, Founder and CEO of J10 NEXUS"'
-      );
-    });
-
     it("proves the LinkedIn link is correct, secure, and uses approved button text", () => {
       const content = fs.readFileSync(founderBlockFile, "utf8");
       expect(content).toContain("https://www.linkedin.com/in/jeefthe-osne-143a9126b/");
@@ -102,11 +120,12 @@ describe("Trust & Status Foundation Test Suite (Hardened)", () => {
       expect(content).toContain('rel="noopener noreferrer"');
     });
 
-    it("proves structured data uses the complete founder name and verified canonical URLs", () => {
+    it("proves structured data uses the complete founder name and verified canonical PNG URL", () => {
       const content = fs.readFileSync(layoutFile, "utf8");
       expect(content).toContain("Jeefthe Richeder Osne");
       expect(content).toContain("Founder and CEO of J10 NEXUS");
-      expect(content).toContain("/images/founder/jeefthe-osne-founder-ceo.webp");
+      expect(content).toContain("/images/founder/jeefthe-osne-founder-ceo.png");
+      expect(content).not.toContain("/images/founder/jeefthe-osne-founder-ceo.webp");
       expect(content).toContain("/brand/j10-logo.png");
       expect(content).toContain("https://www.linkedin.com/in/jeefthe-osne-143a9126b/");
       // Does not hardcode unverified domain
