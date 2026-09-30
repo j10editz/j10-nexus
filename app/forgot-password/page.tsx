@@ -4,6 +4,8 @@ import { FormEvent, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase";
+import { getCanonicalOrigin } from "@/lib/auth/origin";
+import { sanitizeAuthError } from "@/lib/auth/errors";
 
 export default function ForgotPasswordPage() {
   const supabase = createClient();
@@ -16,6 +18,8 @@ export default function ForgotPasswordPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (loading) return; // Prevent duplicate submissions
+
     const trimmedEmail = email.trim();
     if (!trimmedEmail) {
       setErrorMessage("Please enter a valid work email address.");
@@ -26,12 +30,7 @@ export default function ForgotPasswordPage() {
     setErrorMessage("");
 
     try {
-      // Build safe canonical origin
-      const origin =
-        typeof window !== "undefined" && window.location.origin
-          ? window.location.origin
-          : process.env.NEXT_PUBLIC_APP_URL || "https://j10nexus.com";
-
+      const origin = getCanonicalOrigin();
       const redirectTo = `${origin}/auth/callback?type=recovery`;
 
       const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
@@ -40,16 +39,19 @@ export default function ForgotPasswordPage() {
 
       // User enumeration defense:
       // Even if the auth service returns an error or success,
-      // we show the exact neutral confirmation message to prevent probing.
-      if (error && error.status === 429) {
-        setErrorMessage("Too many requests. Please wait a few moments before trying again.");
-        return;
+      // we display the exact neutral confirmation message to prevent account probing.
+      if (error) {
+        const errorMsg = String(error.message || "").toLowerCase();
+        if (error.status === 429 || errorMsg.includes("rate limit") || errorMsg.includes("too many requests")) {
+          setErrorMessage("Too many requests. Please wait a few moments before trying again.");
+          return;
+        }
       }
 
       setSubmitted(true);
     } catch {
-      // Generic safe fallback without exposing internal details
-      setErrorMessage("Unable to process request. Please try again in a moment.");
+      // Safe generic retry state without exposing internal details
+      setSubmitted(true);
     } finally {
       setLoading(false);
     }

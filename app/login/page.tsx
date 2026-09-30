@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { getSafeRedirectUrl } from "@/lib/auth/redirect";
+import { getCanonicalOrigin } from "@/lib/auth/origin";
+import { sanitizeAuthError } from "@/lib/auth/errors";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,7 +25,6 @@ export default function LoginPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
-    // Parse sanitized next destination
     const nextParam = params.get("next");
     if (nextParam) {
       setNextUrl(getSafeRedirectUrl(nextParam, "/dashboard"));
@@ -37,13 +38,12 @@ export default function LoginPage() {
       if (trial === "1") window.sessionStorage.setItem("j10_launch_trial", "1");
     }
 
-    // Handle sanitized errors returned from auth callback or expired links
     const errorParam = params.get("error");
     if (errorParam) {
       if (errorParam === "auth_callback_failed") {
-        setErrorMessage("Authentication link is invalid or has expired. Please sign in or request a new link.");
+        setErrorMessage("The recovery link is invalid or has expired. Request a new link to continue.");
       } else {
-        setErrorMessage("Authentication verification could not be completed. Please try again.");
+        setErrorMessage("Authentication could not be verified. Please try signing in again.");
       }
     }
   }, []);
@@ -57,10 +57,7 @@ export default function LoginPage() {
 
     try {
       if (mode === "signup") {
-        const origin =
-          typeof window !== "undefined" && window.location.origin
-            ? window.location.origin
-            : "https://j10nexus.com";
+        const origin = getCanonicalOrigin();
 
         const { error } = await supabase.auth.signUp({
           email,
@@ -71,7 +68,7 @@ export default function LoginPage() {
         });
 
         if (error) {
-          setErrorMessage(error.message);
+          setErrorMessage(sanitizeAuthError(error, "signup"));
           return;
         }
 
@@ -88,7 +85,7 @@ export default function LoginPage() {
         });
 
         if (error) {
-          setErrorMessage(error.message);
+          setErrorMessage(sanitizeAuthError(error, "signin"));
           return;
         }
 
@@ -97,7 +94,11 @@ export default function LoginPage() {
         router.refresh();
       }
     } catch {
-      setErrorMessage("Something went wrong. Please try again.");
+      setErrorMessage(
+        mode === "signin"
+          ? "Email or password is incorrect."
+          : "We could not create the account. Please verify your information and try again."
+      );
     } finally {
       setLoading(false);
     }

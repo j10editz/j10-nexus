@@ -4,11 +4,9 @@ import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-  const supabase = createClient();
 
   const [checkingSession, setCheckingSession] = useState(true);
   const [hasValidSession, setHasValidSession] = useState(false);
@@ -20,19 +18,28 @@ export default function ResetPasswordPage() {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    async function verifyRecoverySession() {
+    async function verifyRecoveryIntent() {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        // Check query param for errors passed from callback
         const params = new URLSearchParams(window.location.search);
-        if (params.get("error") === "expired" || !session) {
+        if (params.get("error") === "expired") {
           setHasValidSession(false);
-        } else {
-          setHasValidSession(true);
+          setCheckingSession(false);
+          return;
         }
+
+        // Server-controlled recovery intent verification:
+        // Verifies the presence and cryptographic signature of the short-lived
+        // recovery intent cookie established during /auth/callback.
+        // Ordinary authenticated sessions without recovery intent are strictly rejected.
+        const res = await fetch("/api/auth/recovery-intent");
+        if (!res.ok) {
+          setHasValidSession(false);
+          setCheckingSession(false);
+          return;
+        }
+
+        const data = await res.json();
+        setHasValidSession(Boolean(data.valid));
       } catch {
         setHasValidSession(false);
       } finally {
@@ -40,11 +47,12 @@ export default function ResetPasswordPage() {
       }
     }
 
-    verifyRecoverySession();
-  }, [supabase.auth]);
+    verifyRecoveryIntent();
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (loading) return; // Prevent duplicate submissions
     setErrorMessage("");
 
     if (password.length < 8) {
@@ -60,27 +68,36 @@ export default function ResetPasswordPage() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.updateUser({
-        password,
+      // Execute password reset through server-controlled endpoint that validates
+      // recovery intent cookie, executes updateUser on user session, and immediately clears the intent.
+      const res = await fetch("/api/auth/recovery-intent", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ password }),
       });
 
-      if (error) {
-        setErrorMessage(error.message || "Failed to update password. Please request a new reset link.");
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setErrorMessage(
+          data.error || "We could not update the password. Please request a new recovery link."
+        );
         return;
       }
 
       setSuccess(true);
-      // Clean password from component state
       setPassword("");
       setConfirmPassword("");
 
-      // Allow user to see confirmation before smooth redirect
+      // Smooth transition to workspace
       setTimeout(() => {
         router.push("/dashboard");
         router.refresh();
-      }, 2000);
+      }, 1500);
     } catch {
-      setErrorMessage("An unexpected error occurred. Please try again.");
+      setErrorMessage("We could not update the password. Please request a new recovery link.");
     } finally {
       setLoading(false);
     }
@@ -126,7 +143,7 @@ export default function ResetPasswordPage() {
           ) : !hasValidSession ? (
             <div className="space-y-5 text-center">
               <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-4 text-xs text-amber-300 leading-relaxed">
-                Password reset link is invalid or has expired. For security, recovery links are single-use and time-limited.
+                The recovery link is invalid or has expired. Request a new link to continue.
               </div>
 
               <div className="pt-2 flex flex-col gap-3">

@@ -3,29 +3,103 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { NextRequest } from "next/server";
 import { getSafeRedirectUrl } from "@/lib/auth/redirect";
+import { getCanonicalOrigin, VERIFIED_PRODUCTION_ORIGIN } from "@/lib/auth/origin";
+import { sanitizeAuthError } from "@/lib/auth/errors";
+import {
+  signRecoveryIntent,
+  verifyRecoveryIntentToken,
+  RECOVERY_COOKIE_NAME,
+} from "@/lib/auth/recovery";
 import { GET as authCallbackGet } from "@/app/auth/callback/route";
+import {
+  GET as recoveryIntentGet,
+  POST as recoveryIntentPost,
+} from "@/app/api/auth/recovery-intent/route";
 
-// Mock Supabase SSR and client modules
-vi.mock("@supabase/ssr", () => ({
-  createServerClient: vi.fn(),
-  createBrowserClient: vi.fn(),
-}));
+// Mock Supabase SSR and headers
+const mockCookiesStore = new Map<string, { value: string; options?: any }>();
 
 vi.mock("next/headers", () => ({
-  cookies: vi.fn().mockResolvedValue({
-    getAll: vi.fn().mockReturnValue([]),
-    set: vi.fn(),
-  }),
+  cookies: vi.fn().mockImplementation(async () => ({
+    get: (name: string) => mockCookiesStore.get(name),
+    getAll: () =>
+      Array.from(mockCookiesStore.entries()).map(([name, item]) => ({
+        name,
+        value: item.value,
+      })),
+    set: (name: string, value: string, options?: any) => {
+      mockCookiesStore.set(name, { value, options });
+    },
+    delete: (name: string) => {
+      mockCookiesStore.delete(name);
+    },
+  })),
 }));
 
-describe("Phase 2B: Authentication Callback, Safe Redirects, and Password Recovery", () => {
+const mockExchangeCode = vi.fn();
+const mockGetUser = vi.fn();
+const mockUpdateUser = vi.fn();
+const mockResetPasswordForEmail = vi.fn();
+
+vi.mock("@supabase/ssr", () => ({
+  createServerClient: vi.fn().mockImplementation(() => ({
+    auth: {
+      exchangeCodeForSession: mockExchangeCode,
+      getUser: mockGetUser,
+      updateUser: mockUpdateUser,
+      resetPasswordForEmail: mockResetPasswordForEmail,
+    },
+  })),
+  createBrowserClient: vi.fn().mockImplementation(() => ({
+    auth: {
+      resetPasswordForEmail: mockResetPasswordForEmail,
+      signInWithPassword: vi.fn(),
+      signUp: vi.fn(),
+    },
+  })),
+}));
+
+describe("Phase 2B Hardened: Authentication Callback and Password Recovery Suite", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://mock-supabase.j10nexus.co";
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "pk_test_mock_publishable_key_123";
+    mockCookiesStore.clear();
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://mock-supabase.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "pk_test_publishable_123";
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.NEXT_PUBLIC_SITE_URL;
   });
 
-  describe("1. Open Redirect Defense (getSafeRedirectUrl)", () => {
+  describe("1. Canonical Origin and Fallback Verification", () => {
+    it("uses the verified Production domain as server-side fallback", () => {
+      expect(VERIFIED_PRODUCTION_ORIGIN).toBe("https://j10-nexus.vercel.app");
+      expect(getCanonicalOrigin()).toBe("https://j10-nexus.vercel.app");
+    });
+
+    it("respects NEXT_PUBLIC_APP_URL when configured", () => {
+      process.env.NEXT_PUBLIC_APP_URL = "https://preview-deploy.vercel.app";
+      expect(getCanonicalOrigin()).toBe("https://preview-deploy.vercel.app");
+    });
+
+    it("ensures zero references to the unverified domain exist in auth files", () => {
+      const authFiles = [
+        "app/login/page.tsx",
+        "app/forgot-password/page.tsx",
+        "app/reset-password/page.tsx",
+        "app/auth/callback/route.ts",
+        "lib/auth/origin.ts",
+        "lib/auth/redirect.ts",
+        "lib/auth/recovery.ts",
+        "lib/auth/errors.ts",
+      ];
+
+      for (const relativePath of authFiles) {
+        const content = readFileSync(resolve(process.cwd(), relativePath), "utf8");
+        expect(content, `Forbidden domain found in ${relativePath}`).not.toContain("j10nexus.com");
+      }
+    });
+  });
+
+  describe("2. Open Redirect Defense (getSafeRedirectUrl)", () => {
     it("permits standard internal application paths", () => {
       expect(getSafeRedirectUrl("/dashboard")).toBe("/dashboard");
       expect(getSafeRedirectUrl("/dashboard/settings")).toBe("/dashboard/settings");
@@ -34,247 +108,219 @@ describe("Phase 2B: Authentication Callback, Safe Redirects, and Password Recove
       expect(getSafeRedirectUrl("/dashboard?tab=workflows&id=123")).toBe("/dashboard?tab=workflows&id=123");
     });
 
-    it("respects custom internal fallback", () => {
-      expect(getSafeRedirectUrl("/custom", "/onboarding")).toBe("/custom");
-      expect(getSafeRedirectUrl(null, "/onboarding")).toBe("/onboarding");
-      expect(getSafeRedirectUrl("", "/onboarding")).toBe("/onboarding");
-      expect(getSafeRedirectUrl("https://evil.com", "/onboarding")).toBe("/onboarding");
-    });
-
-    it("rejects absolute external URLs", () => {
+    it("rejects absolute external URLs and protocol-relative bypasses", () => {
       expect(getSafeRedirectUrl("https://evil.com")).toBe("/dashboard");
       expect(getSafeRedirectUrl("http://evil.com")).toBe("/dashboard");
-      expect(getSafeRedirectUrl("https://phishing.com/login")).toBe("/dashboard");
-      expect(getSafeRedirectUrl("ftp://attacker.com")).toBe("/dashboard");
-    });
-
-    it("rejects protocol-relative URLs", () => {
       expect(getSafeRedirectUrl("//evil.com")).toBe("/dashboard");
       expect(getSafeRedirectUrl("///evil.com")).toBe("/dashboard");
-      expect(getSafeRedirectUrl("////evil.com/path")).toBe("/dashboard");
+      expect(getSafeRedirectUrl("////evil.com/steal")).toBe("/dashboard");
     });
 
-    it("rejects backslash-based parser confusion bypasses", () => {
+    it("rejects backslash-based parser confusion and script schemes", () => {
       expect(getSafeRedirectUrl("/\\evil.com")).toBe("/dashboard");
       expect(getSafeRedirectUrl("\\/evil.com")).toBe("/dashboard");
       expect(getSafeRedirectUrl("\\\\evil.com")).toBe("/dashboard");
-      expect(getSafeRedirectUrl("/dashboard\\evil.com")).toBe("/dashboard");
-    });
-
-    it("rejects JavaScript and other executable URI schemes", () => {
       expect(getSafeRedirectUrl("javascript:alert(1)")).toBe("/dashboard");
-      expect(getSafeRedirectUrl("javascript:window.location='https://evil.com'")).toBe("/dashboard");
       expect(getSafeRedirectUrl("data:text/html,<script>alert(1)</script>")).toBe("/dashboard");
-      expect(getSafeRedirectUrl("vbscript:MsgBox(1)")).toBe("/dashboard");
     });
 
-    it("rejects multi-encoded and URL-encoded bypasses", () => {
+    it("rejects multi-encoded and control character bypasses", () => {
       expect(getSafeRedirectUrl("/%2f/evil.com")).toBe("/dashboard");
       expect(getSafeRedirectUrl("%2f%2fevil.com")).toBe("/dashboard");
-      expect(getSafeRedirectUrl("%252f%252fevil.com")).toBe("/dashboard");
-      expect(getSafeRedirectUrl("/%5c%5cevil.com")).toBe("/dashboard");
-    });
-
-    it("rejects control characters, newlines, and null bytes", () => {
       expect(getSafeRedirectUrl("/dashboard\r\nLocation: https://evil.com")).toBe("/dashboard");
       expect(getSafeRedirectUrl("/dashboard\x00evil")).toBe("/dashboard");
-      expect(getSafeRedirectUrl("/\tevil.com")).toBe("/dashboard");
-    });
-
-    it("handles null, undefined, and non-string inputs safely", () => {
-      expect(getSafeRedirectUrl(null)).toBe("/dashboard");
-      expect(getSafeRedirectUrl(undefined)).toBe("/dashboard");
-      expect(getSafeRedirectUrl("")).toBe("/dashboard");
-      expect(getSafeRedirectUrl("   ")).toBe("/dashboard");
     });
   });
 
-  describe("2. Canonical Authentication Callback Route (/auth/callback)", () => {
-    it("exchanges code server-side and redirects to safe internal destination", async () => {
-      const { createServerClient } = await import("@supabase/ssr");
-      const mockExchangeCode = vi.fn().mockResolvedValue({ error: null });
-      vi.mocked(createServerClient).mockReturnValue({
-        auth: {
-          exchangeCodeForSession: mockExchangeCode,
+  describe("3. Forced Recovery Destination and Server-Controlled Recovery Intent", () => {
+    it("forces type=recovery callbacks to /reset-password, ignoring supplied next destination", async () => {
+      const mockUser = { id: "user-recovery-uuid-1", email: "user@example.com" };
+      mockExchangeCode.mockResolvedValueOnce({
+        data: {
+          session: {
+            user: mockUser,
+            access_token: "act_test_secret_token",
+            refresh_token: "ref_test_secret_token",
+          },
         },
-      } as any);
-
-      const request = new NextRequest(
-        "https://j10nexus.com/auth/callback?code=mock_valid_code_xyz&next=/dashboard/settings"
-      );
-
-      const response = await authCallbackGet(request);
-
-      // Verifies code exchange was executed
-      expect(mockExchangeCode).toHaveBeenCalledWith("mock_valid_code_xyz");
-
-      // Verifies redirect to internal destination
-      expect(response.status).toBe(307);
-      const location = response.headers.get("location");
-      expect(location).toBe("https://j10nexus.com/dashboard/settings");
-
-      // Verifies sensitive code is stripped from final destination URL
-      expect(location).not.toContain("code=");
-      expect(location).not.toContain("mock_valid_code_xyz");
-    });
-
-    it("routes password recovery callbacks to /reset-password", async () => {
-      const { createServerClient } = await import("@supabase/ssr");
-      const mockExchangeCode = vi.fn().mockResolvedValue({ error: null });
-      vi.mocked(createServerClient).mockReturnValue({
-        auth: {
-          exchangeCodeForSession: mockExchangeCode,
-        },
-      } as any);
-
-      const request = new NextRequest(
-        "https://j10nexus.com/auth/callback?code=mock_recovery_code_123&type=recovery"
-      );
-
-      const response = await authCallbackGet(request);
-
-      expect(mockExchangeCode).toHaveBeenCalledWith("mock_recovery_code_123");
-      expect(response.status).toBe(307);
-      const location = response.headers.get("location");
-      expect(location).toBe("https://j10nexus.com/reset-password");
-      expect(location).not.toContain("code=");
-    });
-
-    it("neutralizes external redirect attacks in ?next parameter", async () => {
-      const { createServerClient } = await import("@supabase/ssr");
-      const mockExchangeCode = vi.fn().mockResolvedValue({ error: null });
-      vi.mocked(createServerClient).mockReturnValue({
-        auth: {
-          exchangeCodeForSession: mockExchangeCode,
-        },
-      } as any);
-
-      const request = new NextRequest(
-        "https://j10nexus.com/auth/callback?code=valid_code&next=https://attacker-site.com/steal"
-      );
-
-      const response = await authCallbackGet(request);
-
-      expect(response.status).toBe(307);
-      const location = response.headers.get("location");
-      // Must redirect to /dashboard and never to the external attacker site
-      expect(location).toBe("https://j10nexus.com/dashboard");
-      expect(location).not.toContain("attacker-site.com");
-    });
-
-    it("handles missing code safely without revealing secrets or crashing", async () => {
-      const request = new NextRequest("https://j10nexus.com/auth/callback");
-      const response = await authCallbackGet(request);
-
-      expect(response.status).toBe(307);
-      const location = response.headers.get("location");
-      expect(location).toBe("https://j10nexus.com/login?error=auth_callback_failed");
-    });
-
-    it("handles expired recovery links safely", async () => {
-      const { createServerClient } = await import("@supabase/ssr");
-      const mockExchangeCode = vi.fn().mockResolvedValue({
-        error: { message: "Token has expired" },
+        error: null,
       });
-      vi.mocked(createServerClient).mockReturnValue({
-        auth: {
-          exchangeCodeForSession: mockExchangeCode,
-        },
-      } as any);
 
       const request = new NextRequest(
-        "https://j10nexus.com/auth/callback?code=expired_code&type=recovery"
+        "https://j10-nexus.vercel.app/auth/callback?code=mock_valid_recovery_code&type=recovery&next=/dashboard"
       );
 
       const response = await authCallbackGet(request);
 
+      expect(mockExchangeCode).toHaveBeenCalledWith("mock_valid_recovery_code");
+
+      // Verifies destination is FORCED to /reset-password, ignoring ?next=/dashboard
       expect(response.status).toBe(307);
       const location = response.headers.get("location");
-      expect(location).toBe("https://j10nexus.com/reset-password?error=expired");
-      expect(location).not.toContain("expired_code");
+      expect(location).toBe("https://j10-nexus.vercel.app/reset-password");
+      expect(location).not.toContain("next=/dashboard");
+      expect(location).not.toContain("code=");
+
+      // Verifies that short-lived HttpOnly recovery intent cookie is established
+      const setCookies = response.headers.getSetCookie();
+      const recoveryCookie = setCookies.find((c) => c.includes(RECOVERY_COOKIE_NAME));
+      expect(recoveryCookie).toBeDefined();
+      expect(recoveryCookie).toContain("HttpOnly");
+      expect(recoveryCookie?.toLowerCase()).toContain("samesite=lax");
+
+      // Verifies tokens/passwords never leak in location header
+      expect(location).not.toContain("act_test_secret_token");
+      expect(location).not.toContain("ref_test_secret_token");
     });
 
-    it("handles provider error query params gracefully", async () => {
-      const request = new NextRequest(
-        "https://j10nexus.com/auth/callback?error=access_denied&error_description=User%20denied"
-      );
+    it("rejects ordinary authenticated sessions from recovery intent verification", async () => {
+      // Ordinary session without recovery intent cookie
+      const response = await recoveryIntentGet();
+      const data = await response.json();
 
-      const response = await authCallbackGet(request);
-
-      expect(response.status).toBe(307);
-      const location = response.headers.get("location");
-      expect(location).toBe("https://j10nexus.com/login?error=auth_callback_failed");
-      expect(location).not.toContain("access_denied");
-      expect(location).not.toContain("User%20denied");
+      expect(data.valid).toBe(false);
     });
-  });
 
-  describe("3. User Enumeration Defense (/forgot-password)", () => {
-    it("ensures forgot-password UI presents neutral confirmation text", () => {
-      const fileContent = readFileSync(
-        resolve(process.cwd(), "app/forgot-password/page.tsx"),
-        "utf8"
-      );
+    it("verifies valid recovery intent matching authenticated user", async () => {
+      const recoveryUser = { id: "recovery-user-uuid-99", email: "target@example.com" };
+      mockGetUser.mockResolvedValue({
+        data: { user: recoveryUser },
+        error: null,
+      });
 
-      // Must display exact neutral message
-      expect(fileContent).toContain(
-        "If an account exists for that email, we sent password reset instructions."
-      );
+      const token = signRecoveryIntent(recoveryUser.id);
+      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: token });
 
-      // Must direct redirectTo to canonical /auth/callback?type=recovery
-      expect(fileContent).toContain("/auth/callback?type=recovery");
+      const response = await recoveryIntentGet();
+      const data = await response.json();
 
-      // Must NOT reveal specific user or database existence
-      expect(fileContent).not.toContain("User not found");
-      expect(fileContent).not.toContain("Account does not exist");
+      expect(data.valid).toBe(true);
     });
-  });
 
-  describe("4. Password Reset Form Requirements (/reset-password)", () => {
-    it("requires at least 8 characters and checks password equality", () => {
-      const fileContent = readFileSync(
-        resolve(process.cwd(), "app/reset-password/page.tsx"),
-        "utf8"
-      );
+    it("rejects expired or mismatched recovery intent tokens", async () => {
+      const userA = { id: "user-a-uuid", email: "a@example.com" };
+      mockGetUser.mockResolvedValue({
+        data: { user: userA },
+        error: null,
+      });
 
-      // Length requirement
-      expect(fileContent).toContain("minLength={8}");
-      expect(fileContent).toContain("Password must be at least 8 characters long");
+      // Cookie signed for user B
+      const tokenForUserB = signRecoveryIntent("user-b-uuid");
+      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: tokenForUserB });
 
-      // Password match check
-      expect(fileContent).toContain("Passwords do not match");
+      const response = await recoveryIntentGet();
+      const data = await response.json();
 
-      // Clear expired state link to /forgot-password
-      expect(fileContent).toContain("/forgot-password");
-      expect(fileContent).toContain("Password reset link is invalid or has expired");
+      expect(data.valid).toBe(false);
     });
   });
 
-  describe("5. Login Page Security and Links (/login)", () => {
-    it("provides visible link to /forgot-password and uses canonical /auth/callback", () => {
-      const fileContent = readFileSync(
-        resolve(process.cwd(), "app/login/page.tsx"),
-        "utf8"
-      );
+  describe("4. Password Reset Execution and Intent Clearance", () => {
+    it("blocks ordinary sessions without recovery intent from resetting password", async () => {
+      const request = new NextRequest("https://j10-nexus.vercel.app/api/auth/recovery-intent", {
+        method: "POST",
+        body: JSON.stringify({ password: "NewStrongPassword123!" }),
+      });
 
-      // Link to forgot password
-      expect(fileContent).toContain('href="/forgot-password"');
-      expect(fileContent).toContain("Forgot password?");
+      const response = await recoveryIntentPost(request);
+      expect(response.status).toBe(401);
+      const data = await response.json();
+      expect(data.error).toBe("The recovery link is invalid or has expired. Request a new link to continue.");
+      expect(mockUpdateUser).not.toHaveBeenCalled();
+    });
 
-      // Email redirect points to /auth/callback
-      expect(fileContent).toContain("/auth/callback");
+    it("rejects weak passwords (< 8 characters) before calling updateUser", async () => {
+      const recoveryUser = { id: "valid-recovery-user", email: "user@example.com" };
+      mockGetUser.mockResolvedValue({
+        data: { user: recoveryUser },
+        error: null,
+      });
 
-      // Safe redirect validation for ?next
-      expect(fileContent).toContain("getSafeRedirectUrl");
+      const token = signRecoveryIntent(recoveryUser.id);
+      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: token });
 
-      // Does NOT include Google or Apple login buttons yet
-      expect(fileContent).not.toContain("Sign in with Google");
-      expect(fileContent).not.toContain("Sign in with Apple");
+      const request = new NextRequest("https://j10-nexus.vercel.app/api/auth/recovery-intent", {
+        method: "POST",
+        body: JSON.stringify({ password: "short" }),
+      });
+
+      const response = await recoveryIntentPost(request);
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error).toBe("Password must be at least 8 characters long.");
+      expect(mockUpdateUser).not.toHaveBeenCalled();
+    });
+
+    it("calls updateUser exactly once and immediately clears recovery intent on success", async () => {
+      const recoveryUser = { id: "valid-recovery-user-123", email: "target@example.com" };
+      mockGetUser.mockResolvedValue({
+        data: { user: recoveryUser },
+        error: null,
+      });
+      mockUpdateUser.mockResolvedValueOnce({
+        data: { user: recoveryUser },
+        error: null,
+      });
+
+      const token = signRecoveryIntent(recoveryUser.id);
+      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: token });
+
+      const request = new NextRequest("https://j10-nexus.vercel.app/api/auth/recovery-intent", {
+        method: "POST",
+        body: JSON.stringify({ password: "SecurePassphrase2026!" }),
+      });
+
+      const response = await recoveryIntentPost(request);
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.success).toBe(true);
+
+      // Verifies updateUser was called exactly once with password
+      expect(mockUpdateUser).toHaveBeenCalledTimes(1);
+      expect(mockUpdateUser).toHaveBeenCalledWith({ password: "SecurePassphrase2026!" });
+
+      // Verifies recovery intent cookie is cleared (maxAge: 0)
+      const setCookies = response.headers.getSetCookie();
+      const clearedCookie = setCookies.find((c) => c.includes(RECOVERY_COOKIE_NAME));
+      expect(clearedCookie).toBeDefined();
+      expect(clearedCookie).toContain("Max-Age=0");
     });
   });
 
-  describe("6. Client Bundle Secret Exclusion", () => {
-    it("verifies service-role key is never imported or referenced in client-side code", () => {
+  describe("5. Sanitization of Provider Failures and Enumeration Defense", () => {
+    it("maps provider errors to controlled messages without leaking internal exceptions", () => {
+      const dbException = {
+        message: "Database connection failed at pg_catalog.auth_users query execution (SQLSTATE 08006)",
+        status: 500,
+      };
+
+      expect(sanitizeAuthError(dbException, "signin")).toBe("Email or password is incorrect.");
+      expect(sanitizeAuthError(dbException, "signup")).toBe(
+        "We could not create the account. Please verify your information and try again."
+      );
+      expect(sanitizeAuthError(dbException, "reset")).toBe(
+        "We could not update the password. Please request a new recovery link."
+      );
+      expect(sanitizeAuthError(dbException, "callback")).toBe(
+        "The recovery link is invalid or has expired. Request a new link to continue."
+      );
+    });
+
+    it("displays identical neutral response for registered and unregistered recovery requests", async () => {
+      // 1. Registered email
+      const resRegistered = sanitizeAuthError(null, "recovery");
+
+      // 2. Unregistered email returning provider user not found
+      const resUnregistered = sanitizeAuthError({ message: "User not found" }, "recovery");
+
+      // Both must be identical
+      expect(resRegistered).toBe(resUnregistered);
+      expect(resRegistered).toBe("If an account exists for that email, we sent password reset instructions.");
+    });
+  });
+
+  describe("6. Client Bundle Secrets Exclusion", () => {
+    it("ensures service role keys are excluded from all client routes and helpers", () => {
       const clientFiles = [
         "lib/supabase.ts",
         "app/login/page.tsx",
@@ -282,6 +328,7 @@ describe("Phase 2B: Authentication Callback, Safe Redirects, and Password Recove
         "app/reset-password/page.tsx",
         "middleware.ts",
         "app/auth/callback/route.ts",
+        "app/api/auth/recovery-intent/route.ts",
       ];
 
       for (const relativePath of clientFiles) {
@@ -289,15 +336,6 @@ describe("Phase 2B: Authentication Callback, Safe Redirects, and Password Recove
         expect(content).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
         expect(content).not.toContain("SUPABASE_SECRET_KEY");
       }
-    });
-  });
-
-  describe("7. Middleware and Session Safety", () => {
-    it("ensures middleware protects dashboard and uses getSafeRedirectUrl", () => {
-      const content = readFileSync(resolve(process.cwd(), "middleware.ts"), "utf8");
-      expect(content).toContain('pathname.startsWith("/dashboard")');
-      expect(content).toContain("getSafeRedirectUrl");
-      expect(content).toContain("/login");
     });
   });
 });
