@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { DEMO_REVENUE_DASHBOARD_DATA } from "../../lib/dashboard/demo-fixture";
 import {
   dashboardNavigationItems,
+  primaryNavigationItems,
   readyDashboardNavigationItems,
 } from "../../lib/dashboard/navigation";
 import type { DashboardViewTab } from "../../components/dashboard/RevenueCommandCenter";
@@ -10,19 +11,18 @@ import type { RevenueCommandDashboardData } from "../../types/revenue-dashboard"
 
 describe("Revenue Command Dashboard - Commercial Architecture", () => {
   describe("Primary Navigation Simplification", () => {
-    it("exposes exactly the 8 core commercial routes for launch", () => {
-      expect(readyDashboardNavigationItems).toHaveLength(8);
+    it("exposes exactly the 7 primary canonical J10 routes", () => {
+      expect(primaryNavigationItems).toHaveLength(7);
 
-      const hrefs = readyDashboardNavigationItems.map((item) => item.href);
+      const hrefs = primaryNavigationItems.map((item) => item.href);
       expect(hrefs).toEqual([
         "/dashboard",
-        "/dashboard/bot-setup?tab=simulator",
         "/dashboard/inbox",
         "/dashboard/crm",
-        "/dashboard/bot-setup",
-        "/dashboard/connections",
-        "/dashboard/revenue",
-        "/dashboard/settings",
+        "/dashboard/booking",
+        "/dashboard/growth",
+        "/dashboard/ai-operator",
+        "/dashboard/pay",
       ]);
     });
 

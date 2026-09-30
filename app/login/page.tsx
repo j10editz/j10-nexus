@@ -211,15 +211,18 @@ export default function LoginPage() {
           </div>
 
           {/* Navigation link to dedicated Signup */}
-          <div className="mt-6 pt-5 border-t border-white/[0.06] text-center">
+          <div className="mt-6 pt-5 border-t border-white/[0.06] text-center space-y-2">
             <p className="text-xs text-[#8d96a8]">
               Don&apos;t have an account?{" "}
               <Link
                 href={signupUrl}
                 className="font-semibold text-cyan-300 hover:text-cyan-200 transition"
               >
-                Create an account
+                {"Create Account & Start Trial"}
               </Link>
+            </p>
+            <p className="text-[11px] text-[#5f697d]">
+              Your 72-hour free trial starts after you complete and approve Outcome Onboarding.
             </p>
           </div>
         </div>

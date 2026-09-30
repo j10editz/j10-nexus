@@ -34,7 +34,7 @@ interface ConnectionItem {
   name: string;
   identifier: string;
   type: string;
-  status: "active" | "pending" | "action_required" | "degraded" | "local_disabled" | "disconnected" | "not_connected" | "connecting";
+  status: "active" | "pending" | "action_required" | "degraded" | "local_disabled" | "disconnected" | "not_connected" | "connecting" | "coming_soon";
   mode: "telegram_business" | "shared_bot" | "custom_bot" | "whatsapp_cloud";
   canReply?: boolean;
   isEnabled?: boolean;
@@ -213,16 +213,76 @@ export default function ConnectionsDashboardPage() {
         });
       }
 
-      // Paid VIP Client Community
+      // 3. Native Website Chat & Lead Funnel (Active embedded lead engine)
       items.push({
-        id: "vip-group",
-        provider: "telegram_group",
-        name: "J10 VIP Client Community",
-        identifier: "Private Mastermind Channel",
-        type: "Paid Membership Gating (Stripe Auto-Join)",
+        id: "website-lead-forms",
+        provider: "website",
+        name: "Website Chat & Lead Funnel",
+        identifier: "Embedded Lead Engine",
+        type: "Native J10 Intake Engine",
         status: "active",
         mode: "shared_bot",
-        shareUrl: "https://t.me/+J10_VIP_COMMUNITY_LIVE",
+        aiState: "Autopilot (Active)",
+      });
+
+      // 4. Google Calendar (Backend Adapter Available)
+      items.push({
+        id: "google-calendar",
+        provider: "google_calendar",
+        name: "Google Calendar",
+        identifier: "Availability & Appointment Sync",
+        type: "Two-Way Calendar Sync",
+        status: "not_connected",
+        mode: "shared_bot",
+        aiState: "Available to connect",
+      });
+
+      // 5. Email & Gmail (Backend Adapter Available)
+      items.push({
+        id: "google-gmail",
+        provider: "gmail",
+        name: "Email & Gmail",
+        identifier: "Inbound Customer Threading",
+        type: "Google Workspace / Gmail Sync",
+        status: "not_connected",
+        mode: "shared_bot",
+        aiState: "Available to connect",
+      });
+
+      // 6. Phone / SMS / Missed-Call Text-Back (Coming Soon)
+      items.push({
+        id: "phone-sms",
+        provider: "phone",
+        name: "Phone / SMS / Missed-Call",
+        identifier: "Instant Text-Back & Voice Intake",
+        type: "Telephony Carrier Gateway",
+        status: "coming_soon",
+        mode: "shared_bot",
+        aiState: "Coming soon (Phase 3B)",
+      });
+
+      // 7. Instagram Direct (Coming Soon)
+      items.push({
+        id: "instagram-direct",
+        provider: "instagram",
+        name: "Instagram Direct",
+        identifier: "Direct Messages & Story Mentions",
+        type: "Meta Graph API (DM)",
+        status: "coming_soon",
+        mode: "shared_bot",
+        aiState: "Coming soon (Phase 3B)",
+      });
+
+      // 8. Facebook Messenger (Coming Soon)
+      items.push({
+        id: "facebook-messenger",
+        provider: "messenger",
+        name: "Facebook Messenger",
+        identifier: "Business Page Inbound Messages",
+        type: "Meta Graph API (Page)",
+        status: "coming_soon",
+        mode: "shared_bot",
+        aiState: "Coming soon (Phase 3B)",
       });
 
       setConnections(items);
@@ -476,14 +536,14 @@ export default function ConnectionsDashboardPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-              Connections Center
+              J10 Connections
             </h1>
             <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-blue-400">
               Secretary Mode Certified
             </span>
           </div>
           <p className="mt-1 text-sm text-white/50">
-            Manage your Telegram Business accounts, customer channels, and AI Receptionist permissions.
+            Manage your 8 business communication channels with verified evidence-based connectivity.
           </p>
         </div>
 
@@ -727,7 +787,22 @@ export default function ConnectionsDashboardPage() {
 
                     <td className="px-5 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {conn.provider === "whatsapp" ? (
+                        {conn.status === "coming_soon" ? (
+                          <span className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-white/40">
+                            Coming Soon (Phase 3B)
+                          </span>
+                        ) : conn.provider === "website" ? (
+                          <Link
+                            href="/dashboard/growth?tab=forms"
+                            className="flex h-7 items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 text-[11px] font-medium text-white/80 transition hover:bg-white/[0.08] hover:text-white"
+                          >
+                            View Lead Funnel
+                          </Link>
+                        ) : conn.provider === "google_calendar" || conn.provider === "gmail" ? (
+                          <span className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-white/40">
+                            Available in Phase 3B
+                          </span>
+                        ) : conn.provider === "whatsapp" ? (
                           conn.status === "not_connected" ? (
                             <button
                               type="button"
@@ -770,7 +845,7 @@ export default function ConnectionsDashboardPage() {
                               </button>
                             </>
                           )
-                        ) : conn.status === "pending" ? (
+                        ) : conn.status === "pending" || conn.status === "not_connected" ? (
                           <button
                             type="button"
                             onClick={() => {

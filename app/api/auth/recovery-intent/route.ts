@@ -7,11 +7,9 @@ import {
 } from "@/lib/auth/recovery";
 import { sanitizeAuthError } from "@/lib/auth/errors";
 
-export async function GET(request?: NextRequest) {
+export async function GET() {
   const cookieStore = await cookies();
-  const recoveryCookie =
-    cookieStore.get(RECOVERY_COOKIE_NAME)?.value ||
-    request?.cookies.get(RECOVERY_COOKIE_NAME)?.value;
+  const recoveryCookie = cookieStore.get(RECOVERY_COOKIE_NAME)?.value;
 
   if (!recoveryCookie) {
     return NextResponse.json({ valid: false });
