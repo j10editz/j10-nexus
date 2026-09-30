@@ -23,6 +23,14 @@ export const metadata = {
   alternates: { canonical: "/status" },
 };
 
+function formatUtcTimestamp(isoString: string): string {
+  const d = new Date(isoString);
+  const hours = String(d.getUTCHours()).padStart(2, "0");
+  const minutes = String(d.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(d.getUTCSeconds()).padStart(2, "0");
+  return `Checked ${hours}:${minutes}:${seconds} UTC`;
+}
+
 function StatusBadge({ status }: { status: ComponentStatus }) {
   switch (status) {
     case "Operational":
@@ -148,7 +156,7 @@ export default async function StatusPage() {
             </h2>
             <div className="flex items-center gap-1.5 text-xs text-[#5f697d]">
               <Clock className="w-3.5 h-3.5" aria-hidden="true" />
-              <span>Real-Time Probes</span>
+              <span>Service readiness</span>
             </div>
           </div>
 
@@ -177,7 +185,7 @@ export default async function StatusPage() {
 
                 <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
                   <span className="text-[10px] text-[#5f697d] font-mono">
-                    Checked {new Date(svc.lastChecked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    {formatUtcTimestamp(svc.lastChecked)}
                   </span>
                   <StatusBadge status={svc.status} />
                 </div>

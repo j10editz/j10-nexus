@@ -110,10 +110,13 @@ async function checkDatabase(checkedAt: string): Promise<ComponentHealth> {
 /**
  * 2. Authentication Service Probe
  * Verifies Supabase Auth reachability. Does NOT claim to continuously monitor workspace boundaries or tenant isolation.
+ * Supports NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY primarily, with NEXT_PUBLIC_SUPABASE_ANON_KEY as legacy fallback.
  */
-async function checkAuth(checkedAt: string): Promise<ComponentHealth> {
+export async function checkAuth(checkedAt: string): Promise<ComponentHealth> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const publicKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl) {
     return {
@@ -126,11 +129,22 @@ async function checkAuth(checkedAt: string): Promise<ComponentHealth> {
     };
   }
 
+  if (!publicKey) {
+    return {
+      id: "auth",
+      name: "Authentication Service",
+      category: "Security & Identity",
+      status: "Configured",
+      lastChecked: checkedAt,
+      explanation: "Authentication endpoint configured; public client key not provisioned in environment.",
+    };
+  }
+
   try {
     const res = await safeFetchPing(
       `${supabaseUrl}/auth/v1/health`,
       {
-        headers: anonKey ? { apikey: anonKey } : {},
+        headers: { apikey: publicKey },
       },
       1500
     );

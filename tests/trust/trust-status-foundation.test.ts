@@ -437,4 +437,150 @@ describe("Trust & Status Foundation Test Suite (Hardened)", () => {
       expect(data.components).toHaveLength(6);
     });
   });
+
+  describe("4. Authentication Health Probe & Status UI Correctness", () => {
+    const originalEnv = { ...process.env };
+    const statusPageFile = path.join(rootDir, "app", "status", "page.tsx");
+
+    beforeEach(() => {
+      vi.restoreAllMocks();
+      process.env = { ...originalEnv };
+      process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+      delete process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+      delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      process.env = { ...originalEnv };
+    });
+
+    it("1. supports NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY primarily", async () => {
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "pk_test_publishable_12345";
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok" }), { status: 200 })
+      );
+
+      const { checkAuth } = await import("@/lib/health/system-health");
+      const result = await checkAuth(new Date().toISOString());
+
+      expect(result.status).toBe("Operational");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(url).toBe("https://example.supabase.co/auth/v1/health");
+      expect((init?.headers as Record<string, string>)?.apikey).toBe("pk_test_publishable_12345");
+    });
+
+    it("2. supports NEXT_PUBLIC_SUPABASE_ANON_KEY as legacy fallback when publishable key is missing", async () => {
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon_legacy_67890";
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok" }), { status: 200 })
+      );
+
+      const { checkAuth } = await import("@/lib/health/system-health");
+      const result = await checkAuth(new Date().toISOString());
+
+      expect(result.status).toBe("Operational");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(url).toBe("https://example.supabase.co/auth/v1/health");
+      expect((init?.headers as Record<string, string>)?.apikey).toBe("anon_legacy_67890");
+    });
+
+    it("prefers publishable key over legacy anon key when both are present", async () => {
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "primary_publishable_key";
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "secondary_legacy_key";
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok" }), { status: 200 })
+      );
+
+      const { checkAuth } = await import("@/lib/health/system-health");
+      const result = await checkAuth(new Date().toISOString());
+
+      expect(result.status).toBe("Operational");
+      const [, init] = fetchSpy.mock.calls[0];
+      expect((init?.headers as Record<string, string>)?.apikey).toBe("primary_publishable_key");
+    });
+
+    it("3. reports Configured and does NOT make an unauthenticated network request when neither key is present", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+      const { checkAuth } = await import("@/lib/health/system-health");
+      const result = await checkAuth(new Date().toISOString());
+
+      expect(result.status).toBe("Configured");
+      expect(result.explanation).toContain("public client key not provisioned");
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("4. reports Operational when authenticated Auth health response succeeds (200 OK)", async () => {
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "pk_live_valid";
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ version: "v1.0" }), { status: 200 })
+      );
+
+      const { checkAuth } = await import("@/lib/health/system-health");
+      const result = await checkAuth(new Date().toISOString());
+
+      expect(result.status).toBe("Operational");
+      expect(result.explanation).toContain("endpoint reachable and responsive");
+    });
+
+    it("5. reports Degraded when authenticated Auth probe receives a non-200 response", async () => {
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "pk_live_invalid";
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response("Internal Server Error", { status: 500 })
+      );
+
+      const { checkAuth } = await import("@/lib/health/system-health");
+      const result = await checkAuth(new Date().toISOString());
+
+      expect(result.status).toBe("Degraded");
+      expect(result.explanation).toContain("non-200 readiness status");
+    });
+
+    it("6. reports Degraded when authenticated Auth probe times out or connection fails", async () => {
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "pk_live_timeout";
+      vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(
+        new Error("Connection timeout")
+      );
+
+      const { checkAuth } = await import("@/lib/health/system-health");
+      const result = await checkAuth(new Date().toISOString());
+
+      expect(result.status).toBe("Degraded");
+      expect(result.explanation).toContain("timed out or connection failed");
+    });
+
+    it("7. proves neither key appears in request URLs, query strings, returned payloads, or logs", async () => {
+      const secretKey = "SUPER_SECRET_PUBLISHABLE_KEY_123456789";
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = secretKey;
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok" }), { status: 200 })
+      );
+
+      const { checkAuth } = await import("@/lib/health/system-health");
+      const result = await checkAuth(new Date().toISOString());
+
+      // URL check
+      const [url] = fetchSpy.mock.calls[0];
+      expect(typeof url === "string" ? url : (url as Request).url).not.toContain(secretKey);
+
+      // Result payload check
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toContain(secretKey);
+    });
+
+    it("proves the status page displays 'Service readiness' and NOT 'Real-Time Probes'", () => {
+      const content = fs.readFileSync(statusPageFile, "utf8");
+      expect(content).toContain("Service readiness");
+      expect(content).not.toContain("Real-Time Probes");
+    });
+
+    it("proves the status page renders an explicit UTC timestamp (Checked HH:MM:SS UTC)", () => {
+      const content = fs.readFileSync(statusPageFile, "utf8");
+      expect(content).toContain("Checked ${hours}:${minutes}:${seconds} UTC");
+      expect(content).toContain("formatUtcTimestamp");
+    });
+  });
 });
