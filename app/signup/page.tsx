@@ -213,7 +213,7 @@ export default function SignupPage() {
                 disabled={loading}
                 className="j10-gradient w-full rounded-xl py-3.5 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(47,107,255,0.3)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {loading ? "Creating Account..." : "Create Account & Start Trial"}
+                {loading ? "Creating Account..." : "Create Account"}
               </button>
             </form>
           </div>
@@ -229,10 +229,6 @@ export default function SignupPage() {
                 Sign In
               </Link>
             </p>
-          </div>
-
-          <div className="mt-6 text-center text-[11px] text-[#5f697d]">
-            Protected by enterprise multi-tenant isolation &amp; RLS.
           </div>
         </div>
       </div>

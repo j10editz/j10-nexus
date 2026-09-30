@@ -18,6 +18,72 @@ interface SocialAuthButtonsProps {
   onLoadingChange?: (loading: boolean) => void;
 }
 
+export interface InitiateOAuthSignInParams {
+  supabase: any;
+  provider: "google" | "apple";
+  origin?: string;
+  nextUrl?: string;
+  mode: "signin" | "signup";
+  disabled?: boolean;
+  submittingProvider?: "google" | "apple" | null;
+  onError: (errorMessage: string) => void;
+  onLoadingChange?: (loading: boolean) => void;
+  setSubmittingProvider?: (provider: "google" | "apple" | null) => void;
+}
+
+export async function initiateOAuthSignIn({
+  supabase,
+  provider,
+  origin,
+  nextUrl,
+  mode,
+  disabled = false,
+  submittingProvider = null,
+  onError,
+  onLoadingChange,
+  setSubmittingProvider,
+}: InitiateOAuthSignInParams): Promise<boolean> {
+  if (disabled || submittingProvider) {
+    return false; // Prevent duplicate submissions
+  }
+
+  setSubmittingProvider?.(provider);
+  onLoadingChange?.(true);
+  onError("");
+
+  try {
+    const resolvedOrigin =
+      origin ||
+      (typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : getCanonicalOrigin());
+
+    const safeNext = getSafeRedirectUrl(nextUrl, "/dashboard");
+    const callbackUrl = `${resolvedOrigin}/auth/callback?next=${encodeURIComponent(safeNext)}`;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: callbackUrl,
+      },
+    });
+
+    if (error) {
+      onError(sanitizeAuthError(error, mode));
+      setSubmittingProvider?.(null);
+      onLoadingChange?.(false);
+      return false;
+    }
+
+    return true;
+  } catch {
+    onError("Authentication could not be initiated. Please try again or use email.");
+    setSubmittingProvider?.(null);
+    onLoadingChange?.(false);
+    return false;
+  }
+}
+
 export function SocialAuthButtons({
   providers,
   nextUrl,
@@ -37,40 +103,17 @@ export function SocialAuthButtons({
   }
 
   async function handleOAuthSignIn(provider: "google" | "apple") {
-    if (disabled || submittingProvider) {
-      return; // Prevent duplicate submissions
-    }
-
-    setSubmittingProvider(provider);
-    onLoadingChange?.(true);
-    onError("");
-
-    try {
-      const origin =
-        typeof window !== "undefined" && window.location.origin
-          ? window.location.origin
-          : getCanonicalOrigin();
-
-      const safeNext = getSafeRedirectUrl(nextUrl, "/dashboard");
-      const callbackUrl = `${origin}/auth/callback?next=${encodeURIComponent(safeNext)}`;
-
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: callbackUrl,
-        },
-      });
-
-      if (error) {
-        onError(sanitizeAuthError(error, mode));
-        setSubmittingProvider(null);
-        onLoadingChange?.(false);
-      }
-    } catch {
-      onError("Authentication could not be initiated. Please try again or use email.");
-      setSubmittingProvider(null);
-      onLoadingChange?.(false);
-    }
+    await initiateOAuthSignIn({
+      supabase,
+      provider,
+      nextUrl,
+      mode,
+      disabled,
+      submittingProvider,
+      onError,
+      onLoadingChange,
+      setSubmittingProvider,
+    });
   }
 
   const isBusy = Boolean(submittingProvider) || disabled;

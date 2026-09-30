@@ -11,26 +11,16 @@
  * - Prevents rendering unconfigured social auth buttons (truthful provider display).
  */
 
+export const CANONICAL_SUPABASE_PROJECT_REF = "fulzdhltboospethnwfk";
+export const CANONICAL_SUPABASE_URL = `https://${CANONICAL_SUPABASE_PROJECT_REF}.supabase.co`;
+
 export interface AuthProviderSettings {
   google: boolean;
   apple: boolean;
 }
 
 export async function getAuthProviderSettings(): Promise<AuthProviderSettings> {
-  // Allow test fixtures or synthetic test environments to test provider behaviors
-  if (process.env.NEXT_PUBLIC_TEST_AUTH_PROVIDERS) {
-    try {
-      const parsed = JSON.parse(process.env.NEXT_PUBLIC_TEST_AUTH_PROVIDERS);
-      return {
-        google: Boolean(parsed.google),
-        apple: Boolean(parsed.apple),
-      };
-    } catch {
-      // Fall through to live settings check
-    }
-  }
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || CANONICAL_SUPABASE_URL;
   const key =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -45,7 +35,7 @@ export async function getAuthProviderSettings(): Promise<AuthProviderSettings> {
         apikey: key,
         Authorization: `Bearer ${key}`,
       },
-      next: { revalidate: 60 },
+      next: { revalidate: 15 },
     });
 
     if (!res.ok) {

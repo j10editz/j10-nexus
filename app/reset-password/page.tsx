@@ -253,10 +253,6 @@ export default function ResetPasswordPage() {
               </button>
             </form>
           )}
-
-          <div className="mt-6 text-center text-[11px] text-[#5f697d]">
-            Protected by enterprise multi-tenant isolation &amp; RLS.
-          </div>
         </div>
       </div>
     </main>
