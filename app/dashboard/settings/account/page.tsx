@@ -20,6 +20,7 @@ export default function AccountSettingsPage() {
   const [profileError, setProfileError] = useState("");
 
   const [displayName, setDisplayName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [jobTitle, setJobTitle] = useState("");
   const [phone, setPhone] = useState("");
   const [timezone, setTimezone] = useState("UTC");
@@ -42,6 +43,7 @@ export default function AccountSettingsPage() {
         const data = await res.json();
         if (data.success) {
           setDisplayName(data.profile?.display_name || "");
+          setAvatarUrl(data.profile?.avatar_url || null);
           setJobTitle(data.profile?.job_title || "");
           setPhone(data.profile?.phone || "");
           setTimezone(data.profile?.timezone || "UTC");
@@ -221,6 +223,30 @@ export default function AccountSettingsPage() {
               <h2 className="text-base font-semibold text-white">Profile Details</h2>
               <p className="text-xs text-white/50">
                 Customizable identity details displayed across workspaces
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 flex items-center gap-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={`${displayName || "User"} avatar`}
+                width={48}
+                height={48}
+                referrerPolicy="no-referrer"
+                className="h-12 w-12 rounded-full object-cover shrink-0 ring-1 ring-white/10"
+              />
+            ) : (
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04] text-white/50">
+                <User size={24} />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-white truncate">{displayName || "User"}</p>
+              <p className="text-xs text-white/40 truncate">{currentEmail}</p>
+              <p className="text-[11px] text-white/30 mt-0.5">
+                {avatarUrl ? "Authenticated profile avatar active" : "Default generic avatar active"}
               </p>
             </div>
           </div>
