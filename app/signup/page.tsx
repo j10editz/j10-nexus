@@ -3,14 +3,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { getSafeRedirectUrl } from "@/lib/auth/redirect";
+import { getCanonicalOrigin } from "@/lib/auth/origin";
 import { sanitizeAuthError } from "@/lib/auth/errors";
 import { SocialAuthButtons } from "@/components/auth/social-auth-buttons";
 
-export default function LoginPage() {
-  const router = useRouter();
+export default function SignupPage() {
   const supabase = createClient();
 
   const [email, setEmail] = useState("");
@@ -18,6 +17,7 @@ export default function LoginPage() {
   const [nextUrl, setNextUrl] = useState<string>("/dashboard");
 
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
   const [providers, setProviders] = useState<{ google: boolean; apple: boolean }>({
@@ -33,23 +33,12 @@ export default function LoginPage() {
       setNextUrl(getSafeRedirectUrl(nextParam, "/dashboard"));
     }
 
-    // If an incoming request explicitly requested signup, redirect seamlessly to dedicated /signup
-    if (params.get("intent") === "signup") {
-      const search = params.toString();
-      router.replace(search ? `/signup?${search}` : "/signup");
-      return;
-    }
+    const plan = params.get("plan");
+    const trial = params.get("trial");
+    if (plan) window.sessionStorage.setItem("j10_launch_plan", plan);
+    if (trial === "1") window.sessionStorage.setItem("j10_launch_trial", "1");
 
-    const errorParam = params.get("error");
-    if (errorParam) {
-      if (errorParam === "auth_callback_failed") {
-        setErrorMessage("The recovery link is invalid or has expired. Request a new link to continue.");
-      } else {
-        setErrorMessage("Authentication could not be verified. Please try signing in again.");
-      }
-    }
-
-    // Discover active provider capabilities for truthful display
+    // Fetch active provider capabilities for truthful display
     async function loadProviders() {
       try {
         const res = await fetch("/api/auth/providers");
@@ -61,42 +50,63 @@ export default function LoginPage() {
           });
         }
       } catch {
+        // Safe default: hide social auth if discovery fails
         setProviders({ google: false, apple: false });
       }
     }
 
     loadProviders();
-  }, [router]);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading) return; // Prevent duplicate submissions
 
     setLoading(true);
+    setMessage("");
     setErrorMessage("");
 
+    if (password.length < 8) {
+      setErrorMessage("Password must be at least 8 characters long.");
+      setLoading(false);
+      return;
+    }
+
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const origin =
+        typeof window !== "undefined" && window.location.origin
+          ? window.location.origin
+          : getCanonicalOrigin();
+
+      const safeNext = getSafeRedirectUrl(nextUrl, "/dashboard");
+      const emailRedirectTo = `${origin}/auth/callback?next=${encodeURIComponent(safeNext)}`;
+
+      const { error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          emailRedirectTo,
+        },
       });
 
       if (error) {
-        setErrorMessage(sanitizeAuthError(error, "signin"));
+        setErrorMessage(sanitizeAuthError(error, "signup"));
         return;
       }
 
-      const safeDestination = getSafeRedirectUrl(nextUrl, "/dashboard");
-      router.push(safeDestination);
-      router.refresh();
+      setMessage(
+        "Account created. Check your email to confirm your account before signing in."
+      );
+      setEmail("");
+      setPassword("");
     } catch {
-      setErrorMessage("Email or password is incorrect.");
+      setErrorMessage("We could not create the account. Please verify your information and try again.");
     } finally {
       setLoading(false);
     }
   }
 
-  const signupUrl = nextUrl && nextUrl !== "/dashboard" ? `/signup?next=${encodeURIComponent(nextUrl)}` : "/signup";
+  const loginUrl = nextUrl && nextUrl !== "/dashboard" ? `/login?next=${encodeURIComponent(nextUrl)}` : "/login";
 
   return (
     <main className="j10-canvas flex min-h-screen items-center justify-center px-4 py-12">
@@ -121,11 +131,11 @@ export default function LoginPage() {
           </p>
 
           <h1 className="mt-2 text-3xl font-extrabold text-white tracking-tight">
-            Welcome back
+            Create your account
           </h1>
 
           <p className="mt-2 text-xs text-[#8d96a8]">
-            Sign in to access your workspace operating center.
+            Your 72-hour free trial starts after you complete and approve Outcome Onboarding.
           </p>
         </div>
 
@@ -136,7 +146,7 @@ export default function LoginPage() {
             <SocialAuthButtons
               providers={providers}
               nextUrl={nextUrl}
-              mode="signin"
+              mode="signup"
               disabled={loading}
               onError={setErrorMessage}
               onLoadingChange={setLoading}
@@ -145,14 +155,14 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label
-                  htmlFor="login-email"
+                  htmlFor="signup-email"
                   className="mb-1.5 block text-xs font-semibold text-[#8d96a8]"
                 >
                   Work Email
                 </label>
 
                 <input
-                  id="login-email"
+                  id="signup-email"
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
@@ -165,30 +175,22 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <label
-                    htmlFor="login-password"
-                    className="block text-xs font-semibold text-[#8d96a8]"
-                  >
-                    Password
-                  </label>
-
-                  <Link
-                    href="/forgot-password"
-                    className="text-[11px] font-medium text-cyan-300 hover:text-cyan-200 transition"
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
+                <label
+                  htmlFor="signup-password"
+                  className="mb-1.5 block text-xs font-semibold text-[#8d96a8]"
+                >
+                  Password
+                </label>
 
                 <input
-                  id="login-password"
+                  id="signup-password"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Enter your password"
+                  placeholder="Enter password (min. 8 characters)"
                   required
-                  autoComplete="current-password"
+                  minLength={8}
+                  autoComplete="new-password"
                   disabled={loading}
                   className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none transition placeholder:text-[#5f697d] focus:border-cyan-400 focus:bg-white/[0.05] disabled:opacity-50"
                 />
@@ -200,25 +202,31 @@ export default function LoginPage() {
                 </div>
               )}
 
+              {message && (
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-300">
+                  {message}
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={loading}
                 className="j10-gradient w-full rounded-xl py-3.5 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(47,107,255,0.3)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {loading ? "Signing In..." : "Sign In to Workspace"}
+                {loading ? "Creating Account..." : "Create Account & Start Trial"}
               </button>
             </form>
           </div>
 
-          {/* Navigation link to dedicated Signup */}
+          {/* Navigation link to Login */}
           <div className="mt-6 pt-5 border-t border-white/[0.06] text-center">
             <p className="text-xs text-[#8d96a8]">
-              Don&apos;t have an account?{" "}
+              Already have an account?{" "}
               <Link
-                href={signupUrl}
+                href={loginUrl}
                 className="font-semibold text-cyan-300 hover:text-cyan-200 transition"
               >
-                Create an account
+                Sign In
               </Link>
             </p>
           </div>
