@@ -55,6 +55,9 @@ export default function Topbar({
   const [profileOpen, setProfileOpen] = useState(false);
   const [attentionCount, setAttentionCount] = useState(0);
 
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+  const [dropdownAvatarFailed, setDropdownAvatarFailed] = useState(false);
+
   const [profileData, setProfileData] = useState<{
     displayName: string;
     jobTitle: string;
@@ -62,6 +65,7 @@ export default function Topbar({
     workspaceName: string;
     platformRole: string | null;
     email: string;
+    avatarUrl: string | null;
     loading: boolean;
     authFailed?: boolean;
   }>(() => {
@@ -73,6 +77,7 @@ export default function Topbar({
         workspaceName: "Apex Commercial & Home Services",
         platformRole: null,
         email: "demo.owner@apexservices.com",
+        avatarUrl: null,
         loading: false,
       };
     }
@@ -83,9 +88,15 @@ export default function Topbar({
       workspaceName: "",
       platformRole: null,
       email: "",
+      avatarUrl: null,
       loading: true,
     };
   });
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+    setDropdownAvatarFailed(false);
+  }, [profileData.avatarUrl]);
 
   useEffect(() => {
     if (isDemo) {
@@ -96,6 +107,7 @@ export default function Topbar({
         workspaceName: "Apex Commercial & Home Services",
         platformRole: null,
         email: "demo.owner@apexservices.com",
+        avatarUrl: null,
         loading: false,
       });
       return;
@@ -152,6 +164,7 @@ export default function Topbar({
           workspaceName: data.activeWorkspaceName || "No Active Workspace",
           platformRole: data.platformRole || null,
           email: data.user?.email || "",
+          avatarUrl: data.profile?.avatar_url || null,
           loading: false,
         });
       } catch {
@@ -471,10 +484,23 @@ export default function Topbar({
               aria-label="Open user profile menu"
               className="flex h-10 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-[#111216] px-2.5 text-left transition hover:bg-white/[0.06] sm:px-3"
             >
-              <UserCircle2
-                size={24}
-                className="text-white/80 shrink-0"
-              />
+              {profileData.avatarUrl && !avatarLoadFailed ? (
+                <img
+                  src={profileData.avatarUrl}
+                  alt={`${profileData.displayName} avatar`}
+                  width={24}
+                  height={24}
+                  referrerPolicy="no-referrer"
+                  onError={() => setAvatarLoadFailed(true)}
+                  className="h-6 w-6 rounded-full object-cover shrink-0 ring-1 ring-white/10"
+                />
+              ) : (
+                <UserCircle2
+                  size={24}
+                  className="text-white/80 shrink-0"
+                  aria-hidden="true"
+                />
+              )}
               <div className="hidden sm:block">
                 <div className="flex items-center gap-1.5">
                   <p className="text-xs font-semibold text-white truncate max-w-[120px]">
@@ -513,12 +539,33 @@ export default function Topbar({
             {profileOpen && (
               <div className="absolute right-0 top-[calc(100%+8px)] w-64 rounded-2xl border border-white/[0.09] bg-[#101115] p-2 shadow-2xl shadow-black/50 z-50">
                 <div className="rounded-xl bg-white/[0.03] px-3 py-3">
-                  <p className="text-sm font-semibold text-white truncate">
-                    {profileData.displayName}
-                  </p>
-                  <p className="mt-0.5 text-xs text-slate-400 truncate">
-                    {profileData.email}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    {profileData.avatarUrl && !dropdownAvatarFailed ? (
+                      <img
+                        src={profileData.avatarUrl}
+                        alt={`${profileData.displayName} avatar`}
+                        width={36}
+                        height={36}
+                        referrerPolicy="no-referrer"
+                        onError={() => setDropdownAvatarFailed(true)}
+                        className="h-9 w-9 rounded-full object-cover shrink-0 ring-1 ring-white/10"
+                      />
+                    ) : (
+                      <UserCircle2
+                        size={36}
+                        className="text-white/80 shrink-0"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-white truncate">
+                        {profileData.displayName}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-400 truncate">
+                        {profileData.email}
+                      </p>
+                    </div>
+                  </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
                     <span
                       className={`rounded px-2 py-0.5 ${

@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { getSafeRedirectUrl } from "@/lib/auth/redirect";
+import { OAUTH_INTENT_COOKIE_NAME } from "@/lib/auth/oauth";
 import {
   RECOVERY_COOKIE_NAME,
   RECOVERY_MAX_AGE_SECONDS,
@@ -33,10 +34,14 @@ export async function GET(request: NextRequest) {
 
   const isRecovery = type === "recovery";
 
+  const cookieStore = await cookies();
+  const oauthNextCookie = cookieStore.get(OAUTH_INTENT_COOKIE_NAME)?.value;
+  const rawNext = nextParam || oauthNextCookie;
+
   // When type=recovery, ignore arbitrary next parameter and force /reset-password
   const destination = isRecovery
     ? "/reset-password"
-    : getSafeRedirectUrl(nextParam, "/dashboard");
+    : getSafeRedirectUrl(rawNext, "/dashboard");
 
   // 1. Handle error passed from auth provider (e.g., expired link)
   if (oauthError || oauthErrorDescription) {
@@ -66,7 +71,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/login?error=auth_callback_failed", request.url));
   }
 
-  const cookieStore = await cookies();
   const cookiesToSetOnRedirect: Array<{
     name: string;
     value: string;
@@ -108,6 +112,9 @@ export async function GET(request: NextRequest) {
   cookiesToSetOnRedirect.forEach(({ name, value, options }) => {
     redirectResponse.cookies.set(name, value, options);
   });
+
+  // Clear OAuth intent cookie on successful callback so it does not linger
+  redirectResponse.cookies.delete(OAUTH_INTENT_COOKIE_NAME);
 
   // If this is a recovery callback, establish the short-lived, HttpOnly recovery intent cookie
   if (isRecovery) {

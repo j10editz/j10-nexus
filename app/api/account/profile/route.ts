@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser, createAdminSupabaseClient } from "@/lib/auth";
 import { getActiveWorkspaceContext, getUserPlatformRole, getUserProfile } from "@/lib/workspaces/server";
+import { resolveAccountAvatar } from "@/lib/auth/avatar";
 
 export async function GET() {
   try {
@@ -15,24 +16,37 @@ export async function GET() {
       getUserProfile(user.id),
     ]);
 
+    // Resolve avatar: local uploaded J10 avatar takes precedence, then trusted Google avatar fallback
+    const resolvedAvatarUrl = resolveAccountAvatar({
+      j10AvatarUrl: profile?.avatar_url,
+      googleMetadata: user.user_metadata,
+    });
+
+    const responseProfile = profile
+      ? {
+          ...profile,
+          avatar_url: resolvedAvatarUrl,
+        }
+      : {
+          user_id: user.id,
+          display_name: user.email ? user.email.split("@")[0] : "User",
+          avatar_url: resolvedAvatarUrl,
+          job_title: "",
+          phone: null,
+          locale: "en-US",
+          timezone: "UTC",
+          status: "active",
+          created_at: user.created_at,
+          updated_at: user.created_at,
+        };
+
     return NextResponse.json({
       success: true,
       user: {
         id: user.id,
         email: user.email || "",
       },
-      profile: profile || {
-        user_id: user.id,
-        display_name: user.email ? user.email.split("@")[0] : "User",
-        avatar_url: null,
-        job_title: "",
-        phone: null,
-        locale: "en-US",
-        timezone: "UTC",
-        status: "active",
-        created_at: user.created_at,
-        updated_at: user.created_at,
-      },
+      profile: responseProfile,
       platformRole,
       activeWorkspaceRole: context?.membership?.role || null,
       activeWorkspaceName: context?.workspace?.name || null,
