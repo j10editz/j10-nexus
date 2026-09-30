@@ -4,19 +4,12 @@ export const OAUTH_INTENT_COOKIE_NAME = "j10_oauth_next";
 export const OAUTH_INTENT_MAX_AGE_SECONDS = 300; // 5 minutes
 
 /**
- * Builds the canonical OAuth callback URL for Supabase signInWithOAuth.
- * Ensures the redirectTo URL is explicitly derived from the active browser origin.
+ * Builds the exact canonical OAuth callback URL for Supabase signInWithOAuth.
+ * Ensures the redirectTo URL is explicitly derived from the active browser origin
+ * with NO query parameters so that exact Supabase allowlist matching succeeds.
  */
-export function resolveOAuthCallbackUrl(
-  origin: string,
-  nextUrl?: string,
-  stripQuery = false
-): string {
-  const safeNext = getSafeRedirectUrl(nextUrl, "/dashboard");
-  if (stripQuery) {
-    return `${origin}/auth/callback`;
-  }
-  return `${origin}/auth/callback?next=${encodeURIComponent(safeNext)}`;
+export function resolveOAuthCallbackUrl(origin: string): string {
+  return `${origin}/auth/callback`;
 }
 
 /**

@@ -265,13 +265,13 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.redirectTo).toBe(`${previewOrigin}/auth/callback?next=%2Fdashboard`);
+      expect(result.redirectTo).toBe(`${previewOrigin}/auth/callback`);
 
       // Verify exact Supabase OAuth authorization URL before browser navigation
       expect(result.authorizationUrl).toBeDefined();
       const parsedAuthUrl = new URL(result.authorizationUrl!);
       const parsedRedirectTo = parsedAuthUrl.searchParams.get("redirect_to");
-      expect(parsedRedirectTo).toBe(`${previewOrigin}/auth/callback?next=%2Fdashboard`);
+      expect(parsedRedirectTo).toBe(`${previewOrigin}/auth/callback`);
     });
 
     it("proves Production options.redirectTo explicitly constructs from the Production origin", async () => {
@@ -298,13 +298,13 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.redirectTo).toBe(`${prodOrigin}/auth/callback?next=%2Fdashboard`);
+      expect(result.redirectTo).toBe(`${prodOrigin}/auth/callback`);
 
       // Verify exact Supabase OAuth authorization URL before browser navigation
       expect(result.authorizationUrl).toBeDefined();
       const parsedAuthUrl = new URL(result.authorizationUrl!);
       const parsedRedirectTo = parsedAuthUrl.searchParams.get("redirect_to");
-      expect(parsedRedirectTo).toBe(`${prodOrigin}/auth/callback?next=%2Fdashboard`);
+      expect(parsedRedirectTo).toBe(`${prodOrigin}/auth/callback`);
     });
 
     it("calls signInWithOAuth exactly once with correct provider and canonical callback", async () => {
@@ -329,7 +329,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       expect(mockSignInWithOAuth).toHaveBeenCalledWith({
         provider: "google",
         options: {
-          redirectTo: `${prodOrigin}/auth/callback?next=%2Fdashboard`,
+          redirectTo: `${prodOrigin}/auth/callback`,
         },
       });
     });
@@ -356,7 +356,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       expect(mockSignInWithOAuth).toHaveBeenCalledWith({
         provider: "apple",
         options: {
-          redirectTo: `${prodOrigin}/auth/callback?next=%2Fdashboard%2Fsettings`,
+          redirectTo: `${prodOrigin}/auth/callback`,
         },
       });
     });
@@ -381,7 +381,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       expect(mockSignInWithOAuth).toHaveBeenCalledWith({
         provider: "google",
         options: {
-          redirectTo: `${prodOrigin}/auth/callback?next=%2Fdashboard%2Frevenue%3Fperiod%3D30d`,
+          redirectTo: `${prodOrigin}/auth/callback`,
         },
       });
     });
@@ -417,7 +417,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
         expect(mockSignInWithOAuth).toHaveBeenCalledWith({
           provider: "google",
           options: {
-            redirectTo: `${prodOrigin}/auth/callback?next=%2Fdashboard`,
+            redirectTo: `${prodOrigin}/auth/callback`,
           },
         });
       }

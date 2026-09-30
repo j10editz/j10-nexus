@@ -71,7 +71,7 @@ export async function initiateOAuthSignIn({
         : getCanonicalOrigin());
 
     const safeNext = getSafeRedirectUrl(nextUrl, "/dashboard");
-    const callbackUrl = resolveOAuthCallbackUrl(resolvedOrigin, safeNext);
+    const callbackUrl = resolveOAuthCallbackUrl(resolvedOrigin);
 
     setClientOAuthIntentCookie(safeNext);
 
