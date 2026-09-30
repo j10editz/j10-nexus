@@ -1,153 +1,215 @@
-import Link from "next/link";
-import { Activity, AlertCircle, CheckCircle2, HelpCircle } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  HelpCircle,
+  Sliders,
+} from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { probeDatabaseReachability } from "@/lib/health/probe";
+import {
+  ComponentStatus,
+  probeSystemHealth,
+} from "@/lib/health/system-health";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "System Status & Telemetry",
-  description: "Live operational runtime status of J10 NEXUS services, database, and integration connectors.",
+  description:
+    "Live operational runtime status of J10 NEXUS services, database, and integration connectors.",
   alternates: { canonical: "/status" },
 };
 
-export default async function StatusPage() {
-  const health = await probeDatabaseReachability();
+function formatUtcTimestamp(isoString: string): string {
+  const d = new Date(isoString);
+  const hours = String(d.getUTCHours()).padStart(2, "0");
+  const minutes = String(d.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(d.getUTCSeconds()).padStart(2, "0");
+  return `Checked ${hours}:${minutes}:${seconds} UTC`;
+}
 
-  const services = [
-    {
-      name: "Database Server Connection",
-      category: "Storage Infrastructure",
-      probe: "Database reachable through server connection",
-      status: health.status,
-      isMonitored: true,
-      operational: health.reachable,
-    },
-    {
-      name: "Authentication & Workspace Boundaries",
-      category: "Security & Identity",
-      probe: "Supabase Auth Verification",
-      status: "Not independently monitored",
-      isMonitored: false,
-      operational: false,
-    },
-    {
-      name: "Workflow Execution Engine",
-      category: "Automation Runtime",
-      probe: "Internal Automation Trigger Engine",
-      status: "Not independently monitored",
-      isMonitored: false,
-      operational: false,
-    },
-    {
-      name: "Meta WhatsApp Cloud API Gateway",
-      category: "External Integration",
-      probe: "Webhook Ingestion Router",
-      status: "Not independently monitored",
-      isMonitored: false,
-      operational: false,
-    },
-    {
-      name: "Stripe Billing & Subscriptions",
-      category: "External Financial",
-      probe: "Stripe Webhook Verification",
-      status: "Not independently monitored",
-      isMonitored: false,
-      operational: false,
-    },
-    {
-      name: "AI Model Gateway",
-      category: "External AI Provider",
-      probe: "J10 AI Runtime Routing",
-      status: "Not independently monitored",
-      isMonitored: false,
-      operational: false,
-    },
-  ];
+function StatusBadge({ status }: { status: ComponentStatus }) {
+  switch (status) {
+    case "Operational":
+      return (
+        <span
+          role="status"
+          aria-label="Component status: Operational"
+          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-400"
+        >
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>Operational</span>
+        </span>
+      );
+
+    case "Configured":
+      return (
+        <span
+          role="status"
+          aria-label="Component status: Configured"
+          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-sky-500/10 border border-sky-500/30 text-sky-400"
+        >
+          <Sliders className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>Configured</span>
+        </span>
+      );
+
+    case "Degraded":
+      return (
+        <span
+          role="status"
+          aria-label="Component status: Degraded"
+          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 border border-amber-500/30 text-amber-400"
+        >
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>Degraded</span>
+        </span>
+      );
+
+    case "Outage":
+      return (
+        <span
+          role="status"
+          aria-label="Component status: Outage"
+          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/10 border border-rose-500/30 text-rose-400"
+        >
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>Outage</span>
+        </span>
+      );
+
+    case "Unknown":
+    default:
+      return (
+        <span
+          role="status"
+          aria-label="Component status: Unknown"
+          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-500/10 border border-slate-500/30 text-slate-300"
+        >
+          <HelpCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          <span>Unknown</span>
+        </span>
+      );
+  }
+}
+
+export default async function StatusPage() {
+  const health = await probeSystemHealth();
+  const dbComponent = health.components.find((c) => c.id === "database");
+  const latency = dbComponent?.latencyMs ?? 0;
 
   return (
     <main className="j10-canvas min-h-screen text-white">
       <Navbar />
 
       <section className="mx-auto max-w-5xl px-5 py-16 sm:py-24 lg:px-8">
+        {/* Header Telemetry Card */}
         <div className="j10-surface rounded-2xl p-6 sm:p-8 border border-white/[0.08] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <Activity className="w-4 h-4 text-cyan-300" />
+              <Activity className="w-4 h-4 text-cyan-300" aria-hidden="true" />
               <span className="text-xs font-bold uppercase tracking-wider text-cyan-300">
                 Live System Telemetry
               </span>
             </div>
-            <h1 className="text-2xl font-extrabold text-white">Operational Health Overview</h1>
+            <h1 className="text-2xl font-extrabold text-white">
+              Operational Health Overview
+            </h1>
             <p className="mt-1 text-xs text-[#8d96a8]">
-              Live server connection reachability and telemetry boundaries.
+              Evidence-based status of 6 core infrastructure, automation, and
+              gateway connectors.
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="px-3.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs font-mono text-[#cbd3e3]">
-              Latency: {health.latencyMs}ms
-            </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {latency > 0 && (
+              <div className="px-3.5 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.1] text-xs font-mono text-[#cbd3e3]">
+                DB Latency: {latency}ms
+              </div>
+            )}
             <div
               className={`px-3.5 py-1.5 rounded-xl border text-xs font-semibold ${
-                health.reachable
+                health.overallStatus === "Operational"
                   ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                  : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                  : health.overallStatus === "Configured"
+                  ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
+                  : health.overallStatus === "Degraded"
+                  ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                  : health.overallStatus === "Outage"
+                  ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                  : "bg-slate-500/10 border-slate-500/30 text-slate-300"
               }`}
             >
-              {health.status}
+              Overall: {health.overallStatus}
             </div>
           </div>
         </div>
 
+        {/* 6 Monitored Components Table / Grid */}
         <div className="mt-8 rounded-2xl border border-white/[0.08] bg-[#0b1020] overflow-hidden">
           <div className="px-6 py-4 border-b border-white/[0.08] bg-white/[0.02] flex items-center justify-between">
             <h2 className="text-xs font-bold uppercase tracking-wider text-white/80">
-              Service Components
+              Monitored Service Components ({health.components.length})
             </h2>
-            <span className="text-xs text-[#5f697d]">Server Diagnostic Boundary</span>
+            <div className="flex items-center gap-1.5 text-xs text-[#5f697d]">
+              <Clock className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Service readiness</span>
+            </div>
           </div>
+
           <div className="divide-y divide-white/[0.06]">
-            {services.map((svc) => (
-              <div key={svc.name} className="px-6 py-4 flex items-center justify-between gap-4">
+            {health.components.map((svc) => (
+              <div
+                key={svc.id}
+                className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition hover:bg-white/[0.01]"
+              >
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-white">{svc.name}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-white">
+                      {svc.name}
+                    </span>
                     <span className="text-[10px] px-2 py-0.5 rounded-md bg-white/[0.05] text-[#8d96a8] border border-white/[0.08]">
                       {svc.category}
                     </span>
+                    {typeof svc.latencyMs === "number" && (
+                      <span className="text-[10px] font-mono text-cyan-400/80 bg-cyan-950/30 px-1.5 py-0.5 rounded border border-cyan-800/30">
+                        {svc.latencyMs}ms
+                      </span>
+                    )}
                   </div>
-                  <p className="text-xs text-[#8d96a8]">{svc.probe}</p>
+                  <p className="text-xs text-[#8d96a8]">{svc.explanation}</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  {svc.isMonitored ? (
-                    svc.operational ? (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span className="text-xs text-emerald-400 font-semibold">Operational</span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle className="w-4 h-4 text-amber-400" />
-                        <span className="text-xs text-amber-400 font-semibold">{svc.status}</span>
-                      </>
-                    )
-                  ) : (
-                    <>
-                      <HelpCircle className="w-4 h-4 text-[#5f697d]" />
-                      <span className="text-xs text-[#5f697d] font-medium">Not independently monitored</span>
-                    </>
-                  )}
+
+                <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                  <span className="text-[10px] text-[#5f697d] font-mono">
+                    {formatUtcTimestamp(svc.lastChecked)}
+                  </span>
+                  <StatusBadge status={svc.status} />
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="mt-6 rounded-xl bg-white/[0.02] border border-white/[0.06] p-4 text-xs text-[#8d96a8] space-y-1">
-          <p className="font-semibold text-white/90">Monitoring &amp; Telemetry Notice</p>
+        {/* Informational Guidance Notice */}
+        <div className="mt-6 rounded-xl bg-white/[0.02] border border-white/[0.06] p-4 text-xs text-[#8d96a8] space-y-1.5">
+          <p className="font-semibold text-white/90">
+            Telemetry &amp; Status Governance
+          </p>
           <p>
-            Database probe executes reachability verification through server connection pool. Non-monitored third-party external services depend on upstream provider availability.
+            Statuses reflect genuine, isolated readiness probes executed with
+            strict timeout limits and zero external side effects. A component is
+            marked <strong className="text-emerald-400">Operational</strong> only
+            when an active probe confirms reachability,{" "}
+            <strong className="text-sky-400">Configured</strong> when credentials
+            exist without active verification,{" "}
+            <strong className="text-amber-400">Degraded</strong> when a probe
+            encounters latency or warning thresholds, and{" "}
+            <strong className="text-slate-300">Unknown</strong> when credentials
+            are not provisioned in the current environment.
           </p>
         </div>
       </section>

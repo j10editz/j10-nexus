@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://j10-nexus.com";
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://j10-nexus.vercel.app";
   return ["/", "/pricing", "/contact", "/security", "/privacy", "/terms", "/data-deletion", "/status"].map((path) => ({
     url: `${base}${path}`,
     lastModified: new Date(),
