@@ -18,6 +18,18 @@ interface SocialAuthButtonsProps {
   onLoadingChange?: (loading: boolean) => void;
 }
 
+import {
+  resolveOAuthCallbackUrl,
+  setClientOAuthIntentCookie,
+} from "@/lib/auth/oauth";
+
+export interface InitiateOAuthSignInResult {
+  success: boolean;
+  authorizationUrl?: string;
+  redirectTo?: string;
+  provider: "google" | "apple";
+}
+
 export interface InitiateOAuthSignInParams {
   supabase: any;
   provider: "google" | "apple";
@@ -42,9 +54,9 @@ export async function initiateOAuthSignIn({
   onError,
   onLoadingChange,
   setSubmittingProvider,
-}: InitiateOAuthSignInParams): Promise<boolean> {
+}: InitiateOAuthSignInParams): Promise<InitiateOAuthSignInResult> {
   if (disabled || submittingProvider) {
-    return false; // Prevent duplicate submissions
+    return { success: false, provider }; // Prevent duplicate submissions
   }
 
   setSubmittingProvider?.(provider);
@@ -59,9 +71,11 @@ export async function initiateOAuthSignIn({
         : getCanonicalOrigin());
 
     const safeNext = getSafeRedirectUrl(nextUrl, "/dashboard");
-    const callbackUrl = `${resolvedOrigin}/auth/callback?next=${encodeURIComponent(safeNext)}`;
+    const callbackUrl = resolveOAuthCallbackUrl(resolvedOrigin, safeNext);
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    setClientOAuthIntentCookie(safeNext);
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
         redirectTo: callbackUrl,
@@ -72,15 +86,20 @@ export async function initiateOAuthSignIn({
       onError(sanitizeAuthError(error, mode));
       setSubmittingProvider?.(null);
       onLoadingChange?.(false);
-      return false;
+      return { success: false, provider, redirectTo: callbackUrl };
     }
 
-    return true;
+    return {
+      success: true,
+      provider,
+      authorizationUrl: data?.url,
+      redirectTo: callbackUrl,
+    };
   } catch {
     onError("Authentication could not be initiated. Please try again or use email.");
     setSubmittingProvider?.(null);
     onLoadingChange?.(false);
-    return false;
+    return { success: false, provider };
   }
 }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { NextRequest } from "next/server";
 import {
@@ -13,10 +13,15 @@ import {
   SocialAuthButtons,
   initiateOAuthSignIn,
 } from "@/components/auth/social-auth-buttons";
+import {
+  resolveOAuthCallbackUrl,
+  OAUTH_INTENT_COOKIE_NAME,
+} from "@/lib/auth/oauth";
 import { getSafeRedirectUrl } from "@/lib/auth/redirect";
 import { getCanonicalOrigin } from "@/lib/auth/origin";
 import { sanitizeAuthError } from "@/lib/auth/errors";
 import { GET as authCallbackGet } from "@/app/auth/callback/route";
+import { middleware } from "@/middleware";
 
 // Mock Supabase SSR and headers for callback route behavioral test
 const mockCookiesStore = new Map<string, { value: string; options?: any }>();
@@ -50,6 +55,7 @@ vi.mock("@supabase/ssr", () => ({
         ]);
         return mockExchangeCode(code);
       },
+      getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
     },
   })),
 }));
@@ -132,7 +138,6 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
     });
 
     it("proves NEXT_PUBLIC_TEST_AUTH_PROVIDERS runtime override is removed and ignored", async () => {
-      // Attacker or stale config trying to force button visibility
       (process.env as any).NEXT_PUBLIC_TEST_AUTH_PROVIDERS = JSON.stringify({
         google: true,
         apple: true,
@@ -146,7 +151,6 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       });
 
       const settings = await getAuthProviderSettings();
-      // Must reflect actual Supabase settings (false, false), ignoring the env var
       expect(settings.google).toBe(false);
       expect(settings.apple).toBe(false);
     });
@@ -232,7 +236,77 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
     });
   });
 
-  describe("3. Executable OAuth Flow & Security Contracts (initiateOAuthSignIn)", () => {
+  describe("3. Executable OAuth Authorization & redirectTo Construction", () => {
+    const previewOrigin =
+      "https://j10-nexus-git-feat-google-apple-auth-j1-o.vercel.app";
+    const prodOrigin = "https://j10-nexus.vercel.app";
+
+    it("proves Preview options.redirectTo explicitly constructs from the Preview origin", async () => {
+      const mockSignInWithOAuth = vi.fn().mockImplementation(async ({ options }) => {
+        const authUrl = `https://fulzdhltboospethnwfk.supabase.co/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(
+          options.redirectTo
+        )}`;
+        return { data: { provider: "google", url: authUrl }, error: null };
+      });
+
+      const mockSupabase = {
+        auth: {
+          signInWithOAuth: mockSignInWithOAuth,
+        },
+      };
+
+      const result = await initiateOAuthSignIn({
+        supabase: mockSupabase as any,
+        provider: "google",
+        origin: previewOrigin,
+        nextUrl: "/dashboard",
+        mode: "signin",
+        onError: vi.fn(),
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.redirectTo).toBe(`${previewOrigin}/auth/callback?next=%2Fdashboard`);
+
+      // Verify exact Supabase OAuth authorization URL before browser navigation
+      expect(result.authorizationUrl).toBeDefined();
+      const parsedAuthUrl = new URL(result.authorizationUrl!);
+      const parsedRedirectTo = parsedAuthUrl.searchParams.get("redirect_to");
+      expect(parsedRedirectTo).toBe(`${previewOrigin}/auth/callback?next=%2Fdashboard`);
+    });
+
+    it("proves Production options.redirectTo explicitly constructs from the Production origin", async () => {
+      const mockSignInWithOAuth = vi.fn().mockImplementation(async ({ options }) => {
+        const authUrl = `https://fulzdhltboospethnwfk.supabase.co/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(
+          options.redirectTo
+        )}`;
+        return { data: { provider: "google", url: authUrl }, error: null };
+      });
+
+      const mockSupabase = {
+        auth: {
+          signInWithOAuth: mockSignInWithOAuth,
+        },
+      };
+
+      const result = await initiateOAuthSignIn({
+        supabase: mockSupabase as any,
+        provider: "google",
+        origin: prodOrigin,
+        nextUrl: "/dashboard",
+        mode: "signin",
+        onError: vi.fn(),
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.redirectTo).toBe(`${prodOrigin}/auth/callback?next=%2Fdashboard`);
+
+      // Verify exact Supabase OAuth authorization URL before browser navigation
+      expect(result.authorizationUrl).toBeDefined();
+      const parsedAuthUrl = new URL(result.authorizationUrl!);
+      const parsedRedirectTo = parsedAuthUrl.searchParams.get("redirect_to");
+      expect(parsedRedirectTo).toBe(`${prodOrigin}/auth/callback?next=%2Fdashboard`);
+    });
+
     it("calls signInWithOAuth exactly once with correct provider and canonical callback", async () => {
       const mockSignInWithOAuth = vi.fn().mockResolvedValue({ data: {}, error: null });
       const mockSupabase = {
@@ -244,18 +318,18 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       const result = await initiateOAuthSignIn({
         supabase: mockSupabase as any,
         provider: "google",
-        origin: "https://j10-nexus.vercel.app",
+        origin: prodOrigin,
         nextUrl: "/dashboard",
         mode: "signin",
         onError: vi.fn(),
       });
 
-      expect(result).toBe(true);
+      expect(result.success).toBe(true);
       expect(mockSignInWithOAuth).toHaveBeenCalledTimes(1);
       expect(mockSignInWithOAuth).toHaveBeenCalledWith({
         provider: "google",
         options: {
-          redirectTo: "https://j10-nexus.vercel.app/auth/callback?next=%2Fdashboard",
+          redirectTo: `${prodOrigin}/auth/callback?next=%2Fdashboard`,
         },
       });
     });
@@ -271,18 +345,18 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       const result = await initiateOAuthSignIn({
         supabase: mockSupabase as any,
         provider: "apple",
-        origin: "https://j10-nexus.vercel.app",
+        origin: prodOrigin,
         nextUrl: "/dashboard/settings",
         mode: "signin",
         onError: vi.fn(),
       });
 
-      expect(result).toBe(true);
+      expect(result.success).toBe(true);
       expect(mockSignInWithOAuth).toHaveBeenCalledTimes(1);
       expect(mockSignInWithOAuth).toHaveBeenCalledWith({
         provider: "apple",
         options: {
-          redirectTo: "https://j10-nexus.vercel.app/auth/callback?next=%2Fdashboard%2Fsettings",
+          redirectTo: `${prodOrigin}/auth/callback?next=%2Fdashboard%2Fsettings`,
         },
       });
     });
@@ -298,7 +372,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       await initiateOAuthSignIn({
         supabase: mockSupabase as any,
         provider: "google",
-        origin: "https://j10-nexus.vercel.app",
+        origin: prodOrigin,
         nextUrl: "/dashboard/revenue?period=30d",
         mode: "signin",
         onError: vi.fn(),
@@ -307,8 +381,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       expect(mockSignInWithOAuth).toHaveBeenCalledWith({
         provider: "google",
         options: {
-          redirectTo:
-            "https://j10-nexus.vercel.app/auth/callback?next=%2Fdashboard%2Frevenue%3Fperiod%3D30d",
+          redirectTo: `${prodOrigin}/auth/callback?next=%2Fdashboard%2Frevenue%3Fperiod%3D30d`,
         },
       });
     });
@@ -335,7 +408,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
         await initiateOAuthSignIn({
           supabase: mockSupabase as any,
           provider: "google",
-          origin: "https://j10-nexus.vercel.app",
+          origin: prodOrigin,
           nextUrl: maliciousTarget,
           mode: "signin",
           onError: vi.fn(),
@@ -344,7 +417,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
         expect(mockSignInWithOAuth).toHaveBeenCalledWith({
           provider: "google",
           options: {
-            redirectTo: "https://j10-nexus.vercel.app/auth/callback?next=%2Fdashboard",
+            redirectTo: `${prodOrigin}/auth/callback?next=%2Fdashboard`,
           },
         });
       }
@@ -366,7 +439,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
         mode: "signin",
         onError: vi.fn(),
       });
-      expect(inFlightResult).toBe(false);
+      expect(inFlightResult.success).toBe(false);
       expect(mockSignInWithOAuth).not.toHaveBeenCalled();
 
       // 2. When disabled is true
@@ -377,7 +450,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
         mode: "signin",
         onError: vi.fn(),
       });
-      expect(disabledResult).toBe(false);
+      expect(disabledResult.success).toBe(false);
       expect(mockSignInWithOAuth).not.toHaveBeenCalled();
     });
 
@@ -402,7 +475,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
         onError: (err) => errorMsgHolder.push(err),
       });
 
-      expect(result).toBe(false);
+      expect(result.success).toBe(false);
       expect(errorMsgHolder.length).toBeGreaterThanOrEqual(1);
       const sanitized = errorMsgHolder[errorMsgHolder.length - 1];
       expect(sanitized).toBe("Email or password is incorrect.");
@@ -412,33 +485,122 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
     });
   });
 
-  describe("4. Session Cookies Survive Auth Callback", () => {
-    it("exchanges code for session and attaches session cookies to redirect response", async () => {
+  describe("4. Fail-Closed Guard: Root Code Interception and Elimination", () => {
+    it("middleware intercepts authorization code arriving at root / and 307 redirects to /auth/callback", async () => {
+      const req = new NextRequest("https://j10-nexus.vercel.app/?code=mock_temp_auth_code_123");
+      const res = await middleware(req);
+
+      expect(res.status).toBe(307);
+      expect(res.headers.get("location")).toBe(
+        "https://j10-nexus.vercel.app/auth/callback?code=mock_temp_auth_code_123"
+      );
+    });
+
+    it("middleware preserves Preview origin when intercepting code at Preview root", async () => {
+      const previewRootUrl =
+        "https://j10-nexus-git-feat-google-apple-auth-j1-o.vercel.app/?code=preview_temp_code_456&state=state789";
+      const req = new NextRequest(previewRootUrl);
+      const res = await middleware(req);
+
+      expect(res.status).toBe(307);
+      expect(res.headers.get("location")).toBe(
+        "https://j10-nexus-git-feat-google-apple-auth-j1-o.vercel.app/auth/callback?code=preview_temp_code_456&state=state789"
+      );
+    });
+
+    it("proves authorization code is never rendered on the homepage", () => {
+      const homeContent = readFileSync(resolve(process.cwd(), "app/page.tsx"), "utf8");
+      expect(homeContent).toContain("if (code)");
+      expect(homeContent).toContain("redirect(`/auth/callback");
+    });
+  });
+
+  describe("5. Session Persistence, Origin Preservation & Destination Delivery", () => {
+    it("proves Preview origin remains on Preview through callback to /dashboard", async () => {
       mockExchangeCode.mockResolvedValueOnce({
         data: {
           session: {
-            user: { id: "test-user-uuid-1234", email: "user@example.com" },
-            access_token: "mock-session-access-token",
-            refresh_token: "mock-session-refresh-token",
+            user: { id: "preview-user-uuid", email: "preview@example.com" },
+            access_token: "preview-token-123",
+            refresh_token: "preview-refresh-456",
           },
         },
         error: null,
       });
 
       const request = new NextRequest(
-        "https://j10-nexus.vercel.app/auth/callback?code=valid-pkce-auth-code&next=/dashboard"
+        "https://j10-nexus-git-feat-google-apple-auth-j1-o.vercel.app/auth/callback?code=preview_code_789&next=/dashboard"
       );
 
       const response = await authCallbackGet(request);
 
-      expect(mockExchangeCode).toHaveBeenCalledWith("valid-pkce-auth-code");
+      expect(mockExchangeCode).toHaveBeenCalledTimes(1);
+      expect(mockExchangeCode).toHaveBeenCalledWith("preview_code_789");
       expect(response.status).toBe(307);
-      expect(response.headers.get("location")).toBe("https://j10-nexus.vercel.app/dashboard");
+      expect(response.headers.get("location")).toBe(
+        "https://j10-nexus-git-feat-google-apple-auth-j1-o.vercel.app/dashboard"
+      );
 
-      // Verify session cookies survive on the response headers
+      // Verify session cookies survive
       const setCookies = response.headers.getSetCookie();
       expect(setCookies.some((c) => c.includes("sb-access-token"))).toBe(true);
       expect(setCookies.some((c) => c.includes("sb-refresh-token"))).toBe(true);
+    });
+
+    it("proves Production origin remains on Production through callback to /dashboard", async () => {
+      mockExchangeCode.mockResolvedValueOnce({
+        data: {
+          session: {
+            user: { id: "prod-user-uuid", email: "prod@example.com" },
+            access_token: "prod-token-123",
+            refresh_token: "prod-refresh-456",
+          },
+        },
+        error: null,
+      });
+
+      const request = new NextRequest(
+        "https://j10-nexus.vercel.app/auth/callback?code=prod_code_123&next=/dashboard"
+      );
+
+      const response = await authCallbackGet(request);
+
+      expect(mockExchangeCode).toHaveBeenCalledTimes(1);
+      expect(mockExchangeCode).toHaveBeenCalledWith("prod_code_123");
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://j10-nexus.vercel.app/dashboard");
+
+      const setCookies = response.headers.getSetCookie();
+      expect(setCookies.some((c) => c.includes("sb-access-token"))).toBe(true);
+      expect(setCookies.some((c) => c.includes("sb-refresh-token"))).toBe(true);
+    });
+
+    it("recovers destination /dashboard via OAuth intent cookie if query parameter was stripped", async () => {
+      mockCookiesStore.set(OAUTH_INTENT_COOKIE_NAME, {
+        value: "/dashboard",
+      });
+
+      mockExchangeCode.mockResolvedValueOnce({
+        data: {
+          session: {
+            user: { id: "oauth-cookie-user", email: "user@example.com" },
+            access_token: "token-abc",
+            refresh_token: "refresh-xyz",
+          },
+        },
+        error: null,
+      });
+
+      // No next query parameter present (e.g. stripped by provider allowlist)
+      const request = new NextRequest(
+        "https://j10-nexus.vercel.app/auth/callback?code=code_without_next_param"
+      );
+
+      const response = await authCallbackGet(request);
+
+      expect(mockExchangeCode).toHaveBeenCalledWith("code_without_next_param");
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://j10-nexus.vercel.app/dashboard");
     });
 
     it("redirects to login with sanitized error when exchange fails", async () => {
@@ -459,7 +621,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
     });
   });
 
-  describe("5. Accurate Copy and Non-Activation at Account Creation", () => {
+  describe("6. Accurate Copy and Non-Activation at Account Creation", () => {
     it("proves /signup button copy is 'Create Account' (not 'Create Account & Start Trial')", () => {
       const signupContent = readFileSync(resolve(process.cwd(), "app/signup/page.tsx"), "utf8");
       expect(signupContent).toContain('"Create Account"');
@@ -493,7 +655,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
     });
   });
 
-  describe("6. Zero Customer, Database, Stripe, or Connector Mutations", () => {
+  describe("7. Zero Customer, Database, Stripe, or Connector Mutations", () => {
     it("ensures no new database migrations were added to supabase/migrations", () => {
       const { execSync } = require("node:child_process");
       const diff = execSync("git diff --name-only origin/main -- supabase/migrations", {
@@ -508,7 +670,6 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
         "lib/integrations/providers/google/oauth-runtime.ts"
       );
       const content = readFileSync(connectorPath, "utf8");
-      // Connector runtime must remain intact for Gmail / Calendar
       expect(content).toContain("GOOGLE_OAUTH_CLIENT_ID");
       expect(content).toContain("GOOGLE_OAUTH_CLIENT_SECRET");
     });
@@ -521,6 +682,7 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
         "lib/auth/providers.ts",
         "lib/auth/origin.ts",
         "lib/auth/redirect.ts",
+        "lib/auth/oauth.ts",
       ];
 
       for (const file of publicFiles) {

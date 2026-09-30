@@ -3,6 +3,20 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSafeRedirectUrl } from "@/lib/auth/redirect";
 
 export async function middleware(request: NextRequest) {
+  // Fail-closed guard: If an OAuth code or error reaches root or any public route outside /auth/callback,
+  // immediately redirect to /auth/callback. The code is never rendered, logged, or retained in the browser URL.
+  const code = request.nextUrl.searchParams.get("code");
+  const authError = request.nextUrl.searchParams.get("error");
+  const isCallbackPath = request.nextUrl.pathname.startsWith("/auth/callback");
+
+  if ((code || authError) && !isCallbackPath) {
+    const callbackUrl = new URL("/auth/callback", request.url);
+    request.nextUrl.searchParams.forEach((value, key) => {
+      callbackUrl.searchParams.set(key, value);
+    });
+    return NextResponse.redirect(callbackUrl, { status: 307 });
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -83,7 +97,11 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/",
     "/dashboard/:path*",
     "/login",
+    "/signup",
+    "/forgot-password",
+    "/reset-password",
   ],
 };
