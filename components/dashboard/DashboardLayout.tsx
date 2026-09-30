@@ -14,8 +14,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] =
-    useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -23,13 +22,11 @@ export default function DashboardLayout({
 
   const immersiveFlow =
     pathname === "/dashboard/automation/flow" ||
-    pathname.startsWith(
-      "/dashboard/automation/flow/"
-    );
+    pathname.startsWith("/dashboard/automation/flow/");
 
   if (immersiveFlow) {
     return (
-      <div className="min-h-dvh bg-[#07070A] text-white">
+      <div className="min-h-dvh bg-[#090B10] text-[#F5F7FA]">
         {children}
       </div>
     );
@@ -37,20 +34,16 @@ export default function DashboardLayout({
 
   return (
     <TrialProvider>
-      <div className="j10-canvas min-h-dvh text-white">
+      <div className="min-h-dvh bg-[#090B10] text-[#F5F7FA]">
         <Sidebar
           mobileOpen={mobileOpen}
           onClose={() => setMobileOpen(false)}
         />
 
-        <div className="min-h-dvh min-w-0 lg:pl-[260px]">
-          <Topbar
-            onOpenNavigation={() =>
-              setMobileOpen(true)
-            }
-          />
+        <div className="min-h-dvh min-w-0 lg:pl-[228px]">
+          <Topbar onOpenNavigation={() => setMobileOpen(true)} />
 
-          <main className="min-h-[calc(100dvh-72px)] min-w-0 overflow-x-hidden bg-transparent">
+          <main className="min-h-[calc(100dvh-56px)] min-w-0 overflow-x-hidden bg-[#090B10]">
             <TrialDashboardBanner />
             {children}
           </main>

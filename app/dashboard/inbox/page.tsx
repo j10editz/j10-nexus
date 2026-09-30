@@ -541,7 +541,7 @@ export default function UnifiedInboxPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setStatusNotice("🎉 VIP Client Group single-use join link dispatched to customer!");
+        setStatusNotice("VIP Client Group single-use join link dispatched to customer.");
         setTimeout(() => setStatusNotice(""), 4000);
         void fetchThreadMessages(activeThread.id);
       } else {
@@ -1401,10 +1401,10 @@ export default function UnifiedInboxPage() {
                   type="button"
                   onClick={handleSendGroupInvite}
                   disabled={generatingInvite}
-                  className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-600/20 transition hover:bg-indigo-500 disabled:opacity-50"
+                  className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#4F7CFF] py-2 text-xs font-semibold text-white transition hover:bg-[#3d68e6] disabled:opacity-50"
                 >
                   <Send size={13} />
-                  {generatingInvite ? "Dispatching VIP Link..." : "⚡ Send Paid Group Invite Link"}
+                  {generatingInvite ? "Dispatching VIP Link..." : "Send Paid Group Invite Link"}
                 </button>
               </div>
 

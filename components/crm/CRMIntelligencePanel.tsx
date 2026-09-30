@@ -148,75 +148,13 @@ export default function CRMIntelligencePanel({
 
         setData(result);
         setLastAnalyzed(new Date());
-      } catch {
-        setData({
-          success: true,
-          engine: {
-            name: "J10 CRM Intelligence Engine",
-            version: "2.4.0",
-            mode: "autonomous_heuristic",
-          },
-          summary: {
-            totalContacts: 4,
-            activeOpportunities: 3,
-            hotLeads: 2,
-            highPriorityLeads: 1,
-            requiresFollowUp: 1,
-            uncontactedLeads: 1,
-            pipelineValue: 78000,
-            revenueWon: 45000,
-          },
-          topPriority: [
-            {
-              contactId: "crm-seed-1",
-              name: "Elena Vance",
-              company: "Apex Capital Growth",
-              type: "Prospect",
-              status: "Interested",
-              estimatedValue: 28500,
-              priorityScore: 94,
-              priority: "Hot",
-              recommendedAction:
-                "Send Click-to-Pay onboarding link or schedule final roadmap review over WhatsApp.",
-              reasons: [
-                "High estimated deal value ($28,500)",
-                "Active interest in autonomous AI specialists",
-                "Contacted within last 24 hours",
-              ],
-              needsFollowUp: false,
-              daysSinceLastContact: 0,
-            },
-            {
-              contactId: "crm-seed-3",
-              name: "Sophia Kovacs",
-              company: "Nova BioTech",
-              type: "Lead",
-              status: "Qualified",
-              estimatedValue: 17500,
-              priorityScore: 82,
-              priority: "High",
-              recommendedAction:
-                "Follow up immediately. Lead qualification completed 8 days ago with no recent touchpoint.",
-              reasons: [
-                "Lead is 8 days stale",
-                "High qualification match score (94%)",
-              ],
-              needsFollowUp: true,
-              daysSinceLastContact: 8,
-            },
-          ],
-        });
-        setLastAnalyzed(new Date());
+      } catch (err: any) {
+        setErrorMessage(err?.message || "Could not load CRM intelligence.");
+        setData(null);
       } finally {
         setLoading(false);
       }
     }, []);
-
-  /*
-  ============================================================
-  AUTO ANALYZE
-  ============================================================
-  */
 
   useEffect(() => {
     void loadIntelligence();
@@ -232,210 +170,103 @@ export default function CRMIntelligencePanel({
     data?.topPriority ?? [];
 
   return (
-    <section className="rounded-2xl border border-violet-500/15 bg-gradient-to-br from-violet-500/[0.06] via-[#111216] to-blue-500/[0.03] p-6">
+    <section className="rounded-xl border border-[#242A35] bg-[#101319] p-5">
       {/* HEADER */}
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-        <div className="flex items-start gap-4">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/10">
-            <BrainCircuit
-              size={19}
-              className="text-violet-400"
-            />
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-[#F5F7FA]">
+              CRM Opportunities
+            </h2>
+            <span className="rounded border border-[#242A35] bg-[#151922] px-2 py-0.5 text-[10px] font-medium text-[#98A2B3]">
+              Prioritized by Deal Value & Recency
+            </span>
           </div>
-
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-semibold text-white">
-                J10 CRM Intelligence
-              </h2>
-
-              <span className="rounded-full border border-violet-500/20 bg-violet-500/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-violet-400">
-                AI Intelligence
-              </span>
-
-              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-emerald-400">
-                Auto Analyze
-              </span>
-            </div>
-
-            <p className="mt-1 text-sm text-zinc-600">
-              J10 AI analyzes your CRM,
-              prioritizes opportunities and
-              recommends the next sales
-              action.
-            </p>
-
-            {lastAnalyzed && (
-              <p className="mt-2 text-[10px] text-zinc-700">
-                Last analyzed{" "}
-                {lastAnalyzed.toLocaleTimeString(
-                  [],
-                  {
-                    hour:
-                      "2-digit",
-                    minute:
-                      "2-digit",
-                  }
-                )}
-              </p>
-            )}
-          </div>
+          <p className="mt-1 text-xs text-[#98A2B3]">
+            Opportunities identified for direct follow-up and pipeline progression.
+          </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            void loadIntelligence();
-          }}
-          disabled={loading}
-          className="flex items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-zinc-400 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
-        >
-          <RefreshCw
-            size={14}
-            className={
-              loading
-                ? "animate-spin"
-                : ""
-            }
-          />
-
-          {loading
-            ? "Analyzing..."
-            : "Analyze CRM"}
-        </button>
+        <div className="flex items-center gap-3">
+          {lastAnalyzed && (
+            <span className="text-[11px] text-[#667085]">
+              Updated {lastAnalyzed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              void loadIntelligence();
+            }}
+            disabled={loading}
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-[#242A35] bg-[#151922] px-3 text-xs font-medium text-[#98A2B3] transition hover:bg-[#242A35] hover:text-[#F5F7FA] disabled:opacity-40"
+          >
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+            <span>{loading ? "Analyzing..." : "Refresh"}</span>
+          </button>
+        </div>
       </div>
 
       {errorMessage && (
-        <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="mt-4 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-400">
           {errorMessage}
         </div>
       )}
 
-      {/* SUMMARY */}
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MiniStat
-          label="Active Opportunities"
-          value={
-            summary?.activeOpportunities ??
-            0
-          }
-          icon={Target}
-        />
-
-        <MiniStat
-          label="Hot Leads"
-          value={
-            summary?.hotLeads ??
-            0
-          }
-          icon={Flame}
-        />
-
-        <MiniStat
-          label="Need Follow-Up"
-          value={
-            summary?.requiresFollowUp ??
-            0
-          }
-          icon={UserRoundSearch}
-        />
-
-        <MiniStat
-          label="AI Pipeline"
-          value={formatMoney(
-            summary?.pipelineValue ??
-              0
-          )}
-          icon={
-            CircleDollarSign
-          }
-        />
-      </div>
+      {/* SUMMARY BADGES */}
+      {summary && (
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-lg border border-[#242A35] bg-[#151922] p-3">
+            <span className="text-[11px] text-[#98A2B3]">Opportunities</span>
+            <p className="mt-1 text-base font-semibold text-[#F5F7FA]">{summary.activeOpportunities ?? 0}</p>
+          </div>
+          <div className="rounded-lg border border-[#242A35] bg-[#151922] p-3">
+            <span className="text-[11px] text-[#98A2B3]">High Priority</span>
+            <p className="mt-1 text-base font-semibold text-[#F5F7FA]">{summary.hotLeads ?? 0}</p>
+          </div>
+          <div className="rounded-lg border border-[#242A35] bg-[#151922] p-3">
+            <span className="text-[11px] text-[#98A2B3]">Needs Follow-Up</span>
+            <p className="mt-1 text-base font-semibold text-[#F5F7FA]">{summary.requiresFollowUp ?? 0}</p>
+          </div>
+          <div className="rounded-lg border border-[#242A35] bg-[#151922] p-3">
+            <span className="text-[11px] text-[#98A2B3]">Pipeline Value</span>
+            <p className="mt-1 text-base font-semibold text-[#F5F7FA]">{formatMoney(summary.pipelineValue ?? 0)}</p>
+          </div>
+        </div>
+      )}
 
       {/* PRIORITIES */}
-      <div className="mt-6">
-        <div className="flex items-center gap-2">
-          <Sparkles
-            size={14}
-            className="text-violet-400"
-          />
-
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-            Priority Opportunities
-          </p>
-        </div>
-
+      <div className="mt-4">
         {loading ? (
-          <div className="mt-4 space-y-3">
-            {[1, 2].map(
-              (item) => (
-                <div
-                  key={item}
-                  className="h-[90px] animate-pulse rounded-xl border border-white/[0.05] bg-black/20"
-                />
-              )
-            )}
+          <div className="space-y-2">
+            {[1, 2].map((item) => (
+              <div
+                key={item}
+                className="h-[76px] animate-pulse rounded-lg border border-[#242A35] bg-[#151922]"
+              />
+            ))}
           </div>
-        ) : priorities.length ===
-          0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-white/[0.08] bg-black/20 px-5 py-8 text-center">
-            <p className="text-sm font-medium text-zinc-400">
-              No active opportunities yet
+        ) : priorities.length === 0 ? (
+          <div className="rounded-lg border border-[#242A35] bg-[#151922] px-4 py-6 text-center">
+            <p className="text-xs font-medium text-[#98A2B3]">
+              No active priority opportunities
             </p>
-
-            <p className="mt-1 text-xs text-zinc-700">
-              Add CRM leads and J10 AI
-              will automatically prioritize
-              them here.
+            <p className="mt-1 text-[11px] text-[#667085]">
+              As new leads enter your pipeline, prioritized follow-ups will appear here.
             </p>
           </div>
         ) : (
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {priorities.map(
-              (contact) => (
-                <PriorityCard
-                  key={
-                    contact.contactId
-                  }
-                  contact={
-                    contact
-                  }
-                />
-              )
-            )}
+          <div className="grid gap-2.5 lg:grid-cols-2">
+            {priorities.map((contact) => (
+              <PriorityCard
+                key={contact.contactId}
+                contact={contact}
+              />
+            ))}
           </div>
         )}
       </div>
     </section>
-  );
-}
-
-function MiniStat({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string | number;
-  icon: typeof Target;
-}) {
-  return (
-    <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-zinc-600">
-          {label}
-        </p>
-
-        <Icon
-          size={14}
-          className="text-violet-400"
-        />
-      </div>
-
-      <p className="mt-2 text-xl font-semibold text-white">
-        {value}
-      </p>
-    </div>
   );
 }
 
@@ -445,64 +276,36 @@ function PriorityCard({
   contact: IntelligenceContact;
 }) {
   return (
-    <div className="rounded-xl border border-white/[0.07] bg-black/20 p-4">
-      <div className="flex items-start justify-between gap-4">
+    <div className="rounded-lg border border-[#242A35] bg-[#151922] p-3.5">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-medium text-white">
+          <p className="text-xs font-semibold text-[#F5F7FA]">
             {contact.name}
           </p>
-
-          <p className="mt-1 text-xs text-zinc-600">
-            {contact.company ||
-              contact.type}
+          <p className="mt-0.5 text-[11px] text-[#98A2B3]">
+            {contact.company || contact.type}
           </p>
         </div>
 
-        <PriorityBadge
-          priority={
-            contact.priority
-          }
-        />
+        <PriorityBadge priority={contact.priority} />
       </div>
 
-      <div className="mt-4 flex items-center justify-between">
-        <div>
-          <p className="text-[10px] uppercase tracking-wider text-zinc-700">
-            Priority Score
-          </p>
+      <div className="mt-2.5 flex items-center justify-between text-xs">
+        <span className="text-[11px] text-[#667085]">
+          Score: <strong className="font-semibold text-[#F5F7FA]">{contact.priorityScore}/100</strong>
+        </span>
+        <span className="text-[11px] font-semibold text-[#F5F7FA]">
+          {formatMoney(contact.estimatedValue)}
+        </span>
+      </div>
 
-          <p className="mt-1 text-lg font-semibold text-violet-400">
-            {
-              contact.priorityScore
-            }
-            /100
+      {contact.recommendedAction && (
+        <div className="mt-2 border-t border-[#242A35] pt-2">
+          <p className="text-[11px] leading-relaxed text-[#98A2B3]">
+            {contact.recommendedAction}
           </p>
         </div>
-
-        <div className="text-right">
-          <p className="text-[10px] uppercase tracking-wider text-zinc-700">
-            Opportunity
-          </p>
-
-          <p className="mt-1 text-sm font-medium text-zinc-300">
-            {formatMoney(
-              contact.estimatedValue
-            )}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 border-t border-white/[0.06] pt-4">
-        <p className="text-[10px] uppercase tracking-wider text-zinc-700">
-          Recommended Action
-        </p>
-
-        <p className="mt-2 text-sm leading-5 text-zinc-400">
-          {
-            contact.recommendedAction
-          }
-        </p>
-      </div>
+      )}
     </div>
   );
 }
@@ -512,43 +315,26 @@ function PriorityBadge({
 }: {
   priority: PriorityLevel;
 }) {
-  const styles: Record<
-    PriorityLevel,
-    string
-  > = {
-    Hot:
-      "border-red-500/20 bg-red-500/10 text-red-400",
-
-    High:
-      "border-orange-500/20 bg-orange-500/10 text-orange-400",
-
-    Medium:
-      "border-violet-500/20 bg-violet-500/10 text-violet-400",
-
-    Low:
-      "border-zinc-500/20 bg-zinc-500/10 text-zinc-500",
+  const styles: Record<PriorityLevel, string> = {
+    Hot: "border-rose-500/30 bg-rose-500/10 text-rose-300",
+    High: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+    Medium: "border-[#4F7CFF]/30 bg-[#4F7CFF]/10 text-[#4F7CFF]",
+    Low: "border-[#242A35] bg-[#151922] text-[#98A2B3]",
   };
 
   return (
     <span
-      className={`rounded-full border px-2.5 py-1 text-[10px] font-medium ${styles[priority]}`}
+      className={`rounded border px-2 py-0.5 text-[10px] font-medium ${styles[priority]}`}
     >
       {priority}
     </span>
   );
 }
 
-function formatMoney(
-  value: number
-) {
-  return new Intl.NumberFormat(
-    "en-US",
-    {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: 0,
-    }
-  ).format(
-    Number(value ?? 0)
-  );
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Number(value ?? 0));
 }

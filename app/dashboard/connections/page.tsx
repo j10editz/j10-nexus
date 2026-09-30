@@ -23,8 +23,10 @@ import {
   Trash2,
   Users,
   Zap,
+  X,
 } from "lucide-react";
 
+import { DashboardPageHeader, DashboardButton } from "@/components/dashboard/DashboardPrimitives";
 import { WhatsAppConnectionChoice } from "@/components/whatsapp/WhatsAppConnectionChoice";
 import { getOfficialTelegramBindingLink } from "@/lib/telegram/official-binding-link";
 
@@ -530,64 +532,52 @@ export default function ConnectionsDashboardPage() {
   });
 
   return (
-    <div className="min-h-[calc(100dvh-72px)] bg-[#09090B] px-6 py-8 text-white sm:px-10">
+    <div className="min-h-[calc(100dvh-56px)] bg-[#090B10] px-4 py-6 sm:px-6 lg:px-8 text-[#F5F7FA] space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-6 sm:flex-row sm:items-center">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-              J10 Connections
-            </h1>
-            <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-blue-400">
-              Secretary Mode Certified
-            </span>
+      <DashboardPageHeader
+        title="J10 Connections"
+        subtitle="Manage your business communication channels with verified evidence-based connectivity."
+        actions={
+          <div className="flex flex-wrap items-center gap-2.5">
+            <DashboardButton
+              variant="secondary"
+              onClick={() => void loadConnections()}
+              disabled={loading}
+            >
+              <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+              <span>Sync</span>
+            </DashboardButton>
+
+            <DashboardButton
+              variant="primary"
+              onClick={() => setShowWhatsAppModal(true)}
+            >
+              <Smartphone size={13} />
+              <span>Connect WhatsApp</span>
+            </DashboardButton>
+
+            <DashboardButton
+              variant="secondary"
+              onClick={() => {
+                setShowConnectModal(true);
+                setConnectTab("business");
+              }}
+            >
+              <Plus size={13} />
+              <span>Connect Telegram</span>
+            </DashboardButton>
           </div>
-          <p className="mt-1 text-sm text-white/50">
-            Manage your 8 business communication channels with verified evidence-based connectivity.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => void loadConnections()}
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-xs font-medium text-white/70 transition hover:bg-white/[0.08] hover:text-white"
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            Sync Status
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowWhatsAppModal(true)}
-            className="flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-600/25 transition hover:from-emerald-500 hover:to-teal-500"
-          >
-            <Smartphone size={15} />
-            + Connect WhatsApp
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setShowConnectModal(true);
-              setConnectTab("business");
-            }}
-            className="flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-4 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:from-blue-500 hover:to-indigo-500"
-          >
-            <Plus size={15} />
-            + Connect Telegram
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Filter Toolbar */}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <label className="text-xs font-semibold text-white/60">Platform Filter:</label>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <label className="text-xs font-medium text-[#98A2B3]">Filter:</label>
           <select
             value={filterPlatform}
             onChange={(e) => setFilterPlatform(e.target.value)}
-            className="rounded-lg border border-white/[0.08] bg-[#14151B] px-3 py-1.5 text-xs font-medium text-white/90 focus:border-blue-500 focus:outline-none"
+            className="rounded-lg border border-[#242A35] bg-[#101319] px-3 py-1.5 text-xs font-medium text-[#F5F7FA] focus:border-[#4F7CFF] focus:outline-none"
           >
             <option value="all">All Channels & Bots</option>
             <option value="telegram">Telegram (Business & Bot)</option>
@@ -595,13 +585,13 @@ export default function ConnectionsDashboardPage() {
           </select>
         </div>
 
-        <div className="text-xs text-white/40">
-          Showing <span className="font-semibold text-white">{filteredConnections.length}</span> live touchpoints
+        <div className="text-xs text-[#667085]">
+          Showing <span className="font-semibold text-[#F5F7FA]">{filteredConnections.length}</span> channels
         </div>
       </div>
 
-      {/* Clean Zernio-Style Connection Table */}
-      <div className="mt-6 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0E0F12]">
+      {/* Connection Table */}
+      <div className="overflow-hidden rounded-xl border border-[#242A35] bg-[#101319]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="border-b border-white/[0.08] bg-white/[0.02] text-[11px] font-semibold uppercase tracking-wider text-white/40">
@@ -984,32 +974,32 @@ export default function ConnectionsDashboardPage() {
                   setOfficialBinding(null);
                   if (pollTimerRef.current) clearInterval(pollTimerRef.current);
                 }}
-                className="rounded-lg p-1 text-white/40 hover:bg-white/[0.06] hover:text-white"
+                className="rounded-lg p-1 text-[#667085] hover:bg-[#151922] hover:text-[#F5F7FA]"
               >
-                ✕
+                <X size={15} />
               </button>
             </div>
 
             {/* Connection Mode Selection Tabs */}
-            <div className="mt-5 grid grid-cols-3 gap-1 rounded-xl bg-white/[0.04] p-1 text-center">
+            <div className="mt-5 grid grid-cols-3 gap-1 rounded-lg border border-[#242A35] bg-[#101319] p-1 text-center">
               <button
                 type="button"
                 onClick={() => setConnectTab("business")}
-                className={`rounded-lg py-2 text-xs font-semibold transition ${
+                className={`rounded-md py-1.5 text-xs font-medium transition ${
                   connectTab === "business"
-                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30"
-                    : "text-white/50 hover:text-white"
+                    ? "bg-[#4F7CFF] text-white"
+                    : "text-[#98A2B3] hover:text-[#F5F7FA]"
                 }`}
               >
-                Telegram Business ⭐
+                Telegram Business
               </button>
               <button
                 type="button"
                 onClick={() => setConnectTab("official")}
-                className={`rounded-lg py-2 text-xs font-semibold transition ${
+                className={`rounded-md py-1.5 text-xs font-medium transition ${
                   connectTab === "official"
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
-                    : "text-white/50 hover:text-white"
+                    ? "bg-[#4F7CFF] text-white"
+                    : "text-[#98A2B3] hover:text-[#F5F7FA]"
                 }`}
               >
                 Shared Bot DM
@@ -1017,10 +1007,10 @@ export default function ConnectionsDashboardPage() {
               <button
                 type="button"
                 onClick={() => setConnectTab("custom")}
-                className={`rounded-lg py-2 text-xs font-semibold transition ${
+                className={`rounded-md py-1.5 text-xs font-medium transition ${
                   connectTab === "custom"
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
-                    : "text-white/50 hover:text-white"
+                    ? "bg-[#4F7CFF] text-white"
+                    : "text-[#98A2B3] hover:text-[#F5F7FA]"
                 }`}
               >
                 Custom Bot (Advanced)

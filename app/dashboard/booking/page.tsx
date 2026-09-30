@@ -15,6 +15,10 @@ import {
   CreditCard,
   ShieldCheck,
 } from "lucide-react";
+import {
+  DashboardPageHeader,
+  DashboardButton,
+} from "@/components/dashboard/DashboardPrimitives";
 
 interface BookingItem {
   id: string;
@@ -60,53 +64,42 @@ export default function J10BookingPage() {
   }, [fetchBookings]);
 
   return (
-    <div className="min-h-[calc(100dvh-72px)] bg-[#07090f] p-4 sm:p-6 lg:p-8 text-white">
-      <div className="mx-auto max-w-[1360px] space-y-6">
+    <div className="min-h-[calc(100dvh-56px)] bg-[#090B10] px-4 py-6 sm:px-6 lg:px-8 text-[#F5F7FA]">
+      <div className="mx-auto max-w-5xl space-y-6">
         {/* Header */}
-        <div className="flex flex-col gap-4 border-b border-white/[0.08] pb-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-400">
-              <span>J10 NEXUS</span>
-              <span className="text-white/20">/</span>
-              <span className="text-[#8d96a8]">Scheduling Engine</span>
+        <DashboardPageHeader
+          title="J10 Booking"
+          subtitle="Manage customer appointments, availability windows, and automated reminders."
+          actions={
+            <div className="flex items-center gap-2.5">
+              <DashboardButton
+                variant="secondary"
+                onClick={() => void fetchBookings()}
+                disabled={loading}
+              >
+                <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+                <span>Refresh</span>
+              </DashboardButton>
+              <Link
+                href="/dashboard/connections"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#242A35] bg-[#151922] px-3 py-1.5 text-xs font-medium text-[#98A2B3] transition hover:bg-[#242A35] hover:text-[#F5F7FA]"
+              >
+                <CalendarIcon size={13} />
+                <span>Google Calendar (Coming Soon)</span>
+              </Link>
             </div>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">
-              J10 Booking
-            </h1>
-            <p className="mt-1 text-xs text-[#8d96a8]">
-              Manage customer appointments, availability windows, automated reminders, and deposit collection.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => void fetchBookings()}
-              disabled={loading}
-              className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-2 text-xs font-medium text-[#8d96a8] transition hover:bg-white/[0.07] hover:text-white"
-            >
-              <RefreshCw size={13} className={loading ? "animate-spin text-cyan-400" : ""} />
-              <span>Refresh</span>
-            </button>
-            <Link
-              href="/dashboard/connections"
-              className="flex items-center gap-1.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 px-3.5 py-2 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-500/15"
-            >
-              <CalendarIcon size={14} />
-              <span>Connect Google Calendar</span>
-            </Link>
-          </div>
-        </div>
+          }
+        />
 
         {/* Tab Selection */}
-        <div className="flex items-center gap-2 border-b border-white/[0.06] pb-2">
+        <div className="flex items-center gap-1.5 border-b border-[#242A35] pb-2">
           <button
             type="button"
             onClick={() => setActiveTab("appointments")}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
               activeTab === "appointments"
-                ? "bg-white/10 text-white"
-                : "text-[#8d96a8] hover:text-white"
+                ? "bg-[#4F7CFF] text-white"
+                : "text-[#98A2B3] hover:text-[#F5F7FA]"
             }`}
           >
             Appointments ({bookings.length})
@@ -114,10 +107,10 @@ export default function J10BookingPage() {
           <button
             type="button"
             onClick={() => setActiveTab("availability")}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
               activeTab === "availability"
-                ? "bg-white/10 text-white"
-                : "text-[#8d96a8] hover:text-white"
+                ? "bg-[#4F7CFF] text-white"
+                : "text-[#98A2B3] hover:text-[#F5F7FA]"
             }`}
           >
             Availability & Rules
@@ -125,10 +118,10 @@ export default function J10BookingPage() {
           <button
             type="button"
             onClick={() => setActiveTab("reminders")}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
               activeTab === "reminders"
-                ? "bg-white/10 text-white"
-                : "text-[#8d96a8] hover:text-white"
+                ? "bg-[#4F7CFF] text-white"
+                : "text-[#98A2B3] hover:text-[#F5F7FA]"
             }`}
           >
             Reminders & Policies

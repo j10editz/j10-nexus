@@ -36,6 +36,11 @@ import {
 
 import CRMIntelligencePanel from "@/components/crm/CRMIntelligencePanel";
 import {
+  DashboardMetricTile,
+  DashboardPageHeader,
+  DashboardButton,
+} from "@/components/dashboard/DashboardPrimitives";
+import {
   buildContextualWhatsAppLink,
   formatUSD,
   getStalenessInfo,
@@ -113,7 +118,7 @@ export default function CRMPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ContactStatus | "All">("All");
   const [typeFilter, setTypeFilter] = useState<ContactType | "All">("All");
-  const [viewMode, setViewMode] = useState<ViewMode>("kanban");
+  const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<CRMContact | null>(null);
   const [intelligenceRefreshKey, setIntelligenceRefreshKey] = useState(0);
@@ -250,130 +255,104 @@ export default function CRMPage() {
   }
 
   return (
-    <div className="min-h-full bg-[#09090B] text-white">
-      <div className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8">
+    <div className="min-h-[calc(100dvh-56px)] bg-[#090B10] text-[#F5F7FA]">
+      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 space-y-6">
         {/* HEADER */}
-        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-400">
-                CUSTOMER INTELLIGENCE & DEAL PIPELINE
-              </p>
-              <span className="rounded-full border border-violet-500/20 bg-violet-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-violet-300">
-                Autonomous
-              </span>
+        <DashboardPageHeader
+          title="J10 Lead Center"
+          subtitle="Customer pipeline, lead qualification, and contact records."
+          actions={
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* VIEW MODE TOGGLE */}
+              <div className="flex items-center rounded-lg border border-[#242A35] bg-[#101319] p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("table")}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                    viewMode === "table"
+                      ? "bg-[#4F7CFF] text-white"
+                      : "text-[#98A2B3] hover:text-[#F5F7FA]"
+                  }`}
+                >
+                  <Table2 size={13} />
+                  Table
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("kanban")}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                    viewMode === "kanban"
+                      ? "bg-[#4F7CFF] text-white"
+                      : "text-[#98A2B3] hover:text-[#F5F7FA]"
+                  }`}
+                >
+                  <Columns3 size={13} />
+                  Kanban
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("cards")}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                    viewMode === "cards"
+                      ? "bg-[#4F7CFF] text-white"
+                      : "text-[#98A2B3] hover:text-[#F5F7FA]"
+                  }`}
+                >
+                  <LayoutGrid size={13} />
+                  Cards
+                </button>
+              </div>
+
+              <DashboardButton
+                variant="primary"
+                onClick={() => setCreateOpen(true)}
+              >
+                <Plus size={14} />
+                <span>Add Contact</span>
+              </DashboardButton>
             </div>
-
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              CRM & Sales Pipeline
-            </h1>
-
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-              Manage leads, deal stages, pipeline velocity, and 1-click WhatsApp follow-ups across J10 NEXUS.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            {/* VIEW MODE TOGGLE */}
-            <div className="flex items-center rounded-xl border border-white/[0.08] bg-[#111216] p-1">
-              <button
-                type="button"
-                onClick={() => setViewMode("kanban")}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                  viewMode === "kanban"
-                    ? "bg-violet-600 text-white shadow-sm"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                <Columns3 size={14} />
-                Kanban
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("table")}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                  viewMode === "table"
-                    ? "bg-violet-600 text-white shadow-sm"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                <Table2 size={14} />
-                Table
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("cards")}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                  viewMode === "cards"
-                    ? "bg-violet-600 text-white shadow-sm"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                <LayoutGrid size={14} />
-                Cards
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className="flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-zinc-200"
-            >
-              <Plus size={16} />
-              Add Contact
-            </button>
-          </div>
-        </div>
+          }
+        />
 
         {/* STATS */}
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="Total Pipeline Contacts"
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <DashboardMetricTile
+            label="Total Contacts"
             value={String(summary.total)}
-            icon={Users}
-            subtitle={`${summary.leads} leads • ${summary.prospects} prospects`}
+            subtitle={`${summary.leads} leads · ${summary.prospects} prospects`}
           />
-
-          <StatCard
+          <DashboardMetricTile
             label="Active Opportunities"
             value={String(summary.leads + summary.prospects)}
-            icon={Contact}
-            subtitle={`${summary.qualified} qualified • ${summary.new} new`}
+            subtitle={`${summary.qualified} qualified · ${summary.new} new`}
           />
-
-          <StatCard
+          <DashboardMetricTile
             label="Pipeline Value"
             value={formatUSD(summary.pipelineValue)}
-            icon={CircleDollarSign}
             subtitle="Weighted active potential"
           />
-
-          <StatCard
-            label="Revenue Closed Won"
+          <DashboardMetricTile
+            label="Closed Won"
             value={formatUSD(summary.wonValue)}
-            icon={CheckCircle2}
-            success
             subtitle={`${summary.won} closed accounts`}
           />
         </div>
 
-        {/* J10 AI CRM INTELLIGENCE PANEL */}
-        <div className="mt-8">
-          <CRMIntelligencePanel refreshKey={intelligenceRefreshKey} />
-        </div>
+        {/* OPPORTUNITY INTELLIGENCE */}
+        <CRMIntelligencePanel refreshKey={intelligenceRefreshKey} />
 
         {/* CONTROLS & FILTERS */}
-        <div className="mt-8 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative w-full max-w-md">
             <Search
-              size={16}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500"
+              size={15}
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#667085]"
             />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by name, company, email, or phone..."
-              className="w-full rounded-xl border border-white/[0.08] bg-[#111216] py-2.5 pl-11 pr-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-violet-500/40"
+              className="w-full rounded-lg border border-[#242A35] bg-[#101319] py-2 pl-10 pr-3 text-xs text-[#F5F7FA] outline-none placeholder:text-[#667085] focus:border-[#4F7CFF]"
             />
           </div>
 
@@ -381,7 +360,7 @@ export default function CRMPage() {
             <select
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value as ContactType | "All")}
-              className="rounded-xl border border-white/[0.08] bg-[#111216] px-3.5 py-2.5 text-sm text-zinc-300 outline-none focus:border-violet-500/40"
+              className="rounded-lg border border-[#242A35] bg-[#101319] px-3 py-2 text-xs text-[#98A2B3] outline-none focus:border-[#4F7CFF]"
             >
               {typeOptions.map((type) => (
                 <option key={type} value={type}>
@@ -393,7 +372,7 @@ export default function CRMPage() {
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as ContactStatus | "All")}
-              className="rounded-xl border border-white/[0.08] bg-[#111216] px-3.5 py-2.5 text-sm text-zinc-300 outline-none focus:border-violet-500/40"
+              className="rounded-lg border border-[#242A35] bg-[#101319] px-3 py-2 text-xs text-[#98A2B3] outline-none focus:border-[#4F7CFF]"
             >
               {statusOptions.map((status) => (
                 <option key={status} value={status}>
@@ -407,15 +386,15 @@ export default function CRMPage() {
               onClick={refreshCRM}
               disabled={loading}
               title="Refresh CRM"
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-[#111216] text-zinc-400 transition hover:text-white disabled:opacity-40"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#242A35] bg-[#101319] text-[#98A2B3] transition hover:text-[#F5F7FA] disabled:opacity-40"
             >
-              <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             </button>
           </div>
         </div>
 
         {errorMessage && (
-          <div className="mt-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-400">
             {errorMessage}
           </div>
         )}
@@ -520,26 +499,26 @@ function KanbanBoardView({
         return (
           <div
             key={col.stage}
-            className="flex w-[320px] shrink-0 flex-col rounded-2xl border border-white/[0.08] bg-[#0E0F13] p-4 snap-start"
+            className="flex w-[300px] shrink-0 flex-col rounded-xl border border-[#242A35] bg-[#101319] p-3 snap-start"
           >
             {/* COLUMN HEADER */}
-            <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
+            <div className="flex items-center justify-between border-b border-[#242A35] pb-2.5">
               <div className="flex items-center gap-2">
                 <StageDot status={col.stage} />
-                <h3 className="text-sm font-semibold text-white">{col.label}</h3>
-                <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-xs text-zinc-400">
+                <h3 className="text-xs font-semibold text-[#F5F7FA]">{col.label}</h3>
+                <span className="rounded bg-[#151922] px-1.5 py-0.5 text-[10px] text-[#98A2B3]">
                   {col.contacts.length}
                 </span>
               </div>
-              <p className="text-xs font-medium text-violet-400">
+              <p className="text-xs font-medium text-[#98A2B3]">
                 {formatUSD(col.totalValue)}
               </p>
             </div>
 
             {/* CARDS LIST */}
-            <div className="mt-3 flex flex-1 flex-col gap-3 min-h-[300px]">
+            <div className="mt-2.5 flex flex-1 flex-col gap-2 min-h-[260px]">
               {col.contacts.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-white/[0.05] p-6 text-center text-xs text-zinc-600">
+                <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#242A35] p-4 text-center text-xs text-[#667085]">
                   No deals in {col.label}
                 </div>
               ) : (
@@ -552,35 +531,35 @@ function KanbanBoardView({
                   return (
                     <div
                       key={contact.id}
-                      className="group rounded-xl border border-white/[0.07] bg-[#14151B] p-3.5 shadow-sm transition hover:border-violet-500/30 hover:bg-[#181920]"
+                      className="group rounded-lg border border-[#242A35] bg-[#151922] p-3 shadow-sm transition hover:border-[#4F7CFF]/40"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p
                             onClick={() => onOpenContact(contact)}
-                            className="cursor-pointer text-sm font-semibold text-white hover:text-violet-300"
+                            className="cursor-pointer text-xs font-semibold text-[#F5F7FA] hover:text-[#4F7CFF]"
                           >
                             {getFullName(contact)}
                           </p>
-                          <p className="text-xs text-zinc-500">
+                          <p className="text-[11px] text-[#98A2B3]">
                             {contact.company || contact.job_title || contact.type}
                           </p>
                         </div>
-                        <span className="rounded-md border border-white/[0.06] bg-black/30 px-2 py-0.5 text-xs font-medium text-emerald-400">
+                        <span className="rounded border border-[#242A35] bg-[#101319] px-1.5 py-0.5 text-[11px] font-medium text-[#F5F7FA]">
                           {formatUSD(contact.estimated_value)}
                         </span>
                       </div>
 
                       {/* STALENESS / CONTACTED STATUS */}
-                      <div className="mt-3 flex items-center gap-1.5 text-[11px]">
-                        <Clock size={12} className={staleness.isStale ? "text-amber-400" : "text-zinc-500"} />
-                        <span className={staleness.isStale ? "text-amber-400" : "text-zinc-500"}>
+                      <div className="mt-2 flex items-center gap-1.5 text-[10px]">
+                        <Clock size={11} className={staleness.isStale ? "text-amber-400" : "text-[#667085]"} />
+                        <span className={staleness.isStale ? "text-amber-400" : "text-[#667085]"}>
                           {staleness.label}
                         </span>
                       </div>
 
                       {/* ACTIONS ROW */}
-                      <div className="mt-3 flex items-center justify-between border-t border-white/[0.05] pt-2.5">
+                      <div className="mt-2.5 flex items-center justify-between border-t border-[#242A35] pt-2">
                         <div className="flex items-center gap-1.5">
                           {/* 1-CLICK WHATSAPP */}
                           <a
@@ -588,9 +567,9 @@ function KanbanBoardView({
                             target="_blank"
                             rel="noopener noreferrer"
                             title="1-Click WhatsApp contextual follow-up"
-                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 transition hover:bg-emerald-500/20"
+                            className="flex h-6 w-6 items-center justify-center rounded border border-[#242A35] bg-[#101319] text-[#98A2B3] transition hover:border-emerald-500/40 hover:text-emerald-400"
                           >
-                            <MessageSquare size={13} />
+                            <MessageSquare size={12} />
                           </a>
 
                           {/* MARK CONTACTED */}
@@ -599,9 +578,9 @@ function KanbanBoardView({
                             onClick={() => onMarkContacted(contact)}
                             disabled={isUpdating}
                             title="Mark Contacted Today"
-                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-zinc-400 transition hover:bg-white/[0.08] hover:text-white"
+                            className="flex h-6 w-6 items-center justify-center rounded border border-[#242A35] bg-[#101319] text-[#98A2B3] transition hover:text-[#F5F7FA]"
                           >
-                            <UserCheck size={13} />
+                            <UserCheck size={12} />
                           </button>
                         </div>
 
@@ -611,10 +590,10 @@ function KanbanBoardView({
                             type="button"
                             onClick={() => onAdvanceStage(contact, nextStage)}
                             disabled={isUpdating}
-                            className="flex items-center gap-1 rounded-lg border border-violet-500/20 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-300 transition hover:bg-violet-500/20"
+                            className="flex items-center gap-1 rounded border border-[#242A35] bg-[#101319] px-2 py-0.5 text-[10px] font-medium text-[#98A2B3] transition hover:text-[#F5F7FA] hover:border-[#4F7CFF]"
                           >
                             <span>Move to {nextStage}</span>
-                            <ArrowRight size={11} />
+                            <ArrowRight size={10} />
                           </button>
                         )}
                       </div>
@@ -650,20 +629,20 @@ function TableView({
   updatingContactId: string | null;
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0E0F13]">
+    <div className="overflow-hidden rounded-xl border border-[#242A35] bg-[#101319]">
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-white/[0.08] bg-white/[0.02] text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <table className="w-full text-left text-xs">
+          <thead className="border-b border-[#242A35] bg-[#151922] text-[11px] font-semibold uppercase tracking-wider text-[#98A2B3]">
             <tr>
-              <th className="px-5 py-4">Contact</th>
-              <th className="px-4 py-4">Company</th>
-              <th className="px-4 py-4">Stage / Status</th>
-              <th className="px-4 py-4">Value</th>
-              <th className="px-4 py-4">Last Activity</th>
-              <th className="px-5 py-4 text-right">Quick Follow-Up</th>
+              <th className="px-4 py-3">Customer</th>
+              <th className="px-3 py-3">Company & Role</th>
+              <th className="px-3 py-3">Pipeline Stage</th>
+              <th className="px-3 py-3">Deal Value</th>
+              <th className="px-3 py-3">Last Contact</th>
+              <th className="px-4 py-3 text-right">Quick Follow-Up</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/[0.04]">
+          <tbody className="divide-y divide-[#242A35]/60">
             {contacts.map((contact) => {
               const staleness = getStalenessInfo(contact.last_contacted_at);
               const waLink = buildContextualWhatsAppLink(contact);
@@ -672,33 +651,33 @@ function TableView({
               return (
                 <tr
                   key={contact.id}
-                  className="transition hover:bg-white/[0.02]"
+                  className="transition hover:bg-[#151922]/50"
                 >
-                  <td className="px-5 py-3.5">
+                  <td className="px-4 py-3">
                     <div
                       onClick={() => onOpenContact(contact)}
-                      className="cursor-pointer font-medium text-white hover:text-violet-300"
+                      className="cursor-pointer font-medium text-[#F5F7FA] hover:text-[#4F7CFF]"
                     >
                       {getFullName(contact)}
                     </div>
-                    <div className="text-xs text-zinc-500">
-                      {contact.email || contact.phone || "No direct email"}
+                    <div className="text-[11px] text-[#667085]">
+                      {contact.email || contact.phone || "No contact info"}
                     </div>
                   </td>
 
-                  <td className="px-4 py-3.5">
-                    <div className="text-zinc-300">{contact.company || "—"}</div>
-                    <div className="text-xs text-zinc-500">{contact.job_title || contact.type}</div>
+                  <td className="px-3 py-3">
+                    <div className="text-[#F5F7FA]">{contact.company || "—"}</div>
+                    <div className="text-[11px] text-[#667085]">{contact.job_title || contact.type}</div>
                   </td>
 
-                  <td className="px-4 py-3.5">
+                  <td className="px-3 py-3">
                     <select
                       value={contact.status}
                       disabled={isUpdating}
                       onChange={(e) =>
                         onAdvanceStage(contact, e.target.value as ContactStatus)
                       }
-                      className="rounded-lg border border-white/[0.08] bg-[#14151B] px-2.5 py-1 text-xs font-medium text-zinc-200 outline-none focus:border-violet-500/40"
+                      className="rounded border border-[#242A35] bg-[#151922] px-2 py-1 text-xs font-medium text-[#F5F7FA] outline-none focus:border-[#4F7CFF]"
                     >
                       {statusOptions
                         .filter((s) => s !== "All")
@@ -710,28 +689,28 @@ function TableView({
                     </select>
                   </td>
 
-                  <td className="px-4 py-3.5 font-semibold text-white">
+                  <td className="px-3 py-3 font-semibold text-[#F5F7FA]">
                     {formatUSD(contact.estimated_value)}
                   </td>
 
-                  <td className="px-4 py-3.5">
+                  <td className="px-3 py-3">
                     <span
-                      className={`inline-flex items-center gap-1 text-xs ${
-                        staleness.isStale ? "text-amber-400" : "text-zinc-400"
+                      className={`inline-flex items-center gap-1 text-[11px] ${
+                        staleness.isStale ? "text-amber-400" : "text-[#98A2B3]"
                       }`}
                     >
-                      <Clock size={12} />
+                      <Clock size={11} />
                       {staleness.label}
                     </span>
                   </td>
 
-                  <td className="px-5 py-3.5 text-right">
-                    <div className="flex items-center justify-end gap-2">
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
                       <a
                         href={waLink}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/20"
+                        className="inline-flex items-center gap-1 rounded border border-[#242A35] bg-[#151922] px-2 py-1 text-xs font-medium text-[#98A2B3] transition hover:border-[#4F7CFF] hover:text-[#F5F7FA]"
                       >
                         <MessageSquare size={12} />
                         WhatsApp
@@ -741,7 +720,7 @@ function TableView({
                         type="button"
                         onClick={() => onMarkContacted(contact)}
                         disabled={isUpdating}
-                        className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-white/[0.08]"
+                        className="rounded border border-[#242A35] bg-[#151922] px-2 py-1 text-xs font-medium text-[#98A2B3] transition hover:text-[#F5F7FA]"
                       >
                         Contacted
                       </button>
@@ -749,9 +728,9 @@ function TableView({
                       <button
                         type="button"
                         onClick={() => onOpenContact(contact)}
-                        className="rounded-lg p-1 text-zinc-500 hover:text-white"
+                        className="rounded p-1 text-[#667085] hover:text-[#F5F7FA]"
                       >
-                        <ChevronRight size={16} />
+                        <ChevronRight size={14} />
                       </button>
                     </div>
                   </td>
@@ -913,70 +892,32 @@ STAT CARD
 ============================================================
 */
 
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  success = false,
-  subtitle,
-}: {
-  label: string;
-  value: string;
-  icon: typeof Users;
-  success?: boolean;
-  subtitle?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/[0.07] bg-[#111216] p-5">
-      <div className="flex items-center justify-between">
-        <div
-          className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-            success ? "bg-emerald-500/10 text-emerald-400" : "bg-violet-500/10 text-violet-400"
-          }`}
-        >
-          <Icon size={18} />
-        </div>
-      </div>
-
-      <p className="mt-4 text-xs font-medium uppercase tracking-wider text-zinc-500">
-        {label}
-      </p>
-
-      <p className="mt-1 text-2xl font-semibold text-white">{value}</p>
-
-      {subtitle && (
-        <p className="mt-1 text-xs text-zinc-500">{subtitle}</p>
-      )}
-    </div>
-  );
-}
-
 function StageDot({ status }: { status: ContactStatus }) {
   const colors: Record<ContactStatus, string> = {
-    New: "bg-blue-400",
-    Contacted: "bg-violet-400",
-    Qualified: "bg-cyan-400",
+    New: "bg-[#667085]",
+    Contacted: "bg-[#98A2B3]",
+    Qualified: "bg-[#4F7CFF]",
     Interested: "bg-amber-400",
     Won: "bg-emerald-400",
-    Lost: "bg-red-400",
+    Lost: "bg-rose-400",
   };
 
-  return <span className={`h-2 w-2 rounded-full ${colors[status]}`} />;
+  return <span className={`h-2 w-2 rounded-full ${colors[status] || "bg-[#667085]"}`} />;
 }
 
 function StatusBadge({ status }: { status: ContactStatus }) {
   const styles: Record<ContactStatus, string> = {
-    New: "border-blue-500/20 bg-blue-500/10 text-blue-400",
-    Contacted: "border-violet-500/20 bg-violet-500/10 text-violet-400",
-    Qualified: "border-cyan-500/20 bg-cyan-500/10 text-cyan-400",
-    Interested: "border-amber-500/20 bg-amber-500/10 text-amber-400",
-    Won: "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
-    Lost: "border-red-500/20 bg-red-500/10 text-red-400",
+    New: "border-[#242A35] bg-[#151922] text-[#98A2B3]",
+    Contacted: "border-[#242A35] bg-[#151922] text-[#98A2B3]",
+    Qualified: "border-[#4F7CFF]/25 bg-[#4F7CFF]/10 text-[#4F7CFF]",
+    Interested: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+    Won: "border-emerald-500/25 bg-emerald-500/10 text-emerald-400",
+    Lost: "border-rose-500/25 bg-rose-500/10 text-rose-400",
   };
 
   return (
     <span
-      className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${styles[status]}`}
+      className={`rounded border px-2 py-0.5 text-[10px] font-medium ${styles[status] || styles.New}`}
     >
       {status}
     </span>

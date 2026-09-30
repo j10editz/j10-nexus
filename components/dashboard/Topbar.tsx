@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
   useEffect,
   useMemo,
@@ -17,7 +17,6 @@ import {
   CreditCard,
   LogOut,
   Menu,
-  Plug,
   Search,
   Settings,
   UserCircle2,
@@ -44,6 +43,7 @@ export default function Topbar({
   onOpenNavigation,
 }: TopbarProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
@@ -123,57 +123,39 @@ export default function Topbar({
             setProfileData((prev) => ({
               ...prev,
               loading: false,
-              workspaceRole: "Authorization unavailable",
-              workspaceName: "No Active Workspace",
               authFailed: true,
             }));
           }
           return;
         }
+
         const data = await res.json();
         if (cancelled) return;
-        if (!data.success) {
-          setProfileData((prev) => ({
-            ...prev,
+
+        if (data.success && data.profile) {
+          setProfileData({
+            displayName:
+              data.profile.full_name ||
+              data.profile.display_name ||
+              data.profile.email?.split("@")[0] ||
+              "User",
+            jobTitle: data.profile.job_title || "",
+            workspaceRole: data.workspaceRole || "Owner",
+            workspaceName: data.workspaceName || "Active Workspace",
+            platformRole: data.platformRole || null,
+            email: data.profile.email || "",
+            avatarUrl: data.profile.avatar_url || null,
             loading: false,
-            workspaceRole: "Authorization unavailable",
-            workspaceName: "No Active Workspace",
-            authFailed: true,
-          }));
-          return;
+            authFailed: false,
+          });
+        } else {
+          setProfileData((prev) => ({ ...prev, loading: false }));
         }
-
-        const roleLabels: Record<string, string> = {
-          owner: "Owner",
-          admin: "Admin",
-          manager: "Manager",
-          agent: "Agent",
-          viewer: "Viewer",
-        };
-
-        const resolvedRole = data.activeWorkspaceRole
-          ? roleLabels[data.activeWorkspaceRole] || data.activeWorkspaceRole
-          : "No Workspace";
-
-        setProfileData({
-          displayName:
-            data.profile?.display_name ||
-            (data.user?.email ? data.user.email.split("@")[0] : "User"),
-          jobTitle: data.profile?.job_title || "",
-          workspaceRole: resolvedRole,
-          workspaceName: data.activeWorkspaceName || "No Active Workspace",
-          platformRole: data.platformRole || null,
-          email: data.user?.email || "",
-          avatarUrl: data.profile?.avatar_url || null,
-          loading: false,
-        });
       } catch {
         if (!cancelled) {
           setProfileData((prev) => ({
             ...prev,
             loading: false,
-            workspaceRole: "Authorization unavailable",
-            workspaceName: "No Active Workspace",
             authFailed: true,
           }));
         }
@@ -186,6 +168,55 @@ export default function Topbar({
     };
   }, [isDemo]);
 
+  // Notifications count
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNotifications() {
+      try {
+        const res = await fetch("/api/dashboard/notifications", {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+
+        const data = (await res.json()) as NotificationsSummaryResponse;
+        if (cancelled) return;
+
+        if (data.success && typeof data.summary?.attention === "number") {
+          setAttentionCount(data.summary.attention);
+        }
+      } catch {}
+    }
+
+    void loadNotifications();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Keyboard shortcut for search
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "k"
+      ) {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        setSearchOpen(true);
+      }
+
+      if (event.key === "Escape") {
+        setSearchOpen(false);
+        setProfileOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Click outside to close profile dropdown
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -195,128 +226,38 @@ export default function Topbar({
         setProfileOpen(false);
       }
     }
+
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-
-  useEffect(() => {
-    function handleKeyboard(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA" ||
-        target?.isContentEditable;
-
-      if (event.key === "/" && !typing) {
-        event.preventDefault();
-        searchInputRef.current?.focus();
-        setSearchOpen(true);
-      }
-
-      if (event.key === "Escape") {
-        setSearchOpen(false);
-        setProfileOpen(false);
-        searchInputRef.current?.blur();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyboard);
-
-    return () => {
-      window.removeEventListener(
-        "keydown",
-        handleKeyboard
-      );
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadNotificationSummary() {
-      try {
-        const response = await fetch(
-          "/api/dashboard/notifications?limit=25",
-          {
-            method: "GET",
-            cache: "no-store",
-          }
-        );
-
-        if (!response.ok) {
-          return;
-        }
-
-        const data =
-          (await response.json()) as
-            NotificationsSummaryResponse;
-
-        if (!cancelled && data.success) {
-          setAttentionCount(
-            Math.max(
-              0,
-              Number(
-                data.summary?.attention ?? 0
-              )
-            )
-          );
-        }
-      } catch {
-        // The notification center shows its own recoverable error state.
-      }
-    }
-
-    void loadNotificationSummary();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const results = useMemo(() => {
-    const normalizedQuery =
-      query.trim().toLowerCase();
-
-    if (!normalizedQuery) {
+    const q = query.trim().toLowerCase();
+    if (!q) {
       return readyDashboardNavigationItems.slice(0, 6);
     }
-
-    return readyDashboardNavigationItems
-      .filter((item) =>
-        `${item.label} ${item.description}`
-          .toLowerCase()
-          .includes(normalizedQuery)
-      )
-      .slice(0, 7);
+    return readyDashboardNavigationItems.filter(
+      (item) =>
+        item.label.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q)
+    );
   }, [query]);
 
-  function navigate(href: string) {
-    setQuery("");
+  function navigate(href?: string) {
+    if (!href) return;
     setSearchOpen(false);
-    setProfileOpen(false);
+    setQuery("");
     router.push(href);
-
-    if (href.includes("#j10-ai")) {
-      window.setTimeout(() => {
-        document
-          .getElementById("j10-ai")
-          ?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
-          });
-      }, 250);
-    }
   }
 
-  function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
+    const clean = query.trim().toLowerCase();
+    if (clean.startsWith("ai") || clean.includes("operator")) {
+      navigate("/dashboard#j10-ai");
+      return;
+    }
     const firstResult = results[0];
-
     if (firstResult?.href) {
       navigate(firstResult.href);
     }
@@ -330,27 +271,57 @@ export default function Topbar({
     router.push("/login");
   }
 
-  return (
-    <header className="sticky top-0 z-30 flex h-[72px] shrink-0 items-center border-b border-white/[0.09] bg-[#0a0e17]/82 px-4 text-white backdrop-blur-2xl sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-[1680px] items-center gap-3">
-        <button
-          type="button"
-          onClick={onOpenNavigation}
-          aria-label="Open navigation"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.035] text-white/70 transition hover:bg-white/[0.07] hover:text-white lg:hidden"
-        >
-          <Menu size={19} />
-        </button>
+  // Derive compact current page name for mobile header
+  const mobilePageTitle = useMemo(() => {
+    if (pathname === "/dashboard") return "Command Center";
+    if (pathname === "/dashboard/inbox") return "Inbox";
+    if (pathname === "/dashboard/crm") return "Lead Center";
+    if (pathname === "/dashboard/booking") return "Booking";
+    if (pathname === "/dashboard/growth") return "Growth";
+    if (pathname === "/dashboard/ai-operator") return "AI Operator";
+    if (pathname === "/dashboard/pay") return "Pay";
+    if (pathname === "/dashboard/connections") return "Connections";
+    if (pathname === "/dashboard/brand") return "Brand";
+    return "J10 NEXUS";
+  }, [pathname]);
 
+  return (
+    <header className="sticky top-0 z-30 flex h-[56px] shrink-0 items-center border-b border-[#242A35] bg-[#090B10]/95 px-4 backdrop-blur-md sm:px-6">
+      <div className="flex w-full items-center justify-between gap-3">
+        {/* Mobile Left: Menu Toggle + Page Title / J10 Mark */}
+        <div className="flex items-center gap-2.5 lg:hidden">
+          <button
+            type="button"
+            onClick={onOpenNavigation}
+            aria-label="Open navigation"
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-[#242A35] bg-[#101319] text-[#98A2B3] transition hover:bg-[#151922] hover:text-[#F5F7FA]"
+          >
+            <Menu size={16} />
+          </button>
+
+          <div className="flex items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded bg-[#101319] border border-[#242A35] p-0.5">
+              <Image
+                src="/brand/j10-logo.png"
+                alt="J10 monogram"
+                width={14}
+                height={14}
+                className="h-full w-full object-contain"
+              />
+            </div>
+            <span className="text-xs font-semibold text-[#F5F7FA] truncate max-w-[140px]">
+              {mobilePageTitle}
+            </span>
+          </div>
+        </div>
+
+        {/* Desktop Left: Visually Quiet Compact Search */}
         <form
           onSubmit={handleSubmit}
-          className="relative min-w-0 flex-1 sm:max-w-[520px]"
+          className="relative hidden min-w-0 flex-1 max-w-[380px] lg:block"
         >
-          <div className="flex h-11 items-center rounded-xl border border-white/[0.1] bg-[#0d111b]/85 px-3.5 transition focus-within:border-cyan-300/45 focus-within:ring-2 focus-within:ring-blue-500/10">
-            <Search
-              className="mr-3 shrink-0 text-white/35"
-              size={17}
-            />
+          <div className="flex h-8 items-center rounded-md border border-[#242A35] bg-[#101319] px-2.5 transition focus-within:border-[#4F7CFF]/50 focus-within:ring-1 focus-within:ring-[#4F7CFF]/20">
+            <Search className="mr-2 shrink-0 text-[#667085]" size={14} />
 
             <input
               ref={searchInputRef}
@@ -360,9 +331,9 @@ export default function Topbar({
                 setSearchOpen(true);
               }}
               onFocus={() => setSearchOpen(true)}
-              placeholder="Search J10 modules and operations..."
+              placeholder="Search J10..."
               aria-label="Search J10"
-              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/25"
+              className="min-w-0 flex-1 bg-transparent text-xs text-[#F5F7FA] outline-none placeholder:text-[#667085]"
             />
 
             {query ? (
@@ -373,59 +344,54 @@ export default function Topbar({
                   setQuery("");
                   searchInputRef.current?.focus();
                 }}
-                className="rounded-md p-1 text-white/30 transition hover:bg-white/5 hover:text-white"
+                className="rounded p-0.5 text-[#667085] hover:text-[#F5F7FA]"
               >
-                <X size={15} />
+                <X size={13} />
               </button>
             ) : (
-              <span className="hidden items-center gap-1 rounded-md border border-white/[0.07] bg-white/[0.03] px-1.5 py-1 text-xs text-white/25 sm:flex">
-                <Command size={10} /> /
+              <span className="flex items-center gap-0.5 text-[10px] text-[#667085]">
+                <Command size={10} />K
               </span>
             )}
           </div>
 
           {searchOpen && (
-            <div className="absolute left-0 right-0 top-[calc(100%+8px)] overflow-hidden rounded-2xl border border-white/[0.09] bg-[#101115] p-2 shadow-2xl shadow-black/50">
-              <div className="flex items-center justify-between px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-[0.16em] text-white/40">
-                <span>
-                  {query ? "Search results" : "Quick access"}
-                </span>
+            <div className="absolute left-0 right-0 top-[calc(100%+6px)] overflow-hidden rounded-lg border border-[#242A35] bg-[#101319] p-1.5 shadow-xl z-50">
+              <div className="flex items-center justify-between px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#667085]">
+                <span>{query ? "Search results" : "Quick access"}</span>
                 <button
                   type="button"
                   onClick={() => setSearchOpen(false)}
-                  className="text-white/40 transition hover:text-white"
+                  className="text-[#667085] hover:text-[#F5F7FA]"
                 >
                   Close
                 </button>
               </div>
 
               {results.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-white/[0.08] px-4 py-7 text-center text-sm text-white/35">
-                  No working J10 module matches “{query}”.
+                <div className="px-3 py-4 text-center text-xs text-[#667085]">
+                  No module matches “{query}”.
                 </div>
               ) : (
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   {results.map((item) => (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => navigate(item.href)}
-                      className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-white/[0.055]"
+                      className="group flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition hover:bg-[#151922]"
                     >
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400">
-                        <Search size={14} />
-                      </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-white/85">
+                        <p className="text-xs font-medium text-[#F5F7FA]">
                           {item.label}
                         </p>
-                        <p className="truncate text-xs text-white/40">
+                        <p className="truncate text-[10px] text-[#667085]">
                           {item.description}
                         </p>
                       </div>
                       <ChevronRight
-                        size={15}
-                        className="text-white/20 transition group-hover:translate-x-0.5 group-hover:text-blue-400"
+                        size={12}
+                        className="text-[#667085] group-hover:text-[#4F7CFF] transition-colors"
                       />
                     </button>
                   ))}
@@ -435,23 +401,9 @@ export default function Topbar({
           )}
         </form>
 
-        <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
-          {/* Primary Global Ask J10 AI Launcher (Restrained Gradient) */}
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard#j10-ai")}
-            className="hidden h-10 items-center gap-2 rounded-xl border border-cyan-500/30 bg-gradient-to-r from-cyan-500/15 via-blue-600/15 to-cyan-500/10 px-3.5 text-xs font-semibold text-cyan-200 shadow-sm transition hover:border-cyan-400/50 hover:bg-cyan-500/20 active:scale-[0.99] md:flex"
-          >
-            <Image
-              src="/brand/j10-logo.png"
-              alt="J10 monogram"
-              width={15}
-              height={15}
-              className="object-contain opacity-90"
-            />
-            <span>Ask J10 AI</span>
-          </button>
-
+        {/* Right Side: Notifications + Workspace Switcher (Desktop) + User Avatar */}
+        <div className="flex items-center gap-2">
+          {/* Notifications */}
           <Link
             href="/dashboard/notifications"
             aria-label={
@@ -459,20 +411,22 @@ export default function Topbar({
                 ? `${attentionCount} notifications need attention`
                 : "Open notifications"
             }
-            className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-[#111216] text-white/60 transition hover:bg-white/[0.06] hover:text-white"
+            className="relative flex h-8 w-8 items-center justify-center rounded-md border border-[#242A35] bg-[#101319] text-[#98A2B3] transition hover:bg-[#151922] hover:text-[#F5F7FA]"
           >
-            <Bell size={17} />
+            <Bell size={15} />
             {attentionCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#09090B] bg-red-500 px-1 text-[9px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-black">
                 {Math.min(attentionCount, 99)}
               </span>
             )}
           </Link>
 
-          {/* Multi-Tenant Workspace & Client Switcher */}
-          <WorkspaceSwitcher />
+          {/* Multi-Tenant Workspace Switcher — Hidden on Mobile Header */}
+          <div className="hidden md:block">
+            <WorkspaceSwitcher />
+          </div>
 
-          {/* User Profile Menu */}
+          {/* User Profile Avatar & Menu */}
           <div className="relative" ref={profileMenuRef}>
             <button
               type="button"
@@ -482,163 +436,100 @@ export default function Topbar({
               }}
               aria-expanded={profileOpen}
               aria-label="Open user profile menu"
-              className="flex h-10 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-[#111216] px-2.5 text-left transition hover:bg-white/[0.06] sm:px-3"
+              className="flex h-8 items-center gap-2 rounded-md border border-[#242A35] bg-[#101319] px-2 text-left transition hover:bg-[#151922]"
             >
               {profileData.avatarUrl && !avatarLoadFailed ? (
                 <img
                   src={profileData.avatarUrl}
                   alt={`${profileData.displayName} avatar`}
-                  width={24}
-                  height={24}
+                  width={22}
+                  height={22}
                   referrerPolicy="no-referrer"
                   onError={() => setAvatarLoadFailed(true)}
-                  className="h-6 w-6 rounded-full object-cover shrink-0 ring-1 ring-white/10"
+                  className="h-5 w-5 rounded-full object-cover shrink-0 ring-1 ring-[#242A35]"
                 />
               ) : (
                 <UserCircle2
-                  size={24}
-                  className="text-white/80 shrink-0"
+                  size={18}
+                  className="text-[#98A2B3] shrink-0"
                   aria-hidden="true"
                 />
               )}
               <div className="hidden sm:block">
-                <div className="flex items-center gap-1.5">
-                  <p className="text-xs font-semibold text-white truncate max-w-[120px]">
-                    {profileData.loading ? "Loading..." : profileData.displayName}
-                  </p>
-                  {isDemo && (
-                    <span className="rounded bg-cyan-500/20 border border-cyan-500/30 px-1 py-0.2 text-[9px] font-semibold text-cyan-300">
-                      Demo
-                    </span>
-                  )}
-                  {!isDemo && profileData.platformRole === "platform_founder" && (
-                    <span className="rounded bg-violet-500/20 border border-violet-500/30 px-1 py-0.2 text-[9px] font-semibold text-violet-300">
-                      Founder
-                    </span>
-                  )}
-                  {!isDemo && profileData.workspaceRole === "Owner" && (
-                    <span className="rounded bg-emerald-500/20 border border-emerald-500/30 px-1 py-0.2 text-[9px] font-semibold text-emerald-300">
-                      Owner
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-400">
-                  {profileData.loading
-                    ? "Loading..."
-                    : isDemo
-                    ? "Sample Identity"
-                    : profileData.workspaceRole === "Authorization unavailable" || profileData.workspaceRole === "No Workspace"
-                    ? "No Active Workspace"
-                    : profileData.jobTitle
-                    ? `${profileData.jobTitle} - ${profileData.workspaceRole}`
-                    : profileData.workspaceRole}
-                </p>
+                <span className="text-xs font-medium text-[#F5F7FA] truncate max-w-[100px] block leading-none">
+                  {profileData.loading ? "..." : profileData.displayName}
+                </span>
               </div>
             </button>
 
             {profileOpen && (
-              <div className="absolute right-0 top-[calc(100%+8px)] w-64 rounded-2xl border border-white/[0.09] bg-[#101115] p-2 shadow-2xl shadow-black/50 z-50">
-                <div className="rounded-xl bg-white/[0.03] px-3 py-3">
-                  <div className="flex items-center gap-3">
+              <div className="absolute right-0 top-[calc(100%+6px)] w-60 rounded-lg border border-[#242A35] bg-[#101319] p-1.5 shadow-xl z-50">
+                <div className="rounded-md bg-[#151922] px-3 py-2 mb-1">
+                  <div className="flex items-center gap-2.5">
                     {profileData.avatarUrl && !dropdownAvatarFailed ? (
                       <img
                         src={profileData.avatarUrl}
                         alt={`${profileData.displayName} avatar`}
-                        width={36}
-                        height={36}
+                        width={30}
+                        height={30}
                         referrerPolicy="no-referrer"
                         onError={() => setDropdownAvatarFailed(true)}
-                        className="h-9 w-9 rounded-full object-cover shrink-0 ring-1 ring-white/10"
+                        className="h-7 w-7 rounded-full object-cover shrink-0 ring-1 ring-[#242A35]"
                       />
                     ) : (
                       <UserCircle2
-                        size={36}
-                        className="text-white/80 shrink-0"
+                        size={28}
+                        className="text-[#98A2B3] shrink-0"
                         aria-hidden="true"
                       />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-white truncate">
+                      <p className="text-xs font-semibold text-[#F5F7FA] truncate">
                         {profileData.displayName}
                       </p>
-                      <p className="mt-0.5 text-xs text-slate-400 truncate">
-                        {profileData.email}
+                      <p className="truncate text-[10px] text-[#667085]">
+                        {profileData.email || "No email"}
                       </p>
                     </div>
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                    <span
-                      className={`rounded px-2 py-0.5 ${
-                        isDemo
-                          ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-medium"
-                          : profileData.workspaceRole === "Owner"
-                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium"
-                          : "bg-white/[0.06] text-white/70"
-                      }`}
-                    >
-                      {isDemo
-                        ? "Sample Identity"
-                        : profileData.workspaceRole || (profileData.loading ? "Loading..." : "No Workspace")}
-                    </span>
-                    {!isDemo && profileData.platformRole === "platform_founder" && (
-                      <span className="rounded bg-violet-500/20 text-violet-300 border border-violet-500/30 px-2 py-0.5 font-medium">
-                        Platform Founder
-                      </span>
-                    )}
-                    {!isDemo && profileData.platformRole === "platform_admin" && (
-                      <span className="rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 font-medium">
-                        Platform Admin
-                      </span>
-                    )}
-                  </div>
                 </div>
 
-                {/* Account Dropdown Options */}
-                <div className="mt-1 space-y-0.5">
+                <div className="space-y-0.5">
                   <Link
                     href="/dashboard/settings/account"
                     onClick={() => setProfileOpen(false)}
-                    className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-slate-300 transition hover:bg-white/[0.05] hover:text-white"
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[#98A2B3] hover:bg-[#151922] hover:text-[#F5F7FA] transition-colors"
                   >
-                    <UserCircle2 size={15} className="text-slate-400" />
-                    <span>Account &amp; Profile</span>
+                    <UserCircle2 size={14} />
+                    <span>Account Settings</span>
                   </Link>
 
                   <Link
                     href="/dashboard/settings"
                     onClick={() => setProfileOpen(false)}
-                    className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-slate-300 transition hover:bg-white/[0.05] hover:text-white"
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[#98A2B3] hover:bg-[#151922] hover:text-[#F5F7FA] transition-colors"
                   >
-                    <Settings size={15} className="text-slate-400" />
+                    <Settings size={14} />
                     <span>Workspace Settings</span>
                   </Link>
 
                   <Link
-                    href="/dashboard/settings/integrations"
+                    href="/dashboard/settings/billing"
                     onClick={() => setProfileOpen(false)}
-                    className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-slate-300 transition hover:bg-white/[0.05] hover:text-white"
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[#98A2B3] hover:bg-[#151922] hover:text-[#F5F7FA] transition-colors"
                   >
-                    <Plug size={15} className="text-slate-400" />
-                    <span>Connections</span>
+                    <CreditCard size={14} />
+                    <span>Billing & Subscription</span>
                   </Link>
 
-                  <Link
-                    href="/dashboard/finance"
-                    onClick={() => setProfileOpen(false)}
-                    className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-slate-300 transition hover:bg-white/[0.05] hover:text-white"
-                  >
-                    <CreditCard size={15} className="text-slate-400" />
-                    <span>Billing &amp; Plan</span>
-                  </Link>
-
-                  <div className="my-1 border-t border-white/[0.08]" />
+                  <div className="my-1 border-t border-[#242A35]" />
 
                   <button
                     type="button"
                     onClick={handleSignOut}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-red-400 transition hover:bg-red-500/10 hover:text-red-300"
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors"
                   >
-                    <LogOut size={15} />
+                    <LogOut size={14} />
                     <span>Sign Out</span>
                   </button>
                 </div>

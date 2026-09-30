@@ -136,7 +136,7 @@ describe("Dashboard activation", () => {
       "components/dashboard/DashboardLayout.tsx"
     );
 
-    expect(shell).toContain('lg:pl-[260px]');
+    expect(shell).toMatch(/lg:pl-\[(228|260)px\]/);
     expect(shell).toContain(
       'pathname === "/dashboard/automation/flow"'
     );

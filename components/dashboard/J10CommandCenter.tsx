@@ -1,25 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import {
-  AlertCircle,
-  AlertTriangle,
-  ArrowRight,
-  Bot,
-  Calendar,
-  CheckCircle2,
-  ChevronRight,
-  CreditCard,
-  MessageSquare,
-  Plug,
-  RefreshCw,
-  Sparkles,
-  Users,
-  Workflow,
-  Zap,
-} from "lucide-react";
+import { useCallback, useEffect, useState, useMemo } from "react";
+import { RefreshCw, ChevronRight } from "lucide-react";
 import type { CommandCenterData } from "@/app/api/dashboard/command-center/route";
+import {
+  DashboardMetricTile,
+  DashboardStatusBadge,
+  DashboardActionRow,
+  DashboardEmptyState,
+} from "./DashboardPrimitives";
 
 interface J10CommandCenterProps {
   initialWorkspaceName?: string;
@@ -28,12 +18,12 @@ interface J10CommandCenterProps {
 
 export default function J10CommandCenter({
   initialWorkspaceName = "Active Workspace",
-  userName,
 }: J10CommandCenterProps) {
   const [data, setData] = useState<CommandCenterData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string>("");
 
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -47,16 +37,20 @@ export default function J10CommandCenter({
       const json = await res.json();
 
       if (!res.ok || !json.success) {
-        throw new Error(json.error || "Failed to load authenticated workspace metrics.");
+        throw new Error(json.error || "Failed to load workspace data.");
       }
 
       setData(json.data);
+      const now = new Date();
+      setLastUpdated(
+        now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      );
     } catch (err) {
-      console.error("J10 Command Center load error:", err);
+      console.error("J10 Command Center error:", err);
       setError(
         err instanceof Error
           ? err.message
-          : "Workspace metrics are temporarily unavailable. Please retry."
+          : "Workspace data is temporarily unavailable. Please retry."
       );
     } finally {
       setLoading(false);
@@ -68,22 +62,147 @@ export default function J10CommandCenter({
     void fetchData();
   }, [fetchData]);
 
+  // Build the prioritized operational work list
+  const operationalPriorities = useMemo(() => {
+    if (!data) return [];
+
+    const items: Array<{
+      id: string;
+      title: string;
+      context: string;
+      priority: number; // 1: Failed automations, 2: Unanswered, 3: Follow-up leads, 4: Bookings, 5: Payments
+      status: {
+        label: string;
+        variant: "error" | "warning" | "available" | "neutral" | "connected";
+      };
+      time?: string;
+      actionLabel: string;
+      actionHref: string;
+    }> = [];
+
+    // 1. Failed or blocked automations
+    if (data.metrics.failedAutomations.count > 0) {
+      items.push({
+        id: "failed-automations-summary",
+        title: `${data.metrics.failedAutomations.count} automation run${
+          data.metrics.failedAutomations.count > 1 ? "s" : ""
+        } could not finish`,
+        context: "Review run logs to resolve trigger errors or retry failed steps",
+        priority: 1,
+        status: { label: "Failed", variant: "error" },
+        actionLabel: "View run logs",
+        actionHref: data.metrics.failedAutomations.href,
+      });
+    }
+
+    // 2. Unanswered conversations
+    if (data.recentConversations && data.recentConversations.length > 0) {
+      data.recentConversations
+        .filter((c) => c.isUnread)
+        .slice(0, 3)
+        .forEach((c) => {
+          items.push({
+            id: `conv-${c.id}`,
+            title: `Reply to ${c.contactName}`,
+            context: `${c.channel.toUpperCase()} - ${c.lastMessage || "No preview"}`,
+            priority: 2,
+            status: { label: "Unanswered", variant: "warning" },
+            time: c.timestamp
+              ? new Date(c.timestamp).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : undefined,
+            actionLabel: "Open thread",
+            actionHref: `/dashboard/inbox?threadId=${c.id}`,
+          });
+        });
+    }
+
+    // 3. Leads needing follow-up
+    if (data.recentLeads && data.recentLeads.length > 0) {
+      data.recentLeads
+        .filter((l) => l.status === "New" || l.status === "Qualified")
+        .slice(0, 3)
+        .forEach((l) => {
+          items.push({
+            id: `lead-${l.id}`,
+            title: `Follow up with ${l.name}`,
+            context: `${l.source.toUpperCase()} intake - Stage: ${l.status}`,
+            priority: 3,
+            status: {
+              label: l.status === "New" ? "New lead" : "Qualified",
+              variant: l.status === "New" ? "available" : "warning",
+            },
+            time: l.createdAt
+              ? new Date(l.createdAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : undefined,
+            actionLabel: "View lead",
+            actionHref: `/dashboard/crm?contactId=${l.id}`,
+          });
+        });
+    }
+
+    // 4. Upcoming bookings
+    if (data.upcomingBookingsList && data.upcomingBookingsList.length > 0) {
+      data.upcomingBookingsList.slice(0, 2).forEach((b) => {
+        items.push({
+          id: `booking-${b.id}`,
+          title: `Upcoming: ${b.clientName}`,
+          context: b.scheduledStart
+            ? `Scheduled for ${new Date(b.scheduledStart).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}`
+            : "Scheduled appointment",
+          priority: 4,
+          status: { label: b.status || "Scheduled", variant: "neutral" },
+          actionLabel: "View booking",
+          actionHref: `/dashboard/booking?id=${b.id}`,
+        });
+      });
+    }
+
+    // 5. Pending payments
+    if (data.metrics.pendingPayments.count > 0) {
+      items.push({
+        id: "pending-payments-summary",
+        title: `${data.metrics.pendingPayments.count} invoice${
+          data.metrics.pendingPayments.count > 1 ? "s" : ""
+        } awaiting settlement ($${data.metrics.pendingPayments.amount.toLocaleString()})`,
+        context: "Sent payment checkouts awaiting client completion",
+        priority: 5,
+        status: { label: "Pending", variant: "warning" },
+        actionLabel: "Open J10 Pay",
+        actionHref: data.metrics.pendingPayments.href,
+      });
+    }
+
+    // Sort strictly by priority
+    return items.sort((a, b) => a.priority - b.priority);
+  }, [data]);
+
   if (loading) {
     return (
-      <div className="min-h-[calc(100dvh-72px)] bg-[#07090f] p-4 sm:p-6 lg:p-8 text-white">
-        <div className="mx-auto max-w-[1360px] space-y-6">
-          <div className="flex items-center justify-between border-b border-white/[0.08] pb-5">
-            <div>
-              <div className="h-4 w-32 animate-pulse rounded bg-white/10" />
-              <div className="mt-2 h-8 w-64 animate-pulse rounded bg-white/10" />
+      <div className="p-4 sm:p-6 text-[#F5F7FA]">
+        <div className="mx-auto max-w-[1360px] space-y-4">
+          <div className="flex items-center justify-between pb-4 border-b border-[#242A35]">
+            <div className="space-y-1">
+              <div className="h-6 w-44 animate-pulse rounded bg-[#151922]" />
+              <div className="h-3.5 w-60 animate-pulse rounded bg-[#151922]" />
             </div>
-            <div className="h-9 w-24 animate-pulse rounded-lg bg-white/10" />
+            <div className="h-7 w-20 animate-pulse rounded bg-[#151922]" />
           </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                className="h-28 animate-pulse rounded-2xl border border-white/[0.06] bg-white/[0.02]"
+                className="h-[88px] animate-pulse rounded-lg border border-[#242A35] bg-[#101319]"
               />
             ))}
           </div>
@@ -94,23 +213,22 @@ export default function J10CommandCenter({
 
   if (error || !data) {
     return (
-      <div className="min-h-[calc(100dvh-72px)] bg-[#07090f] p-4 sm:p-6 lg:p-8 text-white">
+      <div className="p-4 sm:p-6 text-[#F5F7FA]">
         <div className="mx-auto max-w-[1360px]">
-          <div className="rounded-2xl border border-rose-500/20 bg-rose-500/[0.05] p-6 text-center">
-            <AlertCircle className="mx-auto h-8 w-8 text-rose-400" />
-            <h2 className="mt-3 text-lg font-semibold text-white">
-              Data Synchronization Unavailable
+          <div className="rounded-lg border border-rose-500/20 bg-[#101319] p-5 text-center">
+            <h2 className="text-sm font-semibold text-[#F5F7FA]">
+              Unable to load workspace data
             </h2>
-            <p className="mt-2 text-sm text-[#8d96a8]">
-              {error || "Unable to query verified workspace metrics."}
+            <p className="mt-1 text-xs text-[#98A2B3]">
+              {error || "Could not retrieve live workspace metrics."}
             </p>
             <button
               type="button"
               onClick={() => void fetchData(true)}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#151922] border border-[#242A35] px-3 py-1.5 text-xs font-medium text-[#F5F7FA] hover:bg-[#242A35] transition-colors"
             >
-              <RefreshCw size={14} />
-              Retry Connection
+              <RefreshCw size={13} />
+              Retry
             </button>
           </div>
         </div>
@@ -118,498 +236,269 @@ export default function J10CommandCenter({
     );
   }
 
-  const { metrics, attentionItems, recentLeads, recentConversations, upcomingBookingsList, channelOverview } = data;
-  const workspaceDisplayName = data.brandName || data.workspaceName || initialWorkspaceName;
+  const { metrics, upcomingBookingsList, channelOverview } = data;
 
   return (
-    <div className="min-h-[calc(100dvh-72px)] bg-[#07090f] p-4 sm:p-6 lg:p-8 text-white">
-      <div className="mx-auto max-w-[1360px] space-y-6">
+    <div className="p-4 sm:p-6 text-[#F5F7FA]">
+      <div className="mx-auto max-w-[1360px] space-y-5">
         {/* Header */}
-        <div className="flex flex-col gap-4 border-b border-white/[0.08] pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center justify-between pb-4 border-b border-[#242A35]">
           <div>
-            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-400">
-              <span>J10 NEXUS</span>
-              <span className="text-white/20">/</span>
-              <span className="text-[#8d96a8]">{workspaceDisplayName}</span>
-            </div>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#F5F7FA]">
               J10 Command Center
             </h1>
-            <p className="mt-1 text-xs text-[#8d96a8]">
-              Live operational summary and revenue movement for authenticated workspace.
+            <p className="mt-0.5 text-xs text-[#98A2B3]">
+              What needs your attention today.
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold text-emerald-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Verified Workspace Data
-            </span>
-
+          <div className="flex items-center gap-2">
+            {lastUpdated && (
+              <span className="hidden sm:inline text-[11px] text-[#667085]">
+                Updated {lastUpdated}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => void fetchData(true)}
               disabled={refreshing}
               aria-label="Refresh workspace metrics"
-              className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs font-medium text-[#8d96a8] transition hover:bg-white/[0.07] hover:text-white disabled:opacity-50"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-[#242A35] bg-[#101319] text-[#98A2B3] transition-colors hover:bg-[#151922] hover:text-[#F5F7FA] disabled:opacity-50"
+              title="Refresh metrics"
             >
-              <RefreshCw size={13} className={refreshing ? "animate-spin text-cyan-400" : ""} />
-              <span>{refreshing ? "Syncing..." : "Sync"}</span>
+              <RefreshCw
+                size={14}
+                className={refreshing ? "animate-spin text-[#4F7CFF]" : ""}
+              />
             </button>
           </div>
         </div>
 
-        {/* 8-Tile Workspace Metric Grid */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-4">
+        {/* 8 Compact Neutral Metric Tiles */}
+        {/* Desktop: 4 columns, 2 rows (88-100px) */}
+        {/* Mobile: 2 columns, 4 rows (max 88-96px) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
           {/* 1. New Leads */}
-          <Link
+          <DashboardMetricTile
+            label="New Leads"
+            value={metrics.newLeads.count}
+            destinationLabel="J10 Lead Center"
             href={metrics.newLeads.href}
-            className="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition duration-200 hover:border-cyan-400/40 hover:bg-white/[0.04]"
-          >
-            <div className="flex items-center justify-between text-[#8d96a8]">
-              <span className="text-xs font-medium">New Leads</span>
-              <Users size={16} className="text-cyan-400 transition group-hover:scale-110" />
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white sm:text-3xl">
-                {metrics.newLeads.count}
-              </div>
-              <div className="mt-1 flex items-center gap-1 text-[11px] text-cyan-300">
-                <span>J10 Lead Center</span>
-                <ChevronRight size={12} className="transition group-hover:translate-x-0.5" />
-              </div>
-            </div>
-          </Link>
+            semanticStatus="neutral"
+          />
 
-          {/* 2. Leads Needing Attention */}
-          <Link
+          {/* 2. Needs Attention (Warning emphasis only when count > 0) */}
+          <DashboardMetricTile
+            label="Needs Attention"
+            value={metrics.leadsNeedingAttention.count}
+            destinationLabel="Qualified Leads"
             href={metrics.leadsNeedingAttention.href}
-            className="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition duration-200 hover:border-amber-400/40 hover:bg-white/[0.04]"
-          >
-            <div className="flex items-center justify-between text-[#8d96a8]">
-              <span className="text-xs font-medium">Needs Attention</span>
-              <AlertTriangle size={16} className="text-amber-400 transition group-hover:scale-110" />
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white sm:text-3xl">
-                {metrics.leadsNeedingAttention.count}
-              </div>
-              <div className="mt-1 flex items-center gap-1 text-[11px] text-amber-300">
-                <span>Qualified Leads</span>
-                <ChevronRight size={12} className="transition group-hover:translate-x-0.5" />
-              </div>
-            </div>
-          </Link>
+            semanticStatus={
+              metrics.leadsNeedingAttention.count > 0 ? "warning" : "neutral"
+            }
+          />
 
           {/* 3. Unanswered Conversations */}
-          <Link
+          <DashboardMetricTile
+            label="Unanswered"
+            value={metrics.unansweredConversations.count}
+            destinationLabel="J10 Inbox"
             href={metrics.unansweredConversations.href}
-            className="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition duration-200 hover:border-blue-400/40 hover:bg-white/[0.04]"
-          >
-            <div className="flex items-center justify-between text-[#8d96a8]">
-              <span className="text-xs font-medium">Unanswered</span>
-              <MessageSquare size={16} className="text-blue-400 transition group-hover:scale-110" />
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white sm:text-3xl">
-                {metrics.unansweredConversations.count}
-              </div>
-              <div className="mt-1 flex items-center gap-1 text-[11px] text-blue-300">
-                <span>J10 Inbox</span>
-                <ChevronRight size={12} className="transition group-hover:translate-x-0.5" />
-              </div>
-            </div>
-          </Link>
+            semanticStatus={
+              metrics.unansweredConversations.count > 0 ? "warning" : "neutral"
+            }
+          />
 
           {/* 4. Upcoming Bookings */}
-          <Link
+          <DashboardMetricTile
+            label="Upcoming Bookings"
+            value={metrics.upcomingBookings.count}
+            destinationLabel="J10 Booking"
             href={metrics.upcomingBookings.href}
-            className="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition duration-200 hover:border-emerald-400/40 hover:bg-white/[0.04]"
-          >
-            <div className="flex items-center justify-between text-[#8d96a8]">
-              <span className="text-xs font-medium">Upcoming Bookings</span>
-              <Calendar size={16} className="text-emerald-400 transition group-hover:scale-110" />
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white sm:text-3xl">
-                {metrics.upcomingBookings.count}
-              </div>
-              <div className="mt-1 flex items-center gap-1 text-[11px] text-emerald-300">
-                <span>J10 Booking</span>
-                <ChevronRight size={12} className="transition group-hover:translate-x-0.5" />
-              </div>
-            </div>
-          </Link>
+            semanticStatus="neutral"
+          />
 
           {/* 5. Pending Payments */}
-          <Link
+          <DashboardMetricTile
+            label="Pending Payments"
+            value={`$${metrics.pendingPayments.amount.toLocaleString()}`}
+            destinationLabel="J10 Pay"
             href={metrics.pendingPayments.href}
-            className="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition duration-200 hover:border-violet-400/40 hover:bg-white/[0.04]"
-          >
-            <div className="flex items-center justify-between text-[#8d96a8]">
-              <span className="text-xs font-medium">Pending Payments</span>
-              <CreditCard size={16} className="text-violet-400 transition group-hover:scale-110" />
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white sm:text-3xl">
-                ${metrics.pendingPayments.amount.toLocaleString()}
-              </div>
-              <div className="mt-1 flex items-center gap-1 text-[11px] text-violet-300">
-                <span>{metrics.pendingPayments.count} Invoices in J10 Pay</span>
-                <ChevronRight size={12} className="transition group-hover:translate-x-0.5" />
-              </div>
-            </div>
-          </Link>
+            semanticStatus="neutral"
+          />
 
-          {/* 6. Tasks Requiring Action */}
-          <Link
+          {/* 6. Human Actions */}
+          <DashboardMetricTile
+            label="Human Actions"
+            value={metrics.tasksRequiringHumanAction.count}
+            destinationLabel="Approvals"
             href={metrics.tasksRequiringHumanAction.href}
-            className="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition duration-200 hover:border-amber-400/40 hover:bg-white/[0.04]"
-          >
-            <div className="flex items-center justify-between text-[#8d96a8]">
-              <span className="text-xs font-medium">Human Actions</span>
-              <Zap size={16} className="text-amber-400 transition group-hover:scale-110" />
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white sm:text-3xl">
-                {metrics.tasksRequiringHumanAction.count}
-              </div>
-              <div className="mt-1 flex items-center gap-1 text-[11px] text-amber-300">
-                <span>Handoffs & Approvals</span>
-                <ChevronRight size={12} className="transition group-hover:translate-x-0.5" />
-              </div>
-            </div>
-          </Link>
+            semanticStatus={
+              metrics.tasksRequiringHumanAction.count > 0 ? "warning" : "neutral"
+            }
+          />
 
-          {/* 7. AI Actions Completed */}
-          <Link
+          {/* 7. AI Actions */}
+          <DashboardMetricTile
+            label="AI Actions"
+            value={metrics.aiActionsCompleted.count}
+            destinationLabel="J10 AI Operator"
             href={metrics.aiActionsCompleted.href}
-            className="group flex flex-col justify-between rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition duration-200 hover:border-cyan-400/40 hover:bg-white/[0.04]"
-          >
-            <div className="flex items-center justify-between text-[#8d96a8]">
-              <span className="text-xs font-medium">AI Actions</span>
-              <Bot size={16} className="text-cyan-400 transition group-hover:scale-110" />
-            </div>
-            <div className="mt-3">
-              <div className="text-2xl font-bold text-white sm:text-3xl">
-                {metrics.aiActionsCompleted.count}
-              </div>
-              <div className="mt-1 flex items-center gap-1 text-[11px] text-cyan-300">
-                <span>J10 AI Operator</span>
-                <ChevronRight size={12} className="transition group-hover:translate-x-0.5" />
-              </div>
-            </div>
-          </Link>
+            semanticStatus="neutral"
+          />
 
-          {/* 8. Failed Automations */}
-          <Link
+          {/* 8. Failed Automations (Error emphasis only when count > 0) */}
+          <DashboardMetricTile
+            label="Failed Automations"
+            value={metrics.failedAutomations.count}
+            destinationLabel="Run Logs"
             href={metrics.failedAutomations.href}
-            className={`group flex flex-col justify-between rounded-2xl border p-4 transition duration-200 hover:bg-white/[0.04] ${
-              metrics.failedAutomations.count > 0
-                ? "border-rose-500/40 bg-rose-500/[0.04]"
-                : "border-white/[0.07] bg-white/[0.025]"
-            }`}
-          >
-            <div className="flex items-center justify-between text-[#8d96a8]">
-              <span className="text-xs font-medium">Failed Automations</span>
-              <Workflow
-                size={16}
-                className={
-                  metrics.failedAutomations.count > 0
-                    ? "text-rose-400 transition group-hover:scale-110"
-                    : "text-emerald-400 transition group-hover:scale-110"
-                }
-              />
-            </div>
-            <div className="mt-3">
-              <div
-                className={`text-2xl font-bold sm:text-3xl ${
-                  metrics.failedAutomations.count > 0 ? "text-rose-300" : "text-white"
-                }`}
-              >
-                {metrics.failedAutomations.count}
-              </div>
-              <div
-                className={`mt-1 flex items-center gap-1 text-[11px] ${
-                  metrics.failedAutomations.count > 0 ? "text-rose-400" : "text-emerald-400"
-                }`}
-              >
-                <span>{metrics.failedAutomations.count > 0 ? "Requires Inspection" : "Healthy Engine"}</span>
-                <ChevronRight size={12} className="transition group-hover:translate-x-0.5" />
-              </div>
-            </div>
-          </Link>
+            semanticStatus={
+              metrics.failedAutomations.count > 0 ? "error" : "neutral"
+            }
+          />
         </div>
 
-        {/* Priority Attention Items */}
-        <section className="rounded-2xl border border-white/[0.07] bg-[#111216] p-5 sm:p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-white">
-                Requires Operator Attention
-              </h2>
-              <p className="mt-0.5 text-xs text-[#8d96a8]">
-                Real-time operational alerts requiring human decision or closing action.
-              </p>
-            </div>
-            {attentionItems.length > 0 && (
-              <span className="rounded-full bg-amber-400/10 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-amber-300">
-                {attentionItems.length} Urgent
-              </span>
-            )}
+        {/* Operational Priorities: Needs your attention */}
+        <div>
+          <div className="flex items-center justify-between mb-2.5">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-[#98A2B3]">
+              Needs your attention
+            </h2>
+            <span className="text-[11px] text-[#667085]">
+              {operationalPriorities.length}{" "}
+              {operationalPriorities.length === 1 ? "item" : "items"}
+            </span>
           </div>
 
-          <div className="mt-4 space-y-2.5">
-            {attentionItems.length === 0 ? (
-              <div className="flex items-center gap-3 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.03] p-4 text-xs text-emerald-300">
-                <CheckCircle2 size={18} className="shrink-0 text-emerald-400" />
-                <span>
-                  All operational items are currently clear. AI Operator is managing inbound communication without backlog.
-                </span>
+          <div className="rounded-lg border border-[#242A35] bg-[#101319] overflow-hidden">
+            {operationalPriorities.length === 0 ? (
+              <div className="px-4 py-3 text-center text-xs text-[#667085]">
+                No items require attention today. All systems are operating normally.
               </div>
             ) : (
-              attentionItems.map((item) => (
-                <div
+              operationalPriorities.slice(0, 6).map((item) => (
+                <DashboardActionRow
                   key={item.id}
-                  className="flex flex-col gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-                        item.priority === "high"
-                          ? "bg-rose-500/10 text-rose-400"
-                          : "bg-amber-500/10 text-amber-400"
-                      }`}
-                    >
-                      <AlertTriangle size={15} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-white">
-                          {item.title}
-                        </span>
-                        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium text-[#8d96a8]">
-                          {item.product}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 text-xs text-[#8d96a8]">
-                        {item.description}
-                      </p>
-                    </div>
-                  </div>
-
-                  <Link
-                    href={item.actionHref}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-white/10 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
-                  >
-                    <span>{item.actionLabel}</span>
-                    <ArrowRight size={13} />
-                  </Link>
-                </div>
+                  title={item.title}
+                  context={item.context}
+                  time={item.time}
+                  statusBadge={
+                    <DashboardStatusBadge
+                      status={item.status.variant}
+                      label={item.status.label}
+                    />
+                  }
+                  actionLabel={item.actionLabel}
+                  actionHref={item.actionHref}
+                />
               ))
             )}
           </div>
-        </section>
+        </div>
 
-        {/* Two-Column Activity & Operations Section */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Left Column: Recent Leads & Inbound Conversations */}
-          <div className="space-y-6">
-            {/* Recent Leads */}
-            <section className="rounded-2xl border border-white/[0.07] bg-[#111216] p-5 sm:p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-white">
-                    Recent Inbound Leads
-                  </h3>
-                  <p className="text-xs text-[#8d96a8]">
-                    Latest contacts captured across live channels.
-                  </p>
-                </div>
-                <Link
-                  href="/dashboard/crm"
-                  className="text-xs font-semibold text-cyan-400 transition hover:text-cyan-300"
-                >
-                  View All in J10 Lead Center
-                </Link>
+        {/* Secondary Information: At most two compact panels below priority list */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Panel 1: Recent Activity & Channels */}
+          <div className="rounded-lg border border-[#242A35] bg-[#101319] p-4">
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#242A35]">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#98A2B3]">
+                Channel Activity
+              </h3>
+              <Link
+                href="/dashboard/connections"
+                className="text-[11px] text-[#98A2B3] hover:text-[#4F7CFF] transition-colors inline-flex items-center gap-1"
+              >
+                <span>Channels</span>
+                <ChevronRight size={12} />
+              </Link>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs py-1">
+                <span className="text-[#98A2B3]">WhatsApp</span>
+                <DashboardStatusBadge
+                  status={channelOverview?.find((c) => c.channel === "whatsapp")?.isOperational ? "connected" : "available"}
+                  label={channelOverview?.find((c) => c.channel === "whatsapp")?.isOperational ? "Connected" : "Available"}
+                />
               </div>
 
-              <div className="mt-4 divide-y divide-white/[0.05]">
-                {recentLeads.length === 0 ? (
-                  <div className="py-6 text-center text-xs text-[#8d96a8]">
-                    No contacts recorded yet in this workspace.
-                  </div>
-                ) : (
-                  recentLeads.map((lead) => (
-                    <div key={lead.id} className="flex items-center justify-between py-3">
-                      <div>
-                        <div className="text-xs font-semibold text-white">
-                          {lead.name}
-                        </div>
-                        <div className="text-[11px] text-[#8d96a8]">
-                          Source: {lead.source}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium uppercase text-cyan-300">
-                          {lead.status}
-                        </span>
-                        {lead.estimatedValue > 0 && (
-                          <div className="mt-0.5 text-xs font-semibold text-emerald-400">
-                            ${lead.estimatedValue.toLocaleString()}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-
-            {/* Recent Conversations */}
-            <section className="rounded-2xl border border-white/[0.07] bg-[#111216] p-5 sm:p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-white">
-                    Active Conversations
-                  </h3>
-                  <p className="text-xs text-[#8d96a8]">
-                    Live messages synchronized into J10 Inbox.
-                  </p>
-                </div>
-                <Link
-                  href="/dashboard/inbox"
-                  className="text-xs font-semibold text-cyan-400 transition hover:text-cyan-300"
-                >
-                  Open J10 Inbox
-                </Link>
+              <div className="flex items-center justify-between text-xs py-1">
+                <span className="text-[#98A2B3]">Telegram</span>
+                <DashboardStatusBadge
+                  status={channelOverview?.find((c) => c.channel === "telegram")?.isOperational ? "connected" : "available"}
+                  label={channelOverview?.find((c) => c.channel === "telegram")?.isOperational ? "Connected" : "Available"}
+                />
               </div>
 
-              <div className="mt-4 divide-y divide-white/[0.05]">
-                {recentConversations.length === 0 ? (
-                  <div className="py-6 text-center text-xs text-[#8d96a8]">
-                    No conversation threads recorded yet.
-                  </div>
-                ) : (
-                  recentConversations.map((thread) => (
-                    <div key={thread.id} className="flex items-center justify-between py-3">
-                      <div className="min-w-0 pr-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-white">
-                            {thread.contactName}
-                          </span>
-                          <span className="rounded bg-white/[0.05] px-1.5 py-0.2 text-[9px] uppercase font-bold text-[#8d96a8]">
-                            {thread.channel}
-                          </span>
-                        </div>
-                        <p className="truncate text-[11px] text-[#8d96a8]">
-                          {thread.lastMessage}
-                        </p>
-                      </div>
-                      {thread.isUnread && (
-                        <span className="shrink-0 h-2 w-2 rounded-full bg-cyan-400" />
-                      )}
-                    </div>
-                  ))
-                )}
+              <div className="flex items-center justify-between text-xs py-1">
+                <span className="text-[#98A2B3]">Website Forms</span>
+                <DashboardStatusBadge
+                  status="connected"
+                  label="Active"
+                />
               </div>
-            </section>
+
+              <div className="flex items-center justify-between text-xs py-1">
+                <span className="text-[#667085]">Email / Gmail</span>
+                <DashboardStatusBadge
+                  status="coming_soon"
+                  label="Coming soon"
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-xs py-1">
+                <span className="text-[#667085]">Google Calendar</span>
+                <DashboardStatusBadge
+                  status="coming_soon"
+                  label="Coming soon"
+                />
+              </div>
+            </div>
           </div>
 
-          {/* Right Column: Upcoming Bookings & Channel Status */}
-          <div className="space-y-6">
-            {/* Upcoming Bookings */}
-            <section className="rounded-2xl border border-white/[0.07] bg-[#111216] p-5 sm:p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-white">
-                    Upcoming Bookings
-                  </h3>
-                  <p className="text-xs text-[#8d96a8]">
-                    Customer consultations scheduled via AI operator.
-                  </p>
-                </div>
-                <Link
-                  href="/dashboard/booking"
-                  className="text-xs font-semibold text-cyan-400 transition hover:text-cyan-300"
-                >
-                  Manage in J10 Booking
-                </Link>
-              </div>
+          {/* Panel 2: Upcoming Bookings & Revenue */}
+          <div className="rounded-lg border border-[#242A35] bg-[#101319] p-4">
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#242A35]">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#98A2B3]">
+                Upcoming Bookings
+              </h3>
+              <Link
+                href="/dashboard/booking"
+                className="text-[11px] text-[#98A2B3] hover:text-[#4F7CFF] transition-colors inline-flex items-center gap-1"
+              >
+                <span>Calendar</span>
+                <ChevronRight size={12} />
+              </Link>
+            </div>
 
-              <div className="mt-4 divide-y divide-white/[0.05]">
-                {upcomingBookingsList.length === 0 ? (
-                  <div className="py-6 text-center text-xs text-[#8d96a8]">
-                    No appointments scheduled yet.
-                  </div>
-                ) : (
-                  upcomingBookingsList.map((booking) => (
-                    <div key={booking.id} className="flex items-center justify-between py-3">
-                      <div>
-                        <div className="text-xs font-semibold text-white">
-                          {booking.clientName}
-                        </div>
-                        <div className="text-[11px] text-[#8d96a8]">
-                          {new Date(booking.scheduledStart).toLocaleString([], {
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })}
-                        </div>
-                      </div>
-                      <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
-                        {booking.status}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-
-            {/* Communication Channels Overview */}
-            <section className="rounded-2xl border border-white/[0.07] bg-[#111216] p-5 sm:p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-white">
-                    Channel Connectivity
-                  </h3>
-                  <p className="text-xs text-[#8d96a8]">
-                    Verified status of communication channels.
-                  </p>
-                </div>
-                <Link
-                  href="/dashboard/connections"
-                  className="text-xs font-semibold text-cyan-400 transition hover:text-cyan-300"
-                >
-                  Manage J10 Connections
-                </Link>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2.5">
-                {channelOverview.map((item) => (
+            {upcomingBookingsList && upcomingBookingsList.length > 0 ? (
+              <div className="divide-y divide-[#242A35]">
+                {upcomingBookingsList.slice(0, 3).map((b) => (
                   <div
-                    key={item.channel}
-                    className="flex items-center justify-between rounded-xl border border-white/[0.05] bg-white/[0.02] p-2.5"
+                    key={b.id}
+                    className="flex items-center justify-between py-2 text-xs"
                   >
-                    <span className="text-xs font-medium text-white truncate pr-1">
-                      {item.label}
-                    </span>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        item.status === "Connected"
-                          ? "bg-emerald-400/10 text-emerald-400"
-                          : item.status === "Available to connect"
-                            ? "bg-cyan-400/10 text-cyan-300"
-                            : item.status === "Degraded" || item.status === "Setup incomplete"
-                              ? "bg-amber-400/10 text-amber-300"
-                              : "bg-white/[0.05] text-[#8d96a8]"
-                      }`}
-                    >
-                      {item.status}
+                    <div>
+                      <p className="font-medium text-[#F5F7FA]">{b.clientName}</p>
+                      <p className="text-[11px] text-[#667085]">{b.status || "Confirmed"}</p>
+                    </div>
+                    <span className="text-[11px] text-[#98A2B3]">
+                      {b.scheduledStart
+                        ? new Date(b.scheduledStart).toLocaleDateString([], {
+                            month: "short",
+                            day: "numeric",
+                          })
+                        : "Scheduled"}
                     </span>
                   </div>
                 ))}
               </div>
-            </section>
+            ) : (
+              <div className="py-4 text-center text-xs text-[#667085]">
+                No upcoming bookings scheduled.
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -84,7 +84,7 @@ export async function GET() {
     // 2. Fetch inbox threads
     const { data: rawThreads, error: threadsErr } = await supabase
       .from("inbox_threads")
-      .select("id, contact_id, channel, status, priority, unread_count, last_message_at, metadata, created_at, contact:contacts(name)")
+      .select("id, contact_id, channel, status, priority, unread_count, last_message_at, metadata, created_at, contact:contacts!inbox_threads_contact_id_fkey(name)")
       .eq("workspace_id", wsId)
       .order("last_message_at", { ascending: false })
       .limit(20);
@@ -97,9 +97,9 @@ export async function GET() {
     // 3. Fetch bookings
     const { data: rawBookings, error: bookingsErr } = await supabase
       .from("crm_bookings")
-      .select("id, contact_id, status, scheduled_start, scheduled_end, metadata, created_at")
+      .select("id, contact_id, status, scheduled_at, title, duration_minutes, metadata, created_at")
       .eq("workspace_id", wsId)
-      .order("scheduled_start", { ascending: true })
+      .order("scheduled_at", { ascending: true })
       .limit(20);
 
     if (bookingsErr) {
@@ -172,12 +172,12 @@ export async function GET() {
 
     const nowIso = new Date().toISOString();
     const upcomingBookingsList = bookings
-      .filter((b) => !b.scheduled_start || b.scheduled_start >= nowIso)
+      .filter((b) => !b.scheduled_at || b.scheduled_at >= nowIso)
       .map((b) => ({
         id: b.id,
-        clientName: (b.metadata as any)?.clientName || "Customer Appointment",
-        scheduledStart: b.scheduled_start || b.created_at,
-        status: b.status || "confirmed",
+        clientName: (b.metadata as any)?.clientName || (b as any).title || "Customer Appointment",
+        scheduledStart: b.scheduled_at || b.created_at,
+        status: b.status || "scheduled",
       }));
 
     const pendingInvoices = invoices.filter(
