@@ -8,13 +8,17 @@ import { sanitizeAuthError } from "@/lib/auth/errors";
 import {
   signRecoveryIntent,
   verifyRecoveryIntentToken,
+  deriveRecoverySigningKey,
   RECOVERY_COOKIE_NAME,
+  RECOVERY_KEY_CONTEXT,
 } from "@/lib/auth/recovery";
 import { GET as authCallbackGet } from "@/app/auth/callback/route";
 import {
   GET as recoveryIntentGet,
   POST as recoveryIntentPost,
 } from "@/app/api/auth/recovery-intent/route";
+
+const SYNTHETIC_TEST_SECRET = "synthetic-auth-secret-for-unit-tests-only-xyz-123456789";
 
 // Mock Supabase SSR and headers
 const mockCookiesStore = new Map<string, { value: string; options?: any }>();
@@ -59,12 +63,15 @@ vi.mock("@supabase/ssr", () => ({
   })),
 }));
 
-describe("Phase 2B Hardened: Authentication Callback and Password Recovery Suite", () => {
+describe("Phase 2B Hardened: Authentication Callback, Password Recovery, and Cryptographic Security Suite", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCookiesStore.clear();
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://mock-supabase.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "pk_test_publishable_123";
+    process.env.AUTH_RECOVERY_HMAC_SECRET = SYNTHETIC_TEST_SECRET;
+    delete process.env.SUPABASE_SECRET_KEY;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     delete process.env.NEXT_PUBLIC_APP_URL;
     delete process.env.NEXT_PUBLIC_SITE_URL;
   });
@@ -189,7 +196,8 @@ describe("Phase 2B Hardened: Authentication Callback and Password Recovery Suite
       });
 
       const token = signRecoveryIntent(recoveryUser.id);
-      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: token });
+      expect(token).toBeTruthy();
+      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: token! });
 
       const response = await recoveryIntentGet();
       const data = await response.json();
@@ -206,7 +214,8 @@ describe("Phase 2B Hardened: Authentication Callback and Password Recovery Suite
 
       // Cookie signed for user B
       const tokenForUserB = signRecoveryIntent("user-b-uuid");
-      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: tokenForUserB });
+      expect(tokenForUserB).toBeTruthy();
+      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: tokenForUserB! });
 
       const response = await recoveryIntentGet();
       const data = await response.json();
@@ -237,7 +246,8 @@ describe("Phase 2B Hardened: Authentication Callback and Password Recovery Suite
       });
 
       const token = signRecoveryIntent(recoveryUser.id);
-      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: token });
+      expect(token).toBeTruthy();
+      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: token! });
 
       const request = new NextRequest("https://j10-nexus.vercel.app/api/auth/recovery-intent", {
         method: "POST",
@@ -263,7 +273,8 @@ describe("Phase 2B Hardened: Authentication Callback and Password Recovery Suite
       });
 
       const token = signRecoveryIntent(recoveryUser.id);
-      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: token });
+      expect(token).toBeTruthy();
+      mockCookiesStore.set(RECOVERY_COOKIE_NAME, { value: token! });
 
       const request = new NextRequest("https://j10-nexus.vercel.app/api/auth/recovery-intent", {
         method: "POST",
@@ -287,7 +298,151 @@ describe("Phase 2B Hardened: Authentication Callback and Password Recovery Suite
     });
   });
 
-  describe("5. Sanitization of Provider Failures and Enumeration Defense", () => {
+  describe("5. Cryptographic Hardening: Purpose-Separated HKDF Key Derivation and Fail-Closed Security", () => {
+    it("proves public publishable/anon keys cannot sign or validate recovery intent", () => {
+      delete process.env.AUTH_RECOVERY_HMAC_SECRET;
+      delete process.env.SUPABASE_SECRET_KEY;
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "pk_live_test_pub_key_123";
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon_key_test_456";
+
+      // Must refuse to sign using public keys
+      const token = signRecoveryIntent("user-test-uuid");
+      expect(token).toBeNull();
+
+      // Must refuse to validate using public keys
+      const fakeToken = "eyJhbGciOiJIUzI1NiJ9.sig";
+      const result = verifyRecoveryIntentToken(fakeToken, "user-test-uuid");
+      expect(result.valid).toBe(false);
+    });
+
+    it("proves hardcoded fallback signing is impossible (missing secret fails closed)", () => {
+      delete process.env.AUTH_RECOVERY_HMAC_SECRET;
+      delete process.env.SUPABASE_SECRET_KEY;
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      const derivedKey = deriveRecoverySigningKey();
+      expect(derivedKey).toBeNull();
+
+      const token = signRecoveryIntent("user-uuid");
+      expect(token).toBeNull();
+    });
+
+    it("validates signature derived from server-only secrets (AUTH_RECOVERY_HMAC_SECRET, SUPABASE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY)", () => {
+      // 1. With AUTH_RECOVERY_HMAC_SECRET
+      process.env.AUTH_RECOVERY_HMAC_SECRET = "auth-secret-1";
+      const token1 = signRecoveryIntent("user-crypto-1");
+      expect(token1).toBeTruthy();
+      expect(verifyRecoveryIntentToken(token1, "user-crypto-1").valid).toBe(true);
+
+      // 2. With SUPABASE_SECRET_KEY fallback
+      delete process.env.AUTH_RECOVERY_HMAC_SECRET;
+      process.env.SUPABASE_SECRET_KEY = "supabase-secret-key-2";
+      const token2 = signRecoveryIntent("user-crypto-2");
+      expect(token2).toBeTruthy();
+      expect(verifyRecoveryIntentToken(token2, "user-crypto-2").valid).toBe(true);
+
+      // 3. With SUPABASE_SERVICE_ROLE_KEY legacy fallback
+      delete process.env.SUPABASE_SECRET_KEY;
+      process.env.SUPABASE_SERVICE_ROLE_KEY = "supabase-service-role-key-3";
+      const token3 = signRecoveryIntent("user-crypto-3");
+      expect(token3).toBeTruthy();
+      expect(verifyRecoveryIntentToken(token3, "user-crypto-3").valid).toBe(true);
+    });
+
+    it("rejects token if user ID, expiration, payload, or signature is tampered", () => {
+      process.env.AUTH_RECOVERY_HMAC_SECRET = SYNTHETIC_TEST_SECRET;
+      const validToken = signRecoveryIntent("legit-user")!;
+      const [b64Payload, signature] = validToken.split(".");
+
+      // 1. Tampered signature
+      const tamperedSigToken = `${b64Payload}.${signature.slice(0, -4)}XXXX`;
+      expect(verifyRecoveryIntentToken(tamperedSigToken, "legit-user").valid).toBe(false);
+
+      // 2. Tampered user ID in payload
+      const tamperedPayloadStr = JSON.stringify({ userId: "attacker-user", exp: Date.now() + 60000 });
+      const tamperedB64Payload = Buffer.from(tamperedPayloadStr, "utf8").toString("base64url");
+      const tamperedUserToken = `${tamperedB64Payload}.${signature}`;
+      expect(verifyRecoveryIntentToken(tamperedUserToken, "attacker-user").valid).toBe(false);
+
+      // 3. Expired token
+      const expiredPayloadStr = JSON.stringify({ userId: "legit-user", exp: Date.now() - 1000 });
+      const expiredB64 = Buffer.from(expiredPayloadStr, "utf8").toString("base64url");
+      // Even if signed correctly, expired token must be rejected
+      const key = deriveRecoverySigningKey()!;
+      const crypto = require("node:crypto");
+      const expiredSig = crypto.createHmac("sha256", key).update(expiredB64).digest("base64url");
+      const expiredToken = `${expiredB64}.${expiredSig}`;
+      expect(verifyRecoveryIntentToken(expiredToken, "legit-user").valid).toBe(false);
+
+      // 4. User mismatch verification
+      expect(verifyRecoveryIntentToken(validToken, "wrong-user").valid).toBe(false);
+    });
+
+    it("rejects tokens signed under a different HKDF purpose/context", () => {
+      process.env.AUTH_RECOVERY_HMAC_SECRET = SYNTHETIC_TEST_SECRET;
+
+      // Sign under different purpose context
+      const tokenDifferentContext = signRecoveryIntent("user-context-test", "j10-other-purpose-v1");
+      expect(tokenDifferentContext).toBeTruthy();
+
+      // Verify with standard context -> must be rejected
+      const verification = verifyRecoveryIntentToken(tokenDifferentContext, "user-context-test", RECOVERY_KEY_CONTEXT);
+      expect(verification.valid).toBe(false);
+    });
+
+    it("ensures callback configuration failure creates no recovery cookie", async () => {
+      // Missing all server-side secrets
+      delete process.env.AUTH_RECOVERY_HMAC_SECRET;
+      delete process.env.SUPABASE_SECRET_KEY;
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      const mockUser = { id: "user-no-secret", email: "user@example.com" };
+      mockExchangeCode.mockResolvedValueOnce({
+        data: {
+          session: {
+            user: mockUser,
+            access_token: "act_token",
+            refresh_token: "ref_token",
+          },
+        },
+        error: null,
+      });
+
+      const request = new NextRequest(
+        "https://j10-nexus.vercel.app/auth/callback?code=mock_code&type=recovery"
+      );
+
+      const response = await authCallbackGet(request);
+
+      // Fails closed to safe expired/error destination
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://j10-nexus.vercel.app/reset-password?error=expired");
+
+      // Zero recovery cookie set
+      const setCookies = response.headers.getSetCookie();
+      const recoveryCookie = setCookies.find((c) => c.includes(RECOVERY_COOKIE_NAME));
+      expect(recoveryCookie).toBeUndefined();
+    });
+
+    it("proves missing Supabase credentials fail closed without placeholder URLs", async () => {
+      delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+      const request = new NextRequest(
+        "https://j10-nexus.vercel.app/auth/callback?code=mock_code&type=recovery"
+      );
+
+      const response = await authCallbackGet(request);
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://j10-nexus.vercel.app/reset-password?error=expired");
+
+      // Verify no network request was made or placeholder reached
+      expect(mockExchangeCode).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("6. Sanitization of Provider Failures and Enumeration Defense", () => {
     it("maps provider errors to controlled messages without leaking internal exceptions", () => {
       const dbException = {
         message: "Database connection failed at pg_catalog.auth_users query execution (SQLSTATE 08006)",
@@ -307,35 +462,49 @@ describe("Phase 2B Hardened: Authentication Callback and Password Recovery Suite
     });
 
     it("displays identical neutral response for registered and unregistered recovery requests", async () => {
-      // 1. Registered email
       const resRegistered = sanitizeAuthError(null, "recovery");
-
-      // 2. Unregistered email returning provider user not found
       const resUnregistered = sanitizeAuthError({ message: "User not found" }, "recovery");
 
-      // Both must be identical
       expect(resRegistered).toBe(resUnregistered);
       expect(resRegistered).toBe("If an account exists for that email, we sent password reset instructions.");
     });
   });
 
-  describe("6. Client Bundle Secrets Exclusion", () => {
-    it("ensures service role keys are excluded from all client routes and helpers", () => {
+  describe("7. Server-Only Module and Client Bundle Secrets Exclusion", () => {
+    it("verifies lib/auth/recovery.ts has import 'server-only'", () => {
+      const recoveryFile = readFileSync(
+        resolve(process.cwd(), "lib/auth/recovery.ts"),
+        "utf8"
+      );
+      expect(recoveryFile).toContain('import "server-only";');
+      expect(recoveryFile).not.toContain("NEXT_PUBLIC_");
+      expect(recoveryFile).not.toContain("j10-nexus-recovery-internal-salt");
+    });
+
+    it("ensures private secrets never appear in client bundles, routes, or redirect targets", () => {
       const clientFiles = [
         "lib/supabase.ts",
         "app/login/page.tsx",
         "app/forgot-password/page.tsx",
         "app/reset-password/page.tsx",
         "middleware.ts",
-        "app/auth/callback/route.ts",
-        "app/api/auth/recovery-intent/route.ts",
       ];
 
       for (const relativePath of clientFiles) {
         const content = readFileSync(resolve(process.cwd(), relativePath), "utf8");
-        expect(content).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+        expect(content).not.toContain("AUTH_RECOVERY_HMAC_SECRET");
         expect(content).not.toContain("SUPABASE_SECRET_KEY");
+        expect(content).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
       }
+    });
+
+    it("ensures zero placeholder credentials remain in callback route", () => {
+      const callbackContent = readFileSync(
+        resolve(process.cwd(), "app/auth/callback/route.ts"),
+        "utf8"
+      );
+      expect(callbackContent).not.toContain("placeholder.supabase.co");
+      expect(callbackContent).not.toContain("placeholder-anon-key");
     });
   });
 });

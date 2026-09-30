@@ -54,11 +54,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/login?error=auth_callback_failed", request.url));
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    "placeholder-anon-key";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    if (isRecovery) {
+      return NextResponse.redirect(new URL("/reset-password?error=expired", request.url));
+    }
+    return NextResponse.redirect(new URL("/login?error=auth_callback_failed", request.url));
+  }
 
   const cookieStore = await cookies();
   const cookiesToSetOnRedirect: Array<{
@@ -106,6 +112,10 @@ export async function GET(request: NextRequest) {
   // If this is a recovery callback, establish the short-lived, HttpOnly recovery intent cookie
   if (isRecovery) {
     const recoveryToken = signRecoveryIntent(data.session.user.id);
+    if (!recoveryToken) {
+      // Configuration failure: missing server secret. Fail closed without setting cookie.
+      return NextResponse.redirect(new URL("/reset-password?error=expired", request.url));
+    }
     redirectResponse.cookies.set(RECOVERY_COOKIE_NAME, recoveryToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
