@@ -3,11 +3,18 @@ import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
 
 import { createClient as createSupabaseAdmin } from "@supabase/supabase-js";
+import { getSafeRedirectUrl } from "@/lib/auth/redirect";
 
 export function createServerSupabaseClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+  const key =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    "placeholder-anon-key";
+
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    url,
+    key,
     {
       cookies: {
         async getAll() {
@@ -54,6 +61,15 @@ export function createAdminSupabaseClient() {
 }
 
 export async function getCurrentUser() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    return null;
+  }
+
   const supabase = createServerSupabaseClient();
 
   const {
@@ -72,17 +88,18 @@ export async function requireUser(returnUrl?: string) {
   const user = await getCurrentUser();
 
   if (!user) {
-    const loginUrl = returnUrl ? `/login?next=${encodeURIComponent(returnUrl)}` : "/login";
+    const safeNext = returnUrl ? getSafeRedirectUrl(returnUrl, "/dashboard") : undefined;
+    const loginUrl = safeNext ? `/login?next=${encodeURIComponent(safeNext)}` : "/login";
     redirect(loginUrl);
   }
 
   return user;
 }
 
-export async function redirectIfAuthenticated() {
+export async function redirectIfAuthenticated(nextUrl?: string) {
   const user = await getCurrentUser();
 
   if (user) {
-    redirect("/dashboard");
+    redirect(getSafeRedirectUrl(nextUrl, "/dashboard"));
   }
 }

@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import { getSafeRedirectUrl } from "@/lib/auth/redirect";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [nextUrl, setNextUrl] = useState<string>("/dashboard");
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -20,12 +22,29 @@ export default function LoginPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+
+    // Parse sanitized next destination
+    const nextParam = params.get("next");
+    if (nextParam) {
+      setNextUrl(getSafeRedirectUrl(nextParam, "/dashboard"));
+    }
+
     if (params.get("intent") === "signup") {
       setMode("signup");
       const plan = params.get("plan");
       const trial = params.get("trial");
       if (plan) window.sessionStorage.setItem("j10_launch_plan", plan);
       if (trial === "1") window.sessionStorage.setItem("j10_launch_trial", "1");
+    }
+
+    // Handle sanitized errors returned from auth callback or expired links
+    const errorParam = params.get("error");
+    if (errorParam) {
+      if (errorParam === "auth_callback_failed") {
+        setErrorMessage("Authentication link is invalid or has expired. Please sign in or request a new link.");
+      } else {
+        setErrorMessage("Authentication verification could not be completed. Please try again.");
+      }
     }
   }, []);
 
@@ -38,11 +57,16 @@ export default function LoginPage() {
 
     try {
       if (mode === "signup") {
+        const origin =
+          typeof window !== "undefined" && window.location.origin
+            ? window.location.origin
+            : "https://j10nexus.com";
+
         const { error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/login`,
+            emailRedirectTo: `${origin}/auth/callback`,
           },
         });
 
@@ -68,7 +92,8 @@ export default function LoginPage() {
           return;
         }
 
-        router.push("/dashboard");
+        const safeDestination = getSafeRedirectUrl(nextUrl, "/dashboard");
+        router.push(safeDestination);
         router.refresh();
       }
     } catch {
@@ -165,17 +190,32 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-xs font-semibold text-[#8d96a8]">
-                Password
-              </label>
+              <div className="mb-1.5 flex items-center justify-between">
+                <label className="block text-xs font-semibold text-[#8d96a8]">
+                  Password
+                </label>
+
+                {mode === "signin" && (
+                  <Link
+                    href="/forgot-password"
+                    className="text-[11px] font-medium text-cyan-300 hover:text-cyan-200 transition"
+                  >
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
 
               <input
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="Enter password (min. 6 characters)"
+                placeholder={
+                  mode === "signin"
+                    ? "Enter your password"
+                    : "Enter password (min. 8 characters)"
+                }
                 required
-                minLength={6}
+                minLength={mode === "signin" ? 1 : 8}
                 autoComplete={
                   mode === "signin" ? "current-password" : "new-password"
                 }
