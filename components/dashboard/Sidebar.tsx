@@ -102,7 +102,7 @@ export default function Sidebar({
       text-left text-xs font-medium transition-all duration-150
       ${
         active
-          ? "bg-[#6347E8] text-white font-semibold shadow-sm border-l-2 border-[#3E2A8A]"
+          ? "bg-[#35C46A] text-[#061008] font-semibold shadow-sm border-l-2 border-[#46D779]"
           : available
             ? "text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F]"
             : "cursor-not-allowed text-[#918A9D]/60"
@@ -118,7 +118,7 @@ export default function Sidebar({
               alt="J10 monogram"
               width={16}
               height={16}
-              className={`h-full w-full object-contain ${active ? "brightness-0 invert" : ""}`}
+              className={`h-full w-full object-contain ${active ? "brightness-0" : ""}`}
             />
           </div>
         ) : Icon ? (
@@ -127,7 +127,7 @@ export default function Sidebar({
             strokeWidth={1.8}
             className={
               active
-                ? "text-white"
+                ? "text-[#061008]"
                 : available
                   ? "text-[#6F687A] transition-colors group-hover:text-[#17151F]"
                   : "text-[#918A9D]/50"

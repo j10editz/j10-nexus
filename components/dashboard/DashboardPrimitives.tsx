@@ -6,20 +6,17 @@ import { ChevronRight } from "lucide-react";
 
 /**
  * J10 NEXUS — Canonical Dashboard Primitives
- * Canonical Pearl Violet Palette:
- * - Main background: #F8F7FC
- * - Primary surface: #FFFFFF
- * - Secondary surface: #F3F1F8
- * - Subtle violet surface: #F0ECFF
- * - Primary border: #E2DEEA
- * - Strong border: #D5CEE3
- * - Primary text: #17151F
- * - Secondary text: #6F687A
- * - Muted text: #918A9D
- * - Primary violet: #6347E8
- * - Violet hover: #5136D6
- * - Violet focus: #8B7CF6
- * - Dark violet: #3E2A8A
+ * Canonical Black Emerald Palette (scoped by DashboardLayout):
+ * - Main background: #070A08
+ * - Primary surface: #0D120F
+ * - Elevated surface: #121915
+ * - Primary border: #26342B
+ * - Strong border: #34483B
+ * - Primary text: #F3F7F4
+ * - Secondary text: #AAB7AE
+ * - Muted text: #748178
+ * - Primary emerald: #35C46A
+ * - Emerald hover: #46D779
  *
  * Semantic:
  * - Success: #168A65 (bg #E8F8F2, border #A3E6D0)
@@ -110,7 +107,7 @@ export function DashboardSectionHeader({
   );
 }
 
-// 3. Compact Metric Tile (Canonical Pearl Violet)
+// 3. Compact Metric Tile (Canonical Black Emerald)
 interface DashboardMetricTileProps {
   label: string;
   value: string | number;
@@ -203,7 +200,7 @@ export function DashboardMetricTile({
   return content;
 }
 
-// 4. Status Badge (Canonical Pearl Violet Restrained)
+// 4. Status Badge (Canonical Black Emerald, restrained semantics)
 type StatusBadgeVariant =
   | "connected"
   | "available"
