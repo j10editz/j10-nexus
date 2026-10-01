@@ -43,7 +43,7 @@ export default function LoginPage() {
     const errorParam = params.get("error");
     if (errorParam) {
       if (errorParam === "auth_callback_failed") {
-        setErrorMessage("The recovery link is invalid or has expired. Request a new link to continue.");
+        setErrorMessage("Google sign-in could not be completed. Please try again.");
       } else {
         setErrorMessage("Authentication could not be verified. Please try signing in again.");
       }
