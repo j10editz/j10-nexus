@@ -14,7 +14,7 @@ function readCode(path: string) {
 const EMOJI_REGEX =
   /[\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}]/u;
 
-describe("Phase 3A: Dashboard Visual Hardening", () => {
+describe("Phase 3A: J10 Pearl Violet Visual Hardening", () => {
   describe("1. Zero Decorative Emojis", () => {
     it("ensures all navigation item labels and descriptions contain zero emojis", () => {
       for (const item of dashboardNavigationItems) {
@@ -59,13 +59,15 @@ describe("Phase 3A: Dashboard Visual Hardening", () => {
     });
   });
 
-  describe("2. Single Neutral Dark Card Background & Subtle Border", () => {
-    it("enforces shared neutral surface tokens on DashboardMetricTile primitive", () => {
+  describe("2. Canonical Pearl Violet Surface & Border Tokens", () => {
+    it("enforces shared canonical Pearl Violet tokens on DashboardPrimitives", () => {
       const primCode = readCode("components/dashboard/DashboardPrimitives.tsx");
 
-      // Verify canonical surface and border tokens
-      expect(primCode).toContain("bg-[#101319]");
-      expect(primCode).toContain("border-[#242A35]");
+      // Verify canonical surface, border, and text tokens
+      expect(primCode).toContain("bg-[#FFFFFF]");
+      expect(primCode).toContain("border-[#E2DEEA]");
+      expect(primCode).toContain("text-[#17151F]");
+      expect(primCode).toContain("bg-[#6347E8]");
 
       // Proves no per-product rainbow gradients or card backgrounds
       expect(primCode).not.toContain("from-blue-600");
@@ -102,9 +104,9 @@ describe("Phase 3A: Dashboard Visual Hardening", () => {
       // Neutral default text color, restrained warning and error colors
       expect(primCode).toContain('semanticStatus === "error"');
       expect(primCode).toContain('semanticStatus === "warning"');
-      expect(primCode).toContain("text-[#F5F7FA]");
-      expect(primCode).toContain("text-rose-400");
-      expect(primCode).toContain("text-amber-400");
+      expect(primCode).toContain("text-[#17151F]");
+      expect(primCode).toContain("text-[#E11D48]");
+      expect(primCode).toContain("text-[#D97706]");
     });
 
     it("applies critical/warning semantic status only to real issues in J10CommandCenter", () => {
@@ -149,10 +151,13 @@ describe("Phase 3A: Dashboard Visual Hardening", () => {
       expect(brandCode).toContain("Personal User Avatar");
       expect(brandCode).toContain('href="/dashboard/settings/account"');
 
-      // Business workspace identity section with migration contract
+      // Business workspace identity section with clean user-facing copy
       expect(brandCode).toContain("Business Workspace Identity");
-      expect(brandCode).toContain("Storage Migration Required");
-      expect(brandCode).toContain("docs/architecture/WORKSPACE_LOGO_CONTRACT.md");
+      expect(brandCode).toContain("Workspace logo upload is coming soon.");
+
+      // Must not leak internal developer docs or storage blockers
+      expect(brandCode).not.toContain("Storage Migration Required");
+      expect(brandCode).not.toContain("WORKSPACE_LOGO_CONTRACT.md");
     });
 
     it("renders user profile avatar independently from workspace switcher in Topbar", () => {
@@ -161,6 +166,52 @@ describe("Phase 3A: Dashboard Visual Hardening", () => {
       expect(topbarCode).toContain("<WorkspaceSwitcher");
       expect(topbarCode).toContain("profileData.avatarUrl");
       expect(topbarCode).toContain("UserCircle2");
+    });
+  });
+
+  describe("6. Zero Rejected Dark Tokens & Zero Provider Leaks", () => {
+    it("ensures all Phase 3A pages contain zero instances of #090B10", () => {
+      const pagesToCheck = [
+        "components/dashboard/DashboardLayout.tsx",
+        "components/dashboard/J10CommandCenter.tsx",
+        "app/dashboard/crm/page.tsx",
+        "app/dashboard/connections/page.tsx",
+        "app/dashboard/brand/page.tsx",
+        "app/dashboard/inbox/page.tsx",
+        "app/dashboard/pay/page.tsx",
+        "app/dashboard/booking/page.tsx",
+        "app/dashboard/growth/page.tsx",
+        "app/dashboard/ai-operator/page.tsx",
+      ];
+
+      for (const page of pagesToCheck) {
+        const code = readCode(page);
+        expect(code, `${page} must not contain #090B10`).not.toContain("#090B10");
+      }
+    });
+
+    it("ensures zero references to internal model names or unfinished phase markers", () => {
+      const filesToCheck = [
+        "app/dashboard/connections/page.tsx",
+        "app/dashboard/growth/page.tsx",
+        "app/dashboard/inbox/page.tsx",
+      ];
+
+      for (const file of filesToCheck) {
+        const code = readCode(file);
+        expect(code, `${file} must not reference Gemini 3.8 Flash`).not.toContain("Gemini 3.8 Flash");
+        expect(code, `${file} must not reference Phase 3B`).not.toContain("Phase 3B");
+      }
+    });
+
+    it("ensures English consistency across Inbox labels", () => {
+      const inboxCode = readCode("app/dashboard/inbox/page.tsx");
+
+      expect(inboxCode).not.toContain("Detalles del contacto");
+      expect(inboxCode).not.toContain("AGENTE IA");
+      expect(inboxCode).not.toContain("ETIQUETAS");
+      expect(inboxCode).not.toContain("Apagar bot");
+      expect(inboxCode).not.toContain("Activar bot");
     });
   });
 });

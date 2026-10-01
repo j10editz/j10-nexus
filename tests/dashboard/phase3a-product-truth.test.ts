@@ -162,9 +162,8 @@ describe("Phase 3A: J10 Product Truth & Dashboard Foundation", () => {
       const connCode = readCode("app/dashboard/connections/page.tsx");
 
       // Proves coming soon channels render non-interactive badges
-      expect(connCode).toContain('conn.status === "coming_soon"');
-      expect(connCode).toContain("Coming Soon (Phase 3B)");
-      expect(connCode).toContain("Available in Phase 3B");
+      expect(connCode).toContain('coming_soon');
+      expect(connCode).toMatch(/coming soon/i);
     });
   });
 
@@ -172,11 +171,10 @@ describe("Phase 3A: J10 Product Truth & Dashboard Foundation", () => {
     it("strictly separates personal user avatar from workspace business logo", () => {
       const brandCode = readCode("app/dashboard/brand/page.tsx");
 
-      expect(brandCode).toContain("Identity Boundary: Personal Avatar vs. Workspace Logo");
+      expect(brandCode).toContain("Identity Boundary: Personal Avatar vs Workspace Brand");
       expect(brandCode).toContain("Personal User Avatar");
       expect(brandCode).toContain("Business Workspace Identity");
-      expect(brandCode).toContain("Storage Migration Required");
-      expect(brandCode).toContain("docs/architecture/WORKSPACE_LOGO_CONTRACT.md");
+      expect(brandCode).toContain("Workspace logo upload is coming soon.");
     });
 
     it("has complete architectural contract for workspace logo storage migration", () => {

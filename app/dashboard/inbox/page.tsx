@@ -42,11 +42,11 @@ import type {
   InboxMessage,
   InboxThread,
 } from "@/types/inbox";
+import { DashboardStatusBadge } from "@/components/dashboard/DashboardPrimitives";
 
 export default function UnifiedInboxPage() {
   const [threads, setThreads] = useState<InboxThread[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string>("");
-  const [isSandboxDemo, setIsSandboxDemo] = useState(false);
   const [channelFilter, setChannelFilter] = useState<"all" | InboxChannel>("all");
   const [stageFilter, setStageFilter] = useState<"all" | InboxDealStage>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -64,7 +64,7 @@ export default function UnifiedInboxPage() {
   const [isSending, setIsSending] = useState(false);
   const [statusNotice, setStatusNotice] = useState("");
 
-  // Setter CRM reference sidebar states
+  // Contact details sidebar states (English only)
   const [aiBotEnabled, setAiBotEnabled] = useState(true);
   const [contactNotes, setContactNotes] = useState("");
   const [contactTags, setContactTags] = useState<string[]>(["Inbound Lead"]);
@@ -102,7 +102,7 @@ export default function UnifiedInboxPage() {
     }
   }, []);
 
-  // Fetch persistent threads from API without wiping existing messages
+  // Fetch persistent threads from API
   const loadThreads = useCallback(async (silent = false) => {
     if (!silent) setIsLoadingThreads(true);
     try {
@@ -123,7 +123,6 @@ export default function UnifiedInboxPage() {
             });
           });
           setIsLivePersisted(true);
-          setIsSandboxDemo(false);
           if (data.threads.length > 0) {
             setSelectedThreadId((curr) => {
               const valid = curr && data.threads.some((t: any) => t.id === curr);
@@ -138,7 +137,7 @@ export default function UnifiedInboxPage() {
         }
       }
     } catch {
-      // In offline or pre-migration mode, maintain honest empty state
+      // Keep state
     } finally {
       if (!silent) setIsLoadingThreads(false);
     }
@@ -148,14 +147,13 @@ export default function UnifiedInboxPage() {
     void loadThreads();
   }, [loadThreads]);
 
-  // Immediately load messages when selected thread changes
   useEffect(() => {
     if (selectedThreadId) {
       void fetchThreadMessages(selectedThreadId);
     }
   }, [selectedThreadId, fetchThreadMessages]);
 
-  // Supabase Realtime subscription with fallback polling only during disconnect/error/recovery
+  // Supabase Realtime subscription
   useEffect(() => {
     if (!isLivePersisted) return;
 
@@ -167,7 +165,6 @@ export default function UnifiedInboxPage() {
       }
     };
 
-    // 1. Supabase Realtime channel for live table updates
     const supabase = createClient();
     const channel = supabase
       .channel("inbox_live_global")
@@ -212,7 +209,6 @@ export default function UnifiedInboxPage() {
         }
       });
 
-    // 2. Responsive polling fallback: runs ONLY when Realtime is disconnected, errored, or recovering
     let pollIntervalMs = 3000;
     let fallbackTimer: NodeJS.Timeout;
 
@@ -225,7 +221,6 @@ export default function UnifiedInboxPage() {
           triggerSync();
         }
       } else {
-        // While Realtime subscription is healthy, do not poll continuously
         pollIntervalMs = 5000;
       }
       fallbackTimer = setTimeout(cursorPoll, pollIntervalMs);
@@ -233,7 +228,6 @@ export default function UnifiedInboxPage() {
 
     fallbackTimer = setTimeout(cursorPoll, pollIntervalMs);
 
-    // Sync upon focus or visibility only if Realtime is degraded
     const handleVisibilityOrFocus = () => {
       if (!document.hidden && !isRealtimeHealthyRef.current) {
         triggerSync();
@@ -256,7 +250,6 @@ export default function UnifiedInboxPage() {
     return threads.find((t) => t.id === selectedThreadId) || threads[0] || null;
   }, [threads, selectedThreadId]);
 
-  // Auto-scroll to bottom of conversation whenever thread or messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeThread?.messages?.length, selectedThreadId]);
@@ -268,7 +261,6 @@ export default function UnifiedInboxPage() {
     }
   }, [activeThread?.id, activeThread?.channel]);
 
-  // Sync AI bot status from active thread metadata (Requirement 8: operator resume control)
   useEffect(() => {
     if (activeThread) {
       const meta = (activeThread as any).metadata || {};
@@ -289,7 +281,7 @@ export default function UnifiedInboxPage() {
       });
       void loadThreads(true);
     } catch (err) {
-      console.error("Failed to toggle AI bot status:", err);
+      console.error("Failed to toggle AI status:", err);
     }
   };
 
@@ -354,7 +346,6 @@ export default function UnifiedInboxPage() {
   async function handleSendReply() {
     if (!activeThread || !replyBody.trim()) return;
 
-    // Collision Check: If locked by another user and not overridden, abort
     if (
       activeThread.lock?.isLocked &&
       !activeThread.lock?.isHeldByMe &&
@@ -396,7 +387,7 @@ export default function UnifiedInboxPage() {
             threadId: activeThread.id,
             direction: "outbound",
             sender: "agent",
-            senderName: "Sarah Chen (Sales Specialist)",
+            senderName: "Support Operator",
             body: textToSend,
             timestamp: new Date().toISOString(),
             status: "sent",
@@ -428,7 +419,7 @@ export default function UnifiedInboxPage() {
       const updated = appendThreadReply(activeThread, {
         threadId: activeThread.id,
         body: textToSend,
-        agentName: "Sarah Chen (Sales Specialist)",
+        agentName: "Support Operator",
       });
 
       setThreads((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
@@ -497,7 +488,7 @@ export default function UnifiedInboxPage() {
             ),
           );
           setStatusNotice(
-            `Stripe checkout record persisted and attached ($${stripeAmount.toLocaleString()})`,
+            `Stripe checkout attached ($${stripeAmount.toLocaleString()})`,
           );
           setTimeout(() => setStatusNotice(""), 4000);
           return;
@@ -516,7 +507,7 @@ export default function UnifiedInboxPage() {
       });
 
       setThreads((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-      setStatusNotice(`Stripe checkout link generated and attached ($${stripeAmount.toLocaleString()})`);
+      setStatusNotice(`Stripe checkout link generated ($${stripeAmount.toLocaleString()})`);
       setTimeout(() => setStatusNotice(""), 4000);
     } catch {
       setStatusNotice("Failed to generate checkout link");
@@ -541,7 +532,7 @@ export default function UnifiedInboxPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setStatusNotice("VIP Client Group single-use join link dispatched to customer.");
+        setStatusNotice("VIP Group join link dispatched to customer.");
         setTimeout(() => setStatusNotice(""), 4000);
         void fetchThreadMessages(activeThread.id);
       } else {
@@ -563,34 +554,21 @@ export default function UnifiedInboxPage() {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-72px)] flex-col bg-[#09090B] text-white">
-      {/* Top Command Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] bg-[#0E0F12] px-6 py-3.5">
+    <div className="flex h-[calc(100dvh-56px)] flex-col bg-[#F8F7FC] text-[#17151F]">
+      {/* Top Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E2DEEA] bg-[#FFFFFF] px-6 py-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#E2DEEA] bg-[#F0ECFF] text-[#6347E8]">
             <InboxIcon size={18} />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-semibold text-white">
-                Unified Omnichannel Inbox
+              <h1 className="text-base font-bold text-[#17151F]">
+                J10 Inbox
               </h1>
-              {isSandboxDemo ? (
-                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
-                  SANDBOX DEMO MODE
-                </span>
-              ) : isLivePersisted ? (
-                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                  LIVE WORKSPACE PERSISTED
-                </span>
-              ) : (
-                <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-300">
-                  WORKSPACE DESK
-                </span>
-              )}
             </div>
-            <p className="text-xs text-white/50">
-              Live Telegram 24/7 Bot and Web Inbound synchronized in real-time. Omnichannel Command Center.
+            <p className="text-xs text-[#6F687A]">
+              Unified cross-channel conversations and customer communications.
             </p>
           </div>
         </div>
@@ -598,16 +576,16 @@ export default function UnifiedInboxPage() {
         <div className="flex items-center gap-4">
           <div className="hidden items-center gap-6 sm:flex">
             <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-white/40">Active Threads</p>
-              <p className="text-xs font-semibold text-white">{threads.length} conversations</p>
+              <p className="text-[10px] uppercase tracking-wider text-[#918A9D]">Conversations</p>
+              <p className="text-xs font-semibold text-[#17151F]">{threads.length} active</p>
             </div>
             <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-white/40">Unread</p>
-              <p className="text-xs font-semibold text-amber-400">{totalUnread} urgent</p>
+              <p className="text-[10px] uppercase tracking-wider text-[#918A9D]">Unread</p>
+              <p className="text-xs font-semibold text-[#D97706]">{totalUnread} urgent</p>
             </div>
             <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-white/40">Pipeline in Desk</p>
-              <p className="text-xs font-semibold text-emerald-400">
+              <p className="text-[10px] uppercase tracking-wider text-[#918A9D]">Pipeline Value</p>
+              <p className="text-xs font-semibold text-[#168A65]">
                 ${totalPipelineValue.toLocaleString()} USD
               </p>
             </div>
@@ -616,7 +594,7 @@ export default function UnifiedInboxPage() {
           <button
             type="button"
             onClick={() => void loadThreads()}
-            className="flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2.5 text-xs text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2.5 text-xs text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F] shadow-sm"
           >
             <RefreshCw size={13} className={isLoadingThreads ? "animate-spin" : ""} />
             Refresh
@@ -625,7 +603,7 @@ export default function UnifiedInboxPage() {
       </div>
 
       {statusNotice && (
-        <div className="flex items-center justify-between border-b border-emerald-500/20 bg-emerald-500/10 px-6 py-2 text-xs font-medium text-emerald-300">
+        <div className="flex items-center justify-between border-b border-[#A3E6D0] bg-[#E8F8F2] px-6 py-2 text-xs font-medium text-[#168A65]">
           <span className="flex items-center gap-2">
             <CheckCircle2 size={14} />
             {statusNotice}
@@ -633,7 +611,7 @@ export default function UnifiedInboxPage() {
           <button
             type="button"
             onClick={() => setStatusNotice("")}
-            className="text-white/40 hover:text-white"
+            className="text-[#168A65] hover:opacity-75"
           >
             Dismiss
           </button>
@@ -643,24 +621,19 @@ export default function UnifiedInboxPage() {
       {/* Main 3-Column Split Desk */}
       <div className="grid flex-1 min-h-0 grid-cols-1 overflow-hidden lg:grid-cols-12">
         {/* ========================================================================= */}
-        {/* COLUMN 1: Threads Navigator (3.5 cols)                                   */}
+        {/* COLUMN 1: Conversation List (3 cols)                                     */}
         {/* ========================================================================= */}
-        <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-white/[0.08] bg-[#0C0D10] lg:col-span-4 xl:col-span-3">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-[#E2DEEA] bg-[#FFFFFF] lg:col-span-4 xl:col-span-3">
           {/* Channel Selector Tabs */}
-          <div className="border-b border-white/[0.08] p-3">
+          <div className="border-b border-[#E2DEEA] p-3 space-y-2.5">
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
               {(
                 [
-                  { id: "all", label: "All Channels" },
-                  { id: "telegram", label: "Telegram (Live)" },
-                  { id: "webchat", label: "WebChat (Live)" },
-                  { id: "crm", label: "CRM (Live)" },
-                  { id: "whatsapp", label: "WhatsApp (Planned)" },
-                  { id: "whatsapp_group", label: "Groups (Live)" },
-                  { id: "instagram", label: "Instagram (Planned)" },
-                  { id: "messenger", label: "Messenger (Planned)" },
-                  { id: "email", label: "Email (Planned)" },
-                  { id: "sms", label: "SMS (Planned)" },
+                  { id: "all", label: "All" },
+                  { id: "whatsapp", label: "WhatsApp" },
+                  { id: "telegram", label: "Telegram" },
+                  { id: "webchat", label: "Website" },
+                  { id: "crm", label: "CRM" },
                 ] as const
               ).map((tab) => {
                 const count = channelCounts[tab.id] ?? 0;
@@ -670,16 +643,20 @@ export default function UnifiedInboxPage() {
                     key={tab.id}
                     type="button"
                     onClick={() => setChannelFilter(tab.id as any)}
-                    className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-center text-xs font-medium transition ${
+                    className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-center text-xs font-medium transition ${
                       isSelected
-                        ? "bg-white/20 text-white shadow-sm ring-1 ring-white/30"
-                        : "bg-white/[0.03] text-white/50 hover:bg-white/[0.08] hover:text-white"
+                        ? "bg-[#6347E8] text-white shadow-sm"
+                        : "bg-[#F3F1F8] text-[#6F687A] hover:bg-[#E2DEEA] hover:text-[#17151F]"
                     }`}
                   >
                     <span>{tab.label}</span>
                     <span
-                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                        count > 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-white/5 text-white/30"
+                      className={`rounded-full px-1.5 py-0.2 text-[9px] font-bold ${
+                        isSelected
+                          ? "bg-white/20 text-white"
+                          : count > 0
+                          ? "bg-[#E2DEEA] text-[#17151F]"
+                          : "text-[#918A9D]"
                       }`}
                     >
                       {count}
@@ -690,54 +667,54 @@ export default function UnifiedInboxPage() {
             </div>
 
             {/* Search Input */}
-            <div className="relative mt-2.5">
+            <div className="relative">
               <Search
                 size={14}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30"
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#918A9D]"
               />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search contact, company, snippet..."
-                className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] py-1.5 pl-8 pr-3 text-xs text-white placeholder:text-white/30 focus:border-blue-500/50 focus:outline-none"
+                placeholder="Search conversations..."
+                className="w-full rounded-lg border border-[#E2DEEA] bg-[#F8F7FC] py-1.5 pl-8 pr-3 text-xs text-[#17151F] placeholder:text-[#918A9D] focus:border-[#6347E8] focus:bg-[#FFFFFF] focus:outline-none"
               />
             </div>
 
             {/* Stage and SLA Quick Filters */}
-            <div className="mt-2.5 flex items-center justify-between gap-1.5">
+            <div className="flex items-center justify-between gap-1.5">
               <div className="flex items-center gap-1.5">
                 <select
                   value={stageFilter}
                   onChange={(e) => setStageFilter(e.target.value as any)}
-                  className="rounded-md border border-white/[0.08] bg-black/50 px-2 py-1 text-[11px] text-white/70 focus:outline-none"
+                  className="rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2 py-1 text-[11px] text-[#6F687A] focus:outline-none"
                 >
                   <option value="all">All Stages</option>
                   <option value="lead">Lead</option>
                   <option value="qualified">Qualified</option>
                   <option value="proposal">Proposal</option>
                   <option value="won">Closed Won</option>
-                  <option value="churned">Churned</option>
+                  <option value="churned">Lost</option>
                 </select>
 
                 <select
                   value={slaFilter}
                   onChange={(e) => setSlaFilter(e.target.value as any)}
-                  className="rounded-md border border-white/[0.08] bg-black/50 px-2 py-1 text-[11px] text-white/70 focus:outline-none"
+                  className="rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2 py-1 text-[11px] text-[#6F687A] focus:outline-none"
                 >
                   <option value="all">All SLAs</option>
-                  <option value="warning">SLA Warning</option>
-                  <option value="breached">SLA Breached</option>
+                  <option value="warning">Warning</option>
+                  <option value="breached">Breached</option>
                 </select>
               </div>
 
               <button
                 type="button"
                 onClick={() => setPriorityOnly(!priorityOnly)}
-                className={`rounded-md px-2 py-1 text-[11px] transition ${
+                className={`rounded-lg px-2 py-1 text-[11px] font-medium transition ${
                   priorityOnly
-                    ? "border border-amber-500/30 bg-amber-500/15 text-amber-300"
-                    : "text-white/40 hover:text-white"
+                    ? "border border-[#FDE68A] bg-[#FEF3C7] text-[#D97706]"
+                    : "text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F]"
                 }`}
               >
                 Priority
@@ -746,22 +723,21 @@ export default function UnifiedInboxPage() {
           </div>
 
           {/* Threads List */}
-          <div className="flex-1 overflow-y-auto divide-y divide-white/[0.04]">
+          <div className="flex-1 overflow-y-auto divide-y divide-[#E2DEEA]">
             {isLoadingThreads ? (
-              <div className="flex flex-col items-center justify-center p-8 text-center text-xs text-white/40">
-                <RefreshCw size={18} className="mb-2 animate-spin text-blue-400" />
-                <p>Loading workspace threads...</p>
+              <div className="flex flex-col items-center justify-center p-8 text-center text-xs text-[#6F687A]">
+                <RefreshCw size={18} className="mb-2 animate-spin text-[#6347E8]" />
+                <p>Loading conversations...</p>
               </div>
             ) : filteredThreads.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-6 text-center">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.04] text-white/40">
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#F3F1F8] text-[#918A9D]">
                   <InboxIcon size={20} />
                 </div>
-                <p className="text-xs font-semibold text-white/80">No Active Conversations</p>
-                <p className="mt-1 max-w-xs text-[11px] text-white/40">
-                  Inbound WhatsApp messages, website form leads, and CRM inquiries will appear here automatically for this workspace.
+                <p className="text-xs font-semibold text-[#17151F]">No Active Conversations</p>
+                <p className="mt-1 max-w-xs text-[11px] text-[#6F687A]">
+                  Inbound customer inquiries will appear here automatically.
                 </p>
-
               </div>
             ) : (
               filteredThreads.map((thread) => {
@@ -774,30 +750,30 @@ export default function UnifiedInboxPage() {
                     key={thread.id}
                     type="button"
                     onClick={() => handleSelectThread(thread.id)}
-                    className={`group flex w-full flex-col gap-1.5 p-3.5 text-left transition ${
+                    className={`group flex w-full flex-col gap-1 p-3 text-left transition ${
                       isSelected
-                        ? "bg-white/[0.07] border-l-2 border-l-blue-500"
-                        : "hover:bg-white/[0.03]"
+                        ? "bg-[#F0ECFF] border-l-2 border-l-[#6347E8]"
+                        : "hover:bg-[#F3F1F8]"
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-[11px] font-semibold text-white">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#E2DEEA] text-[11px] font-bold text-[#17151F]">
                           {thread.contactName
                             .split(" ")
                             .map((n) => n[0])
                             .slice(0, 2)
                             .join("")}
                         </div>
-                        <span className="truncate text-xs font-semibold text-white">
+                        <span className="truncate text-xs font-semibold text-[#17151F]">
                           {thread.contactName}
                         </span>
                         {thread.unreadCount > 0 && (
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-[#D97706]" />
                         )}
                       </div>
 
-                      <span className="shrink-0 text-[10px] text-white/40">
+                      <span className="shrink-0 text-[10px] text-[#918A9D]">
                         {new Date(thread.lastMessageTimestamp).toLocaleTimeString(
                           [],
                           { hour: "2-digit", minute: "2-digit" },
@@ -805,45 +781,28 @@ export default function UnifiedInboxPage() {
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-[11px] text-white/50">
-                      <span className="truncate">{thread.company || "Direct Inbound"}</span>
-                      <span>•</span>
-                      <span className="shrink-0 font-medium text-emerald-400">
-                        ${thread.estimatedValue.toLocaleString()}
-                      </span>
-                    </div>
-
-                    <p className="line-clamp-2 text-xs text-white/70">
+                    <p className="line-clamp-2 text-xs text-[#6F687A]">
                       {thread.lastMessageSnippet}
                     </p>
 
-                    <div className="mt-1 flex items-center justify-between gap-1 pt-1">
+                    <div className="mt-1 flex items-center justify-between gap-1 pt-0.5">
                       <div className="flex items-center gap-1">
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium border ${channelMeta.badgeClass}`}
-                        >
+                        <span className="rounded bg-[#FFFFFF] border border-[#E2DEEA] px-1.5 py-0.2 text-[10px] font-medium text-[#6F687A]">
                           {channelMeta.label.split(" ")[0]}
                         </span>
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium border ${stageMeta.badgeClass}`}
-                        >
+                        <span className="rounded bg-[#FFFFFF] border border-[#E2DEEA] px-1.5 py-0.2 text-[10px] font-medium text-[#6F687A]">
                           {stageMeta.label}
                         </span>
                       </div>
 
                       {thread.slaStatus === "breached" && (
-                        <span className="rounded border border-rose-500/30 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-rose-300">
+                        <span className="rounded border border-[#FECDD3] bg-[#FFE4E8] px-1.5 py-0.2 text-[9px] font-semibold text-[#E11D48]">
                           SLA Breached
                         </span>
                       )}
                       {thread.slaStatus === "warning" && (
-                        <span className="rounded border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-amber-300">
+                        <span className="rounded border border-[#FDE68A] bg-[#FEF3C7] px-1.5 py-0.2 text-[9px] font-semibold text-[#D97706]">
                           Warning ({thread.slaMinutesRemaining ?? 0}m)
-                        </span>
-                      )}
-                      {thread.slaStatus === "healthy" && (
-                        <span className="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-400">
-                          SLA OK
                         </span>
                       )}
                     </div>
@@ -855,15 +814,15 @@ export default function UnifiedInboxPage() {
         </div>
 
         {/* ========================================================================= */}
-        {/* COLUMN 2: Active Chat Conversation (5.5 cols)                            */}
+        {/* COLUMN 2: Selected Conversation & Composer (6 cols)                      */}
         {/* ========================================================================= */}
-        <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-white/[0.08] bg-[#09090B] lg:col-span-5 xl:col-span-6">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-[#E2DEEA] bg-[#F8F7FC] lg:col-span-5 xl:col-span-6">
           {activeThread ? (
             <>
-              {/* Active Thread Header */}
-              <div className="shrink-0 flex items-center justify-between border-b border-white/[0.08] bg-[#0E0F12] px-5 py-3">
+              {/* Header */}
+              <div className="shrink-0 flex items-center justify-between border-b border-[#E2DEEA] bg-[#FFFFFF] px-5 py-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-500/10 text-xs font-bold text-blue-400">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#F0ECFF] text-xs font-bold text-[#6347E8]">
                     {activeThread.contactName
                       .split(" ")
                       .map((n) => n[0])
@@ -872,19 +831,15 @@ export default function UnifiedInboxPage() {
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-sm font-semibold text-white">
+                      <h2 className="text-sm font-semibold text-[#17151F]">
                         {activeThread.contactName}
                       </h2>
-                      <span
-                        className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
-                          CHANNEL_METADATA[activeThread.channel].badgeClass
-                        }`}
-                      >
+                      <span className="rounded bg-[#F3F1F8] border border-[#E2DEEA] px-1.5 py-0.5 text-[10px] font-medium text-[#6F687A]">
                         {CHANNEL_METADATA[activeThread.channel].label}
                       </span>
                     </div>
-                    <p className="text-xs text-white/40">
-                      {activeThread.company} • {activeThread.contactIdentifier}
+                    <p className="text-xs text-[#6F687A]">
+                      {activeThread.company || "Customer"} • {activeThread.contactIdentifier}
                     </p>
                   </div>
                 </div>
@@ -895,25 +850,25 @@ export default function UnifiedInboxPage() {
                       href={activeThread.contactIdentifier.startsWith("@") ? `https://t.me/${activeThread.contactIdentifier.slice(1)}` : "https://t.me/"}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex h-7 items-center gap-1 rounded-md border border-sky-500/30 bg-sky-500/10 px-2.5 text-[11px] font-medium text-sky-400 transition hover:bg-sky-500/20"
+                      className="flex h-7 items-center gap-1 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2.5 text-[11px] font-medium text-[#17151F] hover:bg-[#F3F1F8] transition shadow-sm"
                     >
-                      <Send size={12} />
-                      Telegram Open
-                      <ExternalLink size={10} />
+                      <Send size={12} className="text-[#6347E8]" />
+                      Telegram
+                      <ExternalLink size={10} className="text-[#918A9D]" />
                     </a>
                   ) : (
                     <a
                       href={buildWhatsAppReplyLink(
                         activeThread.contactIdentifier,
-                        `Hello ${activeThread.contactName}, following up from J10 NEXUS regarding your inquiry.`,
+                        `Hello ${activeThread.contactName}, following up regarding your inquiry.`,
                       )}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex h-7 items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 text-[11px] font-medium text-emerald-400 transition hover:bg-emerald-500/20"
+                      className="flex h-7 items-center gap-1 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2.5 text-[11px] font-medium text-[#17151F] hover:bg-[#F3F1F8] transition shadow-sm"
                     >
-                      <Phone size={12} />
-                      WhatsApp Open
-                      <ExternalLink size={10} />
+                      <Phone size={12} className="text-[#168A65]" />
+                      WhatsApp
+                      <ExternalLink size={10} className="text-[#918A9D]" />
                     </a>
                   )}
                 </div>
@@ -921,17 +876,17 @@ export default function UnifiedInboxPage() {
 
               {/* Collision Alert Banner */}
               {activeThread.lock?.isLocked && !activeThread.lock?.isHeldByMe && (
-                <div className="shrink-0 flex items-center justify-between border-b border-amber-500/30 bg-amber-500/10 px-5 py-2 text-xs text-amber-300">
+                <div className="shrink-0 flex items-center justify-between border-b border-[#FDE68A] bg-[#FEF3C7] px-5 py-2 text-xs text-[#D97706]">
                   <div className="flex items-center gap-2">
-                    <ShieldAlert size={15} className="text-amber-400 shrink-0" />
+                    <ShieldAlert size={14} className="text-[#D97706] shrink-0" />
                     <span>
-                      Collision Warning: {activeThread.lock.lockedByUserName || "Another operator"} holds active lease on this conversation.
+                      Collision Notice: Another operator is currently viewing this thread.
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setIsLockOverridden(!isLockOverridden)}
-                    className="rounded border border-amber-500/40 bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-200 hover:bg-amber-500/30"
+                    className="rounded border border-[#FDE68A] bg-[#FFFFFF] px-2 py-0.5 text-[10px] font-semibold text-[#D97706]"
                   >
                     {isLockOverridden ? "Lock Overridden" : "Override Lock"}
                   </button>
@@ -939,13 +894,7 @@ export default function UnifiedInboxPage() {
               )}
 
               {/* Message Stream */}
-              <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-4 sm:p-5">
-                <div className="text-center">
-                  <span className="rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1 text-[10px] uppercase tracking-wider text-white/40">
-                    Channel Inception: {CHANNEL_METADATA[activeThread.channel].label}
-                  </span>
-                </div>
-
+              <div className="flex-1 min-h-0 space-y-3.5 overflow-y-auto p-4 sm:p-5">
                 {activeThread.messages.map((msg) => {
                   const isInbound = msg.direction === "inbound";
 
@@ -956,7 +905,7 @@ export default function UnifiedInboxPage() {
                         isInbound ? "items-start" : "items-end"
                       }`}
                     >
-                      <div className="mb-1 flex items-center gap-2 text-[10px] text-white/40">
+                      <div className="mb-1 flex items-center gap-2 text-[10px] text-[#918A9D]">
                         <span>{msg.senderName}</span>
                         <span>•</span>
                         <span>
@@ -968,60 +917,36 @@ export default function UnifiedInboxPage() {
                       </div>
 
                       <div
-                        className={`max-w-[82%] rounded-2xl p-3.5 text-xs leading-relaxed ${
+                        className={`max-w-[82%] rounded-xl p-3 text-xs leading-relaxed shadow-sm ${
                           isInbound
-                            ? "border border-white/[0.08] bg-[#14151B] text-white/90 rounded-tl-sm"
-                            : "border border-blue-500/30 bg-gradient-to-br from-blue-600/30 via-indigo-600/20 to-blue-500/10 text-white rounded-tr-sm"
+                            ? "border border-[#E2DEEA] bg-[#FFFFFF] text-[#17151F] rounded-tl-sm"
+                            : "bg-[#6347E8] text-white rounded-tr-sm"
                         }`}
                       >
                         <p className="whitespace-pre-line">{msg.body}</p>
 
                         {/* Interactive Stripe Payment Card inside Message */}
                         {msg.metadata?.stripeCheckoutUrl && (
-                          <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-left">
+                          <div className={`mt-2.5 rounded-lg border p-2.5 text-left ${isInbound ? "border-[#A3E6D0] bg-[#E8F8F2] text-[#168A65]" : "border-white/30 bg-white/10 text-white"}`}>
                             <div className="flex items-center justify-between gap-2">
-                              <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300">
+                              <span className="flex items-center gap-1.5 text-[11px] font-semibold">
                                 <CreditCard size={13} />
-                                Stripe Checkout Generated
+                                Checkout Link
                               </span>
-                              <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">
+                              <span className="font-bold text-[11px]">
                                 ${msg.metadata.amount?.toLocaleString()} USD
                               </span>
                             </div>
-                            <p className="mt-1 text-[11px] text-white/60">
-                              Product: {msg.metadata.productName}
-                            </p>
-                            <div className="mt-2.5 flex items-center gap-2">
+                            <div className="mt-2 flex items-center gap-2">
                               <a
                                 href={msg.metadata.stripeCheckoutUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-1 rounded-md bg-emerald-500 px-3 py-1 text-[11px] font-medium text-black transition hover:bg-emerald-400"
+                                className="flex items-center gap-1 rounded bg-[#168A65] px-2.5 py-1 text-[10px] font-semibold text-white transition hover:bg-[#137353]"
                               >
-                                Complete Payment
-                                <ExternalLink size={11} />
+                                View Checkout
+                                <ExternalLink size={10} />
                               </a>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Lead Form Details Metadata */}
-                        {msg.metadata?.leadFormDetails && (
-                          <div className="mt-3 rounded-xl border border-cyan-500/30 bg-cyan-950/20 p-3 text-left">
-                            <p className="text-[11px] font-semibold text-cyan-300">
-                              Submitted Funnel Data:
-                            </p>
-                            <div className="mt-1.5 space-y-1 text-[11px] text-white/70">
-                              {Object.entries(msg.metadata.leadFormDetails).map(
-                                ([k, v]) => (
-                                  <div key={k} className="flex justify-between gap-2">
-                                    <span className="text-white/40">{k}:</span>
-                                    <span className="font-medium text-white/90">
-                                      {v}
-                                    </span>
-                                  </div>
-                                ),
-                              )}
                             </div>
                           </div>
                         )}
@@ -1032,208 +957,120 @@ export default function UnifiedInboxPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* AI Draft Quick Actions */}
-              <div className="shrink-0 flex flex-wrap items-center gap-1.5 border-t border-white/[0.08] bg-[#0E0F12] px-4 py-2">
-                <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-white/40">
-                  <Sparkles size={11} className="text-blue-400" />
-                  AI Copilot:
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleApplyAiDraft("payment_request")}
-                  className="rounded border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
-                >
-                  Send Payment Request
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleApplyAiDraft("deal_follow_up")}
-                  className="rounded border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
-                >
-                  Pipeline Follow-Up
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleApplyAiDraft("objection_handling")}
-                  className="rounded border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
-                >
-                  Enterprise Security FAQ
-                </button>
-              </div>
-
-              {/* Composer Input */}
-              <div className="shrink-0 border-t border-white/[0.08] bg-[#0A0B0E] p-3.5">
-                <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-2 focus-within:border-blue-500/50">
-                  <div className="mb-2 flex items-center justify-between border-b border-white/[0.06] pb-2">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] uppercase tracking-wider text-white/40">
-                        Dispatch Channel:
-                      </span>
-                      <select
-                        value={dispatchChannel}
-                        onChange={(e) => setDispatchChannel(e.target.value as any)}
-                        className="rounded border border-white/[0.08] bg-black/60 px-2 py-0.5 text-[11px] text-white/80 focus:outline-none"
-                      >
-                        <option value="whatsapp">WhatsApp Business</option>
-                        <option value="telegram">Telegram Bot</option>
-                        <option value="email">Email Inbound</option>
-                        <option value="sms">SMS Priority</option>
-                        <option value="webchat">Live Web Chat</option>
-                        <option value="instagram">Instagram Direct</option>
-                        <option value="messenger">Facebook Messenger</option>
-                        <option value="whatsapp_group">WhatsApp Group</option>
-                        <option value="crm">CRM Direct Desk</option>
-                      </select>
-                    </div>
-
-                    {activeThread.lock?.isLocked && !activeThread.lock?.isHeldByMe && !isLockOverridden && (
-                      <span className="text-[10px] font-medium text-amber-400">
-                        Lock Active (Override required)
-                      </span>
-                    )}
-                  </div>
-
+              {/* Persistent Composer */}
+              <div className="shrink-0 border-t border-[#E2DEEA] bg-[#FFFFFF] p-3">
+                <div className="rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-2 focus-within:border-[#6347E8] focus-within:bg-[#FFFFFF]">
                   <textarea
-                    rows={3}
+                    rows={2}
                     value={replyBody}
-                    onChange={(e) => {
-                      setReplyBody(e.target.value);
-                      if (activeThread?.id) {
-                        void fetch("/api/omnichannel/collision", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            action: "heartbeat",
-                            threadId: activeThread.id,
-                            typingStatus: e.target.value.length > 0 ? "typing" : "viewing",
-                          }),
-                        });
-                      }
-                    }}
+                    onChange={(e) => setReplyBody(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         void handleSendReply();
                       }
                     }}
-                    placeholder={`Reply to ${activeThread.contactName} via ${
-                      CHANNEL_METADATA[dispatchChannel || activeThread.channel]?.label || "Omnichannel"
-                    }... (Press Enter to dispatch)`}
-                    className="w-full resize-none bg-transparent text-xs text-white placeholder:text-white/30 focus:outline-none"
+                    placeholder={`Reply to ${activeThread.contactName}... (Press Enter to send)`}
+                    className="w-full resize-none bg-transparent text-xs text-[#17151F] placeholder:text-[#918A9D] focus:outline-none"
                   />
 
-                  <div className="mt-2 flex items-center justify-between border-t border-white/[0.06] pt-2">
-                    <span className="text-[10px] text-white/40">
-                      Assigned Agent: {activeThread.assignedSpecialist}
+                  <div className="mt-2 flex items-center justify-between border-t border-[#E2DEEA] pt-2">
+                    <span className="text-[10px] text-[#918A9D]">
+                      Channel: {CHANNEL_METADATA[dispatchChannel || activeThread.channel]?.label || "Omnichannel"}
                     </span>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleSendReply}
-                        disabled={
-                          isSending ||
-                          !replyBody.trim() ||
-                          (Boolean(activeThread.lock?.isLocked) &&
-                            !activeThread.lock?.isHeldByMe &&
-                            !isLockOverridden)
-                        }
-                        className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition hover:bg-blue-500 disabled:opacity-40"
-                      >
-                        <Send size={13} />
-                        {isSending
-                          ? "Dispatching..."
-                          : `Dispatch via ${(CHANNEL_METADATA[dispatchChannel || activeThread.channel]?.label || "").split(" ")[0]}`}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSendReply}
+                      disabled={isSending || !replyBody.trim()}
+                      className="flex items-center gap-1.5 rounded-lg bg-[#6347E8] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#5136D6] disabled:opacity-40"
+                    >
+                      <Send size={12} />
+                      {isSending ? "Sending..." : "Send Message"}
+                    </button>
                   </div>
                 </div>
               </div>
             </>
           ) : (
-            <div className="flex flex-1 items-center justify-center text-xs text-white/40">
-              Select a conversation to begin dispatch.
+            <div className="flex flex-1 items-center justify-center text-xs text-[#6F687A]">
+              Select a conversation to view messages.
             </div>
           )}
         </div>
 
         {/* ========================================================================= */}
-        {/* COLUMN 3: Deal Stage & Instant Stripe Drawer (3 cols)                    */}
+        {/* COLUMN 3: Contact Details, Labels, Notes, Stage (3 cols)                 */}
         {/* ========================================================================= */}
-        <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[#0C0D10] p-4 lg:col-span-3 xl:col-span-3">
+        <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[#FFFFFF] p-4 lg:col-span-3 xl:col-span-3 space-y-4">
           {activeThread ? (
-            <div className="space-y-5">
-              {/* Detalles del contacto Header (Matches Setter CRM reference) */}
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-                <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
-                  <span className="text-xs font-semibold text-white">
-                    Detalles del contacto
+            <>
+              {/* Contact Details Header */}
+              <div className="rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-4">
+                <div className="flex items-center justify-between border-b border-[#E2DEEA] pb-3">
+                  <span className="text-xs font-bold text-[#17151F]">
+                    Contact Details
                   </span>
-                  <span
-                    className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
-                      CHANNEL_METADATA[activeThread.channel].badgeClass
-                    }`}
-                  >
+                  <span className="rounded border border-[#E2DEEA] bg-[#FFFFFF] px-1.5 py-0.5 text-[10px] font-medium text-[#6F687A]">
                     {CHANNEL_METADATA[activeThread.channel].label}
                   </span>
                 </div>
 
-                <div className="mt-4 flex flex-col items-center text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-500/20 text-base font-bold text-indigo-300 ring-2 ring-indigo-500/30">
+                <div className="mt-3 flex flex-col items-center text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F0ECFF] text-sm font-bold text-[#6347E8]">
                     {activeThread.contactName
                       .split(" ")
                       .map((n) => n[0])
                       .slice(0, 2)
                       .join("")}
                   </div>
-                  <h3 className="mt-2 text-sm font-semibold text-white">
+                  <h3 className="mt-2 text-sm font-semibold text-[#17151F]">
                     {activeThread.contactName}
                   </h3>
-                  <p className="text-xs text-white/50">{activeThread.contactIdentifier}</p>
+                  <p className="text-xs text-[#6F687A]">{activeThread.contactIdentifier}</p>
                 </div>
 
-                {/* AGENTE IA Toggle Button */}
-                <div className="mt-4 rounded-lg border border-white/[0.06] bg-black/40 p-2.5">
+                {/* AI Receptionist Handling Toggle */}
+                <div className="mt-3 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] p-2.5">
                   <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-xs font-medium text-white/80">
-                      <Bot size={14} className="text-blue-400" />
-                      AGENTE IA
+                    <span className="text-xs font-semibold text-[#17151F]">
+                      AI Receptionist
                     </span>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                         aiBotEnabled
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : "bg-white/10 text-white/40"
+                          ? "bg-[#E8F8F2] text-[#168A65]"
+                          : "bg-[#F3F1F8] text-[#6F687A]"
                       }`}
                     >
-                      {aiBotEnabled ? "ON" : "OFF"}
+                      {aiBotEnabled ? "Enabled" : "Paused"}
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={handleToggleAiBot}
-                    className="mt-2 w-full rounded-md border border-white/[0.08] bg-white/[0.04] py-1 text-xs font-medium text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+                    className="mt-2 w-full rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] py-1 text-xs font-medium text-[#17151F] transition hover:bg-[#F3F1F8]"
                   >
-                    {aiBotEnabled ? "Apagar bot" : "Activar bot"}
+                    {aiBotEnabled ? "Pause AI Operator" : "Resume AI Operator"}
                   </button>
                 </div>
 
-                {/* ETIQUETAS */}
-                <div className="mt-4 border-t border-white/[0.06] pt-3">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
-                    ETIQUETAS
+                {/* Labels / Tags */}
+                <div className="mt-3 border-t border-[#E2DEEA] pt-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[#918A9D]">
+                    Labels
                   </span>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {contactTags.map((tag) => (
                       <span
                         key={tag}
-                        className="flex items-center gap-1 rounded-md bg-white/[0.06] px-2 py-0.5 text-[11px] text-white/80"
+                        className="flex items-center gap-1 rounded-md bg-[#FFFFFF] border border-[#E2DEEA] px-2 py-0.5 text-[11px] text-[#17151F]"
                       >
                         {tag}
                         <button
                           type="button"
                           onClick={() => setContactTags(contactTags.filter((t) => t !== tag))}
-                          className="text-white/40 hover:text-white"
+                          className="text-[#918A9D] hover:text-[#17151F]"
                         >
                           ×
                         </button>
@@ -1245,8 +1082,8 @@ export default function UnifiedInboxPage() {
                       type="text"
                       value={newTagInput}
                       onChange={(e) => setNewTagInput(e.target.value)}
-                      placeholder="Nueva etiqueta..."
-                      className="w-full rounded border border-white/[0.08] bg-black/40 px-2 py-1 text-[11px] text-white focus:outline-none"
+                      placeholder="New label..."
+                      className="w-full rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2 py-1 text-[11px] text-[#17151F] focus:outline-none"
                     />
                     <button
                       type="button"
@@ -1256,42 +1093,38 @@ export default function UnifiedInboxPage() {
                           setNewTagInput("");
                         }
                       }}
-                      className="rounded border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 hover:bg-white/[0.08]"
+                      className="rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2.5 py-1 text-[11px] font-medium text-[#17151F] hover:bg-[#F3F1F8]"
                     >
-                      Agregar
+                      Add
                     </button>
                   </div>
                 </div>
 
-                {/* NOTAS */}
-                <div className="mt-4 border-t border-white/[0.06] pt-3">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
-                    NOTAS
+                {/* Notes */}
+                <div className="mt-3 border-t border-[#E2DEEA] pt-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[#918A9D]">
+                    Notes
                   </span>
                   <textarea
                     rows={2}
                     value={contactNotes}
                     onChange={(e) => setContactNotes(e.target.value)}
-                    placeholder="Agregar notas sobre este contacto..."
-                    className="mt-1.5 w-full rounded border border-white/[0.08] bg-black/40 p-2 text-xs text-white placeholder:text-white/30 focus:outline-none"
+                    placeholder="Add notes about this contact..."
+                    className="mt-1.5 w-full rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] p-2 text-xs text-[#17151F] placeholder:text-[#918A9D] focus:outline-none"
                   />
                 </div>
               </div>
 
-              {/* Deal Stage Controls */}
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5">
+              {/* Pipeline Stage */}
+              <div className="rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-3.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-white">Pipeline Stage & Deal Intelligence</span>
-                  <span
-                    className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
-                      STAGE_METADATA[activeThread.dealStage].badgeClass
-                    }`}
-                  >
+                  <span className="text-xs font-bold text-[#17151F]">Pipeline Stage</span>
+                  <span className="rounded bg-[#FFFFFF] border border-[#E2DEEA] px-1.5 py-0.5 text-[10px] font-medium text-[#6F687A]">
                     {STAGE_METADATA[activeThread.dealStage].label}
                   </span>
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 gap-1.5">
+                <div className="mt-2.5 grid grid-cols-1 gap-1">
                   {(["lead", "qualified", "proposal", "won", "churned"] as InboxDealStage[]).map(
                     (stg) => {
                       const isCurrent = activeThread.dealStage === stg;
@@ -1302,8 +1135,8 @@ export default function UnifiedInboxPage() {
                           onClick={() => handleStageChange(stg)}
                           className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs transition ${
                             isCurrent
-                              ? "bg-blue-600 font-semibold text-white shadow-sm"
-                              : "border border-white/[0.05] bg-white/[0.02] text-white/60 hover:bg-white/[0.06] hover:text-white"
+                              ? "bg-[#6347E8] font-semibold text-white shadow-sm"
+                              : "border border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F]"
                           }`}
                         >
                           <span>{STAGE_METADATA[stg].label}</span>
@@ -1315,171 +1148,46 @@ export default function UnifiedInboxPage() {
                 </div>
               </div>
 
-              {/* Instant Stripe Billing Generator */}
-              <div className="rounded-xl border border-blue-500/20 bg-blue-950/10 p-3.5">
-                <div className="flex items-center gap-2 text-xs font-semibold text-blue-300">
-                  <CreditCard size={15} />
-                  Instant Stripe Billing
+              {/* Stripe Billing Checkout Generator */}
+              <div className="rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-3.5 space-y-2.5">
+                <div className="flex items-center gap-2 text-xs font-bold text-[#17151F]">
+                  <CreditCard size={14} className="text-[#6347E8]" />
+                  <span>Stripe Payment Link</span>
                 </div>
-                <p className="mt-1 text-[11px] text-white/50">
-                  Generate verified checkout session and attach to active conversation.
-                </p>
 
-                <div className="mt-3 space-y-2.5">
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wider text-white/40">
-                      Product / Package Name
-                    </label>
-                    <input
-                      type="text"
-                      value={stripeProduct}
-                      onChange={(e) => setStripeProduct(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-white/[0.08] bg-black/40 px-2.5 py-1.5 text-xs text-white focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wider text-white/40">
-                      Invoice Amount ($ USD)
-                    </label>
-                    <div className="relative mt-1">
-                      <DollarSign
-                        size={13}
-                        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40"
-                      />
-                      <input
-                        type="number"
-                        value={stripeAmount}
-                        onChange={(e) => setStripeAmount(Number(e.target.value))}
-                        className="w-full rounded-md border border-white/[0.08] bg-black/40 py-1.5 pl-7 pr-2.5 text-xs font-semibold text-emerald-400 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex gap-1.5 pt-1">
-                    {[1200, 4800, 18500].map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => setStripeAmount(preset)}
-                        className="rounded border border-white/[0.06] bg-white/[0.02] px-2 py-0.5 text-[10px] text-white/60 hover:bg-white/[0.06]"
-                      >
-                        ${preset.toLocaleString()}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleGenerateStripeLink}
-                    disabled={generatingStripe}
-                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2 text-xs font-semibold text-white shadow-md shadow-emerald-600/20 transition hover:bg-emerald-500 disabled:opacity-50"
-                  >
-                    <Zap size={13} />
-                    {generatingStripe
-                      ? "Generating..."
-                      : "Create & Insert Stripe Checkout"}
-                  </button>
+                <div>
+                  <input
+                    type="text"
+                    value={stripeProduct}
+                    onChange={(e) => setStripeProduct(e.target.value)}
+                    placeholder="Product or service name"
+                    className="w-full rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2.5 py-1.5 text-xs text-[#17151F] focus:outline-none"
+                  />
                 </div>
-              </div>
 
-              {/* VIP Client Group Card */}
-              <div className="rounded-xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/20 to-black/40 p-3.5">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-xs font-semibold text-white">
-                    <Users size={14} className="text-indigo-400" />
-                    VIP Telegram Group Gating
-                  </span>
-                  <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-bold text-indigo-300">
-                    PAID ACCESS
-                  </span>
+                <div className="relative">
+                  <DollarSign
+                    size={13}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#918A9D]"
+                  />
+                  <input
+                    type="number"
+                    value={stripeAmount}
+                    onChange={(e) => setStripeAmount(Number(e.target.value))}
+                    className="w-full rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] py-1.5 pl-7 pr-2.5 text-xs font-semibold text-[#168A65] focus:outline-none"
+                  />
                 </div>
-                <p className="mt-1 text-[11px] text-white/50">
-                  Generate a single-use join link for your private client group and send directly to customer.
-                </p>
+
                 <button
                   type="button"
-                  onClick={handleSendGroupInvite}
-                  disabled={generatingInvite}
-                  className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#4F7CFF] py-2 text-xs font-semibold text-white transition hover:bg-[#3d68e6] disabled:opacity-50"
+                  onClick={handleGenerateStripeLink}
+                  disabled={generatingStripe}
+                  className="w-full rounded-lg bg-[#6347E8] py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#5136D6] disabled:opacity-50"
                 >
-                  <Send size={13} />
-                  {generatingInvite ? "Dispatching VIP Link..." : "Send Paid Group Invite Link"}
+                  {generatingStripe ? "Generating..." : "Generate Payment Link"}
                 </button>
               </div>
-
-              {/* Omnichannel SLA & Operations */}
-              <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3.5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-white">SLA & Operational Routing</span>
-                  {activeThread.slaStatus === "breached" ? (
-                    <span className="rounded border border-rose-500/30 bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold text-rose-300">
-                      BREACHED
-                    </span>
-                  ) : activeThread.slaStatus === "warning" ? (
-                    <span className="rounded border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
-                      WARNING
-                    </span>
-                  ) : (
-                    <span className="rounded border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                      HEALTHY
-                    </span>
-                  )}
-                </div>
-
-                <div className="space-y-1.5 text-[11px] text-white/60">
-                  <div className="flex justify-between">
-                    <span className="text-white/40">FRT Deadline:</span>
-                    <span className="font-medium text-white/80">
-                      {activeThread.slaMinutesRemaining !== undefined
-                        ? `${activeThread.slaMinutesRemaining} mins remaining`
-                        : "Active"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-white/40">Assigned Team:</span>
-                    <span className="font-medium text-white/80">
-                      {activeThread.assignedTeam || "General Desk"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-white/40">Collision Lease:</span>
-                    <span className="font-medium text-emerald-400">
-                      {activeThread.lock?.isLocked
-                        ? activeThread.lock.isHeldByMe
-                          ? "Lease Held by You"
-                          : `Locked (${activeThread.lock.lockedByUserName})`
-                        : "Unlocked"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Fast Links to Other Modules */}
-              <div className="space-y-1.5 border-t border-white/[0.06] pt-3 text-xs">
-                <Link
-                  href="/dashboard/crm"
-                  className="flex items-center justify-between rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2 text-white/70 transition hover:bg-white/[0.06] hover:text-white"
-                >
-                  <span className="flex items-center gap-2">
-                    <Users size={13} />
-                    View in CRM Pipeline
-                  </span>
-                  <ArrowRight size={13} className="text-white/30" />
-                </Link>
-
-                <Link
-                  href="/dashboard/revenue"
-                  className="flex items-center justify-between rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2 text-white/70 transition hover:bg-white/[0.06] hover:text-white"
-                >
-                  <span className="flex items-center gap-2">
-                    <DollarSign size={13} />
-                    Open Revenue Hub
-                  </span>
-                  <ArrowRight size={13} className="text-white/30" />
-                </Link>
-              </div>
-            </div>
+            </>
           ) : null}
         </div>
       </div>

@@ -47,7 +47,7 @@ export default function J10PayPage() {
     .reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0);
 
   return (
-    <div className="min-h-[calc(100dvh-56px)] bg-[#090B10] px-4 py-6 sm:px-6 lg:px-8 text-[#F5F7FA]">
+    <div className="min-h-[calc(100dvh-56px)] bg-[#F8F7FC] px-4 py-6 sm:px-6 lg:px-8 text-[#17151F]">
       <div className="mx-auto max-w-5xl space-y-6">
         {/* Header */}
         <DashboardPageHeader
@@ -56,7 +56,7 @@ export default function J10PayPage() {
           actions={
             <Link
               href="/dashboard/revenue"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#242A35] bg-[#151922] px-3.5 py-1.5 text-xs font-medium text-[#98A2B3] transition hover:bg-[#242A35] hover:text-[#F5F7FA]"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-3.5 py-1.5 text-xs font-medium text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F]"
             >
               <span>Revenue Analytics</span>
               <ArrowRight size={12} />
@@ -85,14 +85,14 @@ export default function J10PayPage() {
         </div>
 
         {/* Tab Selection */}
-        <div className="flex items-center gap-1.5 border-b border-[#242A35] pb-2">
+        <div className="flex items-center gap-1.5 border-b border-[#E2DEEA] pb-2">
           <button
             type="button"
             onClick={() => setActiveTab("invoices")}
             className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
               activeTab === "invoices"
-                ? "bg-[#4F7CFF] text-white"
-                : "text-[#98A2B3] hover:text-[#F5F7FA]"
+                ? "bg-[#6347E8] text-white"
+                : "text-[#6F687A] hover:text-[#17151F]"
             }`}
           >
             Invoices ({invoices.length})
@@ -102,8 +102,8 @@ export default function J10PayPage() {
             onClick={() => setActiveTab("links")}
             className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
               activeTab === "links"
-                ? "bg-[#4F7CFF] text-white"
-                : "text-[#98A2B3] hover:text-[#F5F7FA]"
+                ? "bg-[#6347E8] text-white"
+                : "text-[#6F687A] hover:text-[#17151F]"
             }`}
           >
             Payment Links
@@ -113,8 +113,8 @@ export default function J10PayPage() {
             onClick={() => setActiveTab("ledger")}
             className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
               activeTab === "ledger"
-                ? "bg-[#4F7CFF] text-white"
-                : "text-[#98A2B3] hover:text-[#F5F7FA]"
+                ? "bg-[#6347E8] text-white"
+                : "text-[#6F687A] hover:text-[#17151F]"
             }`}
           >
             Ledger & Deposits
@@ -125,30 +125,30 @@ export default function J10PayPage() {
         {activeTab === "invoices" && (
           <div className="space-y-4">
             {invoices.length === 0 ? (
-              <div className="rounded-xl border border-[#242A35] bg-[#101319] p-8 text-center">
-                <FileText className="mx-auto h-8 w-8 text-[#667085]" />
-                <h3 className="mt-3 text-sm font-semibold text-[#F5F7FA]">No Invoices Issued Yet</h3>
-                <p className="mt-1 max-w-sm mx-auto text-xs text-[#98A2B3]">
+              <div className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-8 text-center shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+                <FileText className="mx-auto h-8 w-8 text-[#918A9D]" />
+                <h3 className="mt-3 text-sm font-semibold text-[#17151F]">No Invoices Issued Yet</h3>
+                <p className="mt-1 max-w-sm mx-auto text-xs text-[#6F687A]">
                   When appointments require deposits or proposals are accepted, invoices will appear here with live payment status.
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-[#242A35] rounded-xl border border-[#242A35] bg-[#101319]">
+              <div className="divide-y divide-[#E2DEEA] rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
                 {invoices.map((inv) => (
                   <div key={inv.id} className="flex items-center justify-between p-4">
                     <div>
-                      <div className="text-xs font-semibold text-[#F5F7FA]">
+                      <div className="text-xs font-semibold text-[#17151F]">
                         Invoice #{inv.id.slice(0, 8)}
                       </div>
-                      <div className="text-[11px] text-[#667085]">
+                      <div className="text-[11px] text-[#6F687A]">
                         Created {new Date(inv.created_at).toLocaleDateString()}
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs font-bold text-[#F5F7FA]">
+                      <div className="text-xs font-bold text-[#17151F]">
                         ${Number(inv.amount || 0).toLocaleString()}
                       </div>
-                      <span className="rounded border border-[#242A35] bg-[#151922] px-2 py-0.5 text-[10px] uppercase font-medium text-[#98A2B3]">
+                      <span className="rounded border border-[#E2DEEA] bg-[#F3F1F8] px-2 py-0.5 text-[10px] uppercase font-medium text-[#6F687A]">
                         {inv.status || "Pending"}
                       </span>
                     </div>
@@ -161,9 +161,9 @@ export default function J10PayPage() {
 
         {/* Tab 2: Payment Links */}
         {activeTab === "links" && (
-          <div className="rounded-xl border border-[#242A35] bg-[#101319] p-5 space-y-2">
-            <h3 className="text-sm font-semibold text-[#F5F7FA]">Instant Payment Links</h3>
-            <p className="text-xs text-[#98A2B3]">
+          <div className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-5 space-y-2 shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+            <h3 className="text-sm font-semibold text-[#17151F]">Instant Payment Links</h3>
+            <p className="text-xs text-[#6F687A]">
               Generate customer payment links for appointment deposits, invoices, and service retainers.
             </p>
           </div>
@@ -171,9 +171,9 @@ export default function J10PayPage() {
 
         {/* Tab 3: Ledger */}
         {activeTab === "ledger" && (
-          <div className="rounded-xl border border-[#242A35] bg-[#101319] p-5 space-y-2">
-            <h3 className="text-sm font-semibold text-[#F5F7FA]">Verified Ledger & Settlement</h3>
-            <p className="text-xs text-[#98A2B3]">
+          <div className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-5 space-y-2 shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+            <h3 className="text-sm font-semibold text-[#17151F]">Verified Ledger & Settlement</h3>
+            <p className="text-xs text-[#6F687A]">
               Workspace ledger records verified customer payments received through connected checkout providers.
             </p>
           </div>

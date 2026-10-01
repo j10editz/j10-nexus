@@ -62,8 +62,8 @@ export default function J10CommandCenter({
     void fetchData();
   }, [fetchData]);
 
-  // Build the prioritized operational work list
-  const operationalPriorities = useMemo(() => {
+  // Build the prioritized operational work list for "Priority Work"
+  const priorityWorkItems = useMemo(() => {
     if (!data) return [];
 
     const items: Array<{
@@ -183,26 +183,107 @@ export default function J10CommandCenter({
       });
     }
 
-    // Sort strictly by priority
     return items.sort((a, b) => a.priority - b.priority);
+  }, [data]);
+
+  // Build the factual "Recent Activity" stream
+  const recentActivityItems = useMemo(() => {
+    if (!data) return [];
+
+    const activities: Array<{
+      id: string;
+      title: string;
+      context: string;
+      time?: string;
+      status: {
+        label: string;
+        variant: "connected" | "available" | "neutral" | "warning";
+      };
+      actionLabel: string;
+      actionHref: string;
+    }> = [];
+
+    // Recent lead activity
+    if (data.recentLeads && data.recentLeads.length > 0) {
+      data.recentLeads.slice(0, 3).forEach((lead) => {
+        activities.push({
+          id: `act-lead-${lead.id}`,
+          title: `New contact recorded: ${lead.name}`,
+          context: `${lead.source.toUpperCase()} intake - Stage: ${lead.status}`,
+          time: lead.createdAt
+            ? new Date(lead.createdAt).toLocaleDateString([], {
+                month: "short",
+                day: "numeric",
+              })
+            : undefined,
+          status: { label: "Lead", variant: "available" },
+          actionLabel: "View Lead",
+          actionHref: `/dashboard/crm?contactId=${lead.id}`,
+        });
+      });
+    }
+
+    // Recent conversation activity
+    if (data.recentConversations && data.recentConversations.length > 0) {
+      data.recentConversations.slice(0, 3).forEach((conv) => {
+        activities.push({
+          id: `act-conv-${conv.id}`,
+          title: `Message from ${conv.contactName}`,
+          context: `${conv.channel.toUpperCase()}: ${conv.lastMessage || "Conversation active"}`,
+          time: conv.timestamp
+            ? new Date(conv.timestamp).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : undefined,
+          status: { label: conv.isUnread ? "Unread" : "Received", variant: conv.isUnread ? "warning" : "connected" },
+          actionLabel: "View Thread",
+          actionHref: `/dashboard/inbox?threadId=${conv.id}`,
+        });
+      });
+    }
+
+    // Upcoming bookings as calendar events
+    if (data.upcomingBookingsList && data.upcomingBookingsList.length > 0) {
+      data.upcomingBookingsList.slice(0, 2).forEach((b) => {
+        activities.push({
+          id: `act-book-${b.id}`,
+          title: `Confirmed appointment: ${b.clientName}`,
+          context: b.scheduledStart
+            ? `${new Date(b.scheduledStart).toLocaleDateString([], {
+                month: "short",
+                day: "numeric",
+              })} at ${new Date(b.scheduledStart).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}`
+            : "Scheduled",
+          status: { label: "Booking", variant: "connected" },
+          actionLabel: "Open Booking",
+          actionHref: `/dashboard/booking?id=${b.id}`,
+        });
+      });
+    }
+
+    return activities;
   }, [data]);
 
   if (loading) {
     return (
-      <div className="p-4 sm:p-6 text-[#F5F7FA]">
+      <div className="p-4 sm:p-6 text-[#17151F]">
         <div className="mx-auto max-w-[1360px] space-y-4">
-          <div className="flex items-center justify-between pb-4 border-b border-[#242A35]">
+          <div className="flex items-center justify-between pb-4 border-b border-[#E2DEEA]">
             <div className="space-y-1">
-              <div className="h-6 w-44 animate-pulse rounded bg-[#151922]" />
-              <div className="h-3.5 w-60 animate-pulse rounded bg-[#151922]" />
+              <div className="h-6 w-44 animate-pulse rounded bg-[#F3F1F8]" />
+              <div className="h-3.5 w-60 animate-pulse rounded bg-[#F3F1F8]" />
             </div>
-            <div className="h-7 w-20 animate-pulse rounded bg-[#151922]" />
+            <div className="h-7 w-20 animate-pulse rounded bg-[#F3F1F8]" />
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                className="h-[88px] animate-pulse rounded-lg border border-[#242A35] bg-[#101319]"
+                className="h-[88px] animate-pulse rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-sm"
               />
             ))}
           </div>
@@ -213,19 +294,19 @@ export default function J10CommandCenter({
 
   if (error || !data) {
     return (
-      <div className="p-4 sm:p-6 text-[#F5F7FA]">
+      <div className="p-4 sm:p-6 text-[#17151F]">
         <div className="mx-auto max-w-[1360px]">
-          <div className="rounded-lg border border-rose-500/20 bg-[#101319] p-5 text-center">
-            <h2 className="text-sm font-semibold text-[#F5F7FA]">
+          <div className="rounded-xl border border-[#FECDD3] bg-[#FFE4E8] p-5 text-center shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+            <h2 className="text-sm font-semibold text-[#E11D48]">
               Unable to load workspace data
             </h2>
-            <p className="mt-1 text-xs text-[#98A2B3]">
+            <p className="mt-1 text-xs text-[#6F687A]">
               {error || "Could not retrieve live workspace metrics."}
             </p>
             <button
               type="button"
               onClick={() => void fetchData(true)}
-              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#151922] border border-[#242A35] px-3 py-1.5 text-xs font-medium text-[#F5F7FA] hover:bg-[#242A35] transition-colors"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#FFFFFF] border border-[#E2DEEA] px-3 py-1.5 text-xs font-medium text-[#17151F] hover:bg-[#F3F1F8] transition-colors shadow-sm"
             >
               <RefreshCw size={13} />
               Retry
@@ -236,25 +317,25 @@ export default function J10CommandCenter({
     );
   }
 
-  const { metrics, upcomingBookingsList, channelOverview } = data;
+  const { metrics } = data;
 
   return (
-    <div className="p-4 sm:p-6 text-[#F5F7FA]">
-      <div className="mx-auto max-w-[1360px] space-y-5">
+    <div className="p-4 sm:p-6 text-[#17151F]">
+      <div className="mx-auto max-w-[1360px] space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-[#242A35]">
+        <div className="flex items-center justify-between pb-4 border-b border-[#E2DEEA]">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#F5F7FA]">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#17151F]">
               J10 Command Center
             </h1>
-            <p className="mt-0.5 text-xs text-[#98A2B3]">
-              What needs your attention today.
+            <p className="mt-0.5 text-xs text-[#6F687A]">
+              Operational business metrics and priority work items.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             {lastUpdated && (
-              <span className="hidden sm:inline text-[11px] text-[#667085]">
+              <span className="hidden sm:inline text-[11px] text-[#918A9D]">
                 Updated {lastUpdated}
               </span>
             )}
@@ -263,22 +344,21 @@ export default function J10CommandCenter({
               onClick={() => void fetchData(true)}
               disabled={refreshing}
               aria-label="Refresh workspace metrics"
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-[#242A35] bg-[#101319] text-[#98A2B3] transition-colors hover:bg-[#151922] hover:text-[#F5F7FA] disabled:opacity-50"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] transition-colors hover:bg-[#F3F1F8] hover:text-[#17151F] disabled:opacity-50 shadow-sm"
               title="Refresh metrics"
             >
               <RefreshCw
                 size={14}
-                className={refreshing ? "animate-spin text-[#4F7CFF]" : ""}
+                className={refreshing ? "animate-spin text-[#6347E8]" : ""}
               />
             </button>
           </div>
         </div>
 
-        {/* 8 Compact Neutral Metric Tiles */}
-        {/* Desktop: 4 columns, 2 rows (88-100px) */}
-        {/* Mobile: 2 columns, 4 rows (max 88-96px) */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          {/* 1. New Leads */}
+        {/* 8 Compact Metric Panels (4-column desktop, 2-column mobile) */}
+        {/* Strictly no meaningless decorative purple dots. Status dots only for real problems/alerts */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* 1. New Leads (Neutral - no decorative dot) */}
           <DashboardMetricTile
             label="New Leads"
             value={metrics.newLeads.count}
@@ -287,7 +367,7 @@ export default function J10CommandCenter({
             semanticStatus="neutral"
           />
 
-          {/* 2. Needs Attention (Warning emphasis only when count > 0) */}
+          {/* 2. Needs Attention (Warning amber ONLY when count > 0) */}
           <DashboardMetricTile
             label="Needs Attention"
             value={metrics.leadsNeedingAttention.count}
@@ -298,7 +378,7 @@ export default function J10CommandCenter({
             }
           />
 
-          {/* 3. Unanswered Conversations */}
+          {/* 3. Unanswered (Warning amber ONLY when count > 0) */}
           <DashboardMetricTile
             label="Unanswered"
             value={metrics.unansweredConversations.count}
@@ -309,7 +389,7 @@ export default function J10CommandCenter({
             }
           />
 
-          {/* 4. Upcoming Bookings */}
+          {/* 4. Upcoming Bookings (Neutral - no decorative dot) */}
           <DashboardMetricTile
             label="Upcoming Bookings"
             value={metrics.upcomingBookings.count}
@@ -318,7 +398,7 @@ export default function J10CommandCenter({
             semanticStatus="neutral"
           />
 
-          {/* 5. Pending Payments */}
+          {/* 5. Pending Payments (Neutral - no decorative dot) */}
           <DashboardMetricTile
             label="Pending Payments"
             value={`$${metrics.pendingPayments.amount.toLocaleString()}`}
@@ -327,18 +407,16 @@ export default function J10CommandCenter({
             semanticStatus="neutral"
           />
 
-          {/* 6. Human Actions */}
+          {/* 6. Human Actions (Neutral - no decorative dot) */}
           <DashboardMetricTile
             label="Human Actions"
             value={metrics.tasksRequiringHumanAction.count}
             destinationLabel="Approvals"
             href={metrics.tasksRequiringHumanAction.href}
-            semanticStatus={
-              metrics.tasksRequiringHumanAction.count > 0 ? "warning" : "neutral"
-            }
+            semanticStatus="neutral"
           />
 
-          {/* 7. AI Actions */}
+          {/* 7. AI Actions (Neutral - no decorative dot) */}
           <DashboardMetricTile
             label="AI Actions"
             value={metrics.aiActionsCompleted.count}
@@ -347,7 +425,7 @@ export default function J10CommandCenter({
             semanticStatus="neutral"
           />
 
-          {/* 8. Failed Automations (Error emphasis only when count > 0) */}
+          {/* 8. Failed Automations (Error red ONLY when count > 0) */}
           <DashboardMetricTile
             label="Failed Automations"
             value={metrics.failedAutomations.count}
@@ -359,25 +437,30 @@ export default function J10CommandCenter({
           />
         </div>
 
-        {/* Operational Priorities: Needs your attention */}
+        {/* Section 1: Priority Work */}
         <div>
           <div className="flex items-center justify-between mb-2.5">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-[#98A2B3]">
-              Needs your attention
-            </h2>
-            <span className="text-[11px] text-[#667085]">
-              {operationalPriorities.length}{" "}
-              {operationalPriorities.length === 1 ? "item" : "items"}
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-[#6347E8]">
+                Priority Work
+              </h2>
+              <p className="text-[11px] text-[#6F687A] mt-0.5">
+                Items requiring operator attention or follow-up action.
+              </p>
+            </div>
+            <span className="text-[11px] font-medium text-[#6F687A] rounded-md bg-[#F3F1F8] border border-[#E2DEEA] px-2 py-0.5">
+              {priorityWorkItems.length}{" "}
+              {priorityWorkItems.length === 1 ? "item" : "items"}
             </span>
           </div>
 
-          <div className="rounded-lg border border-[#242A35] bg-[#101319] overflow-hidden">
-            {operationalPriorities.length === 0 ? (
-              <div className="px-4 py-3 text-center text-xs text-[#667085]">
+          <div className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)] overflow-hidden divide-y divide-[#E2DEEA]">
+            {priorityWorkItems.length === 0 ? (
+              <div className="px-4 py-5 text-center text-xs text-[#6F687A]">
                 No items require attention today. All systems are operating normally.
               </div>
             ) : (
-              operationalPriorities.slice(0, 6).map((item) => (
+              priorityWorkItems.slice(0, 6).map((item) => (
                 <DashboardActionRow
                   key={item.id}
                   title={item.title}
@@ -397,107 +480,48 @@ export default function J10CommandCenter({
           </div>
         </div>
 
-        {/* Secondary Information: At most two compact panels below priority list */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Panel 1: Recent Activity & Channels */}
-          <div className="rounded-lg border border-[#242A35] bg-[#101319] p-4">
-            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#242A35]">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#98A2B3]">
-                Channel Activity
-              </h3>
-              <Link
-                href="/dashboard/connections"
-                className="text-[11px] text-[#98A2B3] hover:text-[#4F7CFF] transition-colors inline-flex items-center gap-1"
-              >
-                <span>Channels</span>
-                <ChevronRight size={12} />
-              </Link>
+        {/* Section 2: Recent Activity */}
+        <div>
+          <div className="flex items-center justify-between mb-2.5">
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-[#6347E8]">
+                Recent Activity
+              </h2>
+              <p className="text-[11px] text-[#6F687A] mt-0.5">
+                Latest customer engagements, bookings, and channel updates.
+              </p>
             </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs py-1">
-                <span className="text-[#98A2B3]">WhatsApp</span>
-                <DashboardStatusBadge
-                  status={channelOverview?.find((c) => c.channel === "whatsapp")?.isOperational ? "connected" : "available"}
-                  label={channelOverview?.find((c) => c.channel === "whatsapp")?.isOperational ? "Connected" : "Available"}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs py-1">
-                <span className="text-[#98A2B3]">Telegram</span>
-                <DashboardStatusBadge
-                  status={channelOverview?.find((c) => c.channel === "telegram")?.isOperational ? "connected" : "available"}
-                  label={channelOverview?.find((c) => c.channel === "telegram")?.isOperational ? "Connected" : "Available"}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs py-1">
-                <span className="text-[#98A2B3]">Website Forms</span>
-                <DashboardStatusBadge
-                  status="connected"
-                  label="Active"
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs py-1">
-                <span className="text-[#667085]">Email / Gmail</span>
-                <DashboardStatusBadge
-                  status="coming_soon"
-                  label="Coming soon"
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-xs py-1">
-                <span className="text-[#667085]">Google Calendar</span>
-                <DashboardStatusBadge
-                  status="coming_soon"
-                  label="Coming soon"
-                />
-              </div>
-            </div>
+            <Link
+              href="/dashboard/inbox"
+              className="text-[11px] font-medium text-[#6347E8] hover:underline inline-flex items-center gap-1"
+            >
+              <span>View all in Inbox</span>
+              <ChevronRight size={12} />
+            </Link>
           </div>
 
-          {/* Panel 2: Upcoming Bookings & Revenue */}
-          <div className="rounded-lg border border-[#242A35] bg-[#101319] p-4">
-            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#242A35]">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#98A2B3]">
-                Upcoming Bookings
-              </h3>
-              <Link
-                href="/dashboard/booking"
-                className="text-[11px] text-[#98A2B3] hover:text-[#4F7CFF] transition-colors inline-flex items-center gap-1"
-              >
-                <span>Calendar</span>
-                <ChevronRight size={12} />
-              </Link>
-            </div>
-
-            {upcomingBookingsList && upcomingBookingsList.length > 0 ? (
-              <div className="divide-y divide-[#242A35]">
-                {upcomingBookingsList.slice(0, 3).map((b) => (
-                  <div
-                    key={b.id}
-                    className="flex items-center justify-between py-2 text-xs"
-                  >
-                    <div>
-                      <p className="font-medium text-[#F5F7FA]">{b.clientName}</p>
-                      <p className="text-[11px] text-[#667085]">{b.status || "Confirmed"}</p>
-                    </div>
-                    <span className="text-[11px] text-[#98A2B3]">
-                      {b.scheduledStart
-                        ? new Date(b.scheduledStart).toLocaleDateString([], {
-                            month: "short",
-                            day: "numeric",
-                          })
-                        : "Scheduled"}
-                    </span>
-                  </div>
-                ))}
+          <div className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)] overflow-hidden divide-y divide-[#E2DEEA]">
+            {recentActivityItems.length === 0 ? (
+              <div className="px-4 py-5 text-center text-xs text-[#6F687A]">
+                No recent activity recorded yet for this workspace.
               </div>
             ) : (
-              <div className="py-4 text-center text-xs text-[#667085]">
-                No upcoming bookings scheduled.
-              </div>
+              recentActivityItems.slice(0, 6).map((item) => (
+                <DashboardActionRow
+                  key={item.id}
+                  title={item.title}
+                  context={item.context}
+                  time={item.time}
+                  statusBadge={
+                    <DashboardStatusBadge
+                      status={item.status.variant}
+                      label={item.status.label}
+                    />
+                  }
+                  actionLabel={item.actionLabel}
+                  actionHref={item.actionHref}
+                />
+              ))
             )}
           </div>
         </div>

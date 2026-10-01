@@ -26,7 +26,7 @@ export default function DashboardLayout({
 
   if (immersiveFlow) {
     return (
-      <div className="min-h-dvh bg-[#090B10] text-[#F5F7FA]">
+      <div className="min-h-dvh bg-[#F8F7FC] text-[#17151F]">
         {children}
       </div>
     );
@@ -34,7 +34,7 @@ export default function DashboardLayout({
 
   return (
     <TrialProvider>
-      <div className="min-h-dvh bg-[#090B10] text-[#F5F7FA]">
+      <div className="min-h-dvh bg-[#F8F7FC] text-[#17151F]">
         <Sidebar
           mobileOpen={mobileOpen}
           onClose={() => setMobileOpen(false)}
@@ -43,7 +43,7 @@ export default function DashboardLayout({
         <div className="min-h-dvh min-w-0 lg:pl-[228px]">
           <Topbar onOpenNavigation={() => setMobileOpen(true)} />
 
-          <main className="min-h-[calc(100dvh-56px)] min-w-0 overflow-x-hidden bg-[#090B10]">
+          <main className="min-h-[calc(100dvh-56px)] min-w-0 overflow-x-hidden bg-[#F8F7FC]">
             <TrialDashboardBanner />
             {children}
           </main>

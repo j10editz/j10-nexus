@@ -27,7 +27,7 @@ const DEMO_WORKSPACE_ITEM: Workspace = {
   monthlySubscriptionPrice: 149,
   status: "active",
   brandName: "Apex Commercial & Home Services",
-  accentColor: "#00D9FF",
+  accentColor: "#6347E8",
   clientContactName: "Demo Owner",
   clientContactEmail: "demo.owner@apexservices.com",
   createdAt: new Date().toISOString(),
@@ -121,7 +121,7 @@ export default function WorkspaceSwitcher() {
               monthlySubscriptionPrice: PLAN_PRICING[w.plan as WorkspacePlan] || 149,
               status: w.status || "active",
               brandName: w.brand_name || w.name,
-              accentColor: w.accent_color || "#00D9FF",
+              accentColor: w.accent_color || "#6347E8",
               clientContactName: "Account Administrator",
               clientContactEmail: "",
               createdAt: w.created_at || new Date().toISOString(),
@@ -217,7 +217,7 @@ export default function WorkspaceSwitcher() {
         monthlySubscriptionPrice: 0,
         status: "active",
         brandName: w.brand_name || w.name,
-        accentColor: w.accent_color || "#00D9FF",
+        accentColor: w.accent_color || "#6347E8",
         clientContactName: contactName.trim() || "Account Lead",
         clientContactEmail: contactEmail.trim(),
         createdAt: w.created_at || new Date().toISOString(),
@@ -240,11 +240,10 @@ export default function WorkspaceSwitcher() {
 
   if (isLoading) {
     return (
-      <div className="flex h-10 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-[#111216] px-3">
-        <div className="h-6 w-6 animate-pulse rounded-lg bg-white/10" />
+      <div className="flex h-8 items-center gap-2 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2.5">
+        <div className="h-5 w-5 animate-pulse rounded bg-[#F3F1F8]" />
         <div className="hidden sm:block">
-          <div className="h-2.5 w-24 animate-pulse rounded bg-white/10" />
-          <div className="mt-1 h-2 w-14 animate-pulse rounded bg-white/5" />
+          <div className="h-2.5 w-20 animate-pulse rounded bg-[#F3F1F8]" />
         </div>
       </div>
     );
@@ -259,27 +258,19 @@ export default function WorkspaceSwitcher() {
           onClick={() => setMenuOpen(!menuOpen)}
           aria-expanded={menuOpen}
           aria-label="Open workspace selector"
-          className="flex h-10 items-center gap-2.5 rounded-xl border border-slate-800 bg-[#111216] px-2.5 text-left transition hover:bg-white/[0.06] sm:px-3"
+          className="flex h-8 items-center gap-2 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2.5 text-left transition hover:bg-[#F3F1F8] shadow-sm"
         >
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-slate-400">
-            <Building2 size={13} />
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[#F3F1F8] text-[#6F687A]">
+            <Building2 size={12} />
           </div>
 
           <div className="hidden min-w-0 sm:block text-left">
-            <div className="flex items-center gap-1.5">
-              <span className="truncate text-xs font-semibold text-slate-300">
-                No authorized workspace
-              </span>
-              <span className="rounded border border-red-500/30 bg-red-500/10 px-1 py-0.2 text-[9px] font-bold text-red-400">
-                NO ACCESS
-              </span>
-            </div>
-            <p className="truncate text-[11px] text-slate-400">
-              Tenant unassigned
-            </p>
+            <span className="truncate text-xs font-medium text-[#6F687A]">
+              No authorized workspace
+            </span>
           </div>
 
-          <ChevronDown size={13} className="text-slate-400" />
+          <ChevronDown size={12} className="text-[#918A9D]" />
         </button>
       ) : (
         <button
@@ -287,48 +278,37 @@ export default function WorkspaceSwitcher() {
           onClick={() => setMenuOpen(!menuOpen)}
           aria-expanded={menuOpen}
           aria-label="Open workspace selector"
-          className="flex h-10 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-[#111216] px-2.5 text-left transition hover:bg-white/[0.06] sm:px-3"
+          className="flex h-8 items-center gap-2 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2.5 text-left transition hover:bg-[#F3F1F8] shadow-sm"
         >
           <div
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white shadow-sm"
-            style={{ backgroundColor: activeWorkspace.accentColor }}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white shadow-sm"
+            style={{ backgroundColor: activeWorkspace.accentColor || "#6347E8" }}
           >
             {activeWorkspace.name.slice(0, 2).toUpperCase()}
           </div>
 
           <div className="hidden min-w-0 sm:block text-left">
             <div className="flex items-center gap-1.5">
-              <span className="truncate text-xs font-semibold text-white max-w-[140px]">
+              <span className="truncate text-xs font-semibold text-[#17151F] max-w-[130px]">
                 {activeWorkspace.name}
               </span>
-              <span
-                className={`rounded px-1.5 py-0.2 text-[9px] font-medium border ${
-                  isDemo
-                    ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-300"
-                    : activeWorkspace.type === "agency_master"
-                    ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
-                    : "border-slate-700 bg-slate-800 text-slate-300"
-                }`}
-              >
+              <span className="rounded bg-[#F0ECFF] px-1 py-0.2 text-[9px] font-medium text-[#6347E8]">
                 {isDemo
-                  ? "Demo Workspace"
+                  ? "Demo"
                   : activeWorkspace.type === "agency_master"
-                  ? "AGENCY HQ"
+                  ? "HQ"
                   : "Active"}
               </span>
             </div>
-            <p className="truncate text-[11px] text-slate-400">
-              {isDemo ? "Sample Business Data" : activeWorkspace.brandName}
-            </p>
           </div>
 
-          <ChevronDown size={13} className="text-slate-400" />
+          <ChevronDown size={12} className="text-[#918A9D]" />
         </button>
       )}
 
       {/* Notice Toast */}
       {notice && (
-        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-[#12141A] px-4 py-2.5 text-xs font-medium text-emerald-400 shadow-2xl">
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-xl border border-[#A3E6D0] bg-[#E8F8F2] px-4 py-2.5 text-xs font-medium text-[#168A65] shadow-lg">
           <CheckCircle2 size={15} />
           {notice}
         </div>
@@ -336,12 +316,12 @@ export default function WorkspaceSwitcher() {
 
       {/* Dropdown Menu */}
       {menuOpen && (
-        <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-72 rounded-2xl border border-white/[0.1] bg-[#111216] p-2.5 shadow-2xl shadow-black/80">
+        <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-72 rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-2 shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
           {workspaces.length === 0 ? (
-            <div className="rounded-xl border border-white/[0.06] bg-black/40 p-4 text-center">
-              <Building2 className="mx-auto h-5 w-5 text-slate-400 mb-1.5" />
-              <p className="text-xs font-semibold text-white">No authorized workspace</p>
-              <p className="mt-1 text-xs text-slate-400 leading-normal">
+            <div className="rounded-lg border border-[#E2DEEA] bg-[#F8F7FC] p-4 text-center">
+              <Building2 className="mx-auto h-5 w-5 text-[#918A9D] mb-1.5" />
+              <p className="text-xs font-semibold text-[#17151F]">No authorized workspace</p>
+              <p className="mt-1 text-xs text-[#6F687A] leading-normal">
                 Tenant unassigned. Join a workspace via invitation or provision a new workspace.
               </p>
               <button
@@ -350,7 +330,7 @@ export default function WorkspaceSwitcher() {
                   setMenuOpen(false);
                   setAddModalOpen(true);
                 }}
-                className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:bg-cyan-500/20 transition"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[#6347E8] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#5136D6] transition"
               >
                 <Plus size={13} />
                 Onboard Client Workspace
@@ -358,17 +338,17 @@ export default function WorkspaceSwitcher() {
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <div className="flex items-center justify-between px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#918A9D]">
                 <span>{isDemo ? "Demo Workspace" : "Switch Workspace"}</span>
                 {agencyStats.totalMonthlyRevenue > 0 && (
-                  <span className="text-[10px] text-emerald-400 font-medium">
-                    Client Subscription MRR: ${agencyStats.totalMonthlyRevenue}/mo
+                  <span className="text-[10px] text-[#168A65] font-medium">
+                    MRR: ${agencyStats.totalMonthlyRevenue}/mo
                   </span>
                 )}
               </div>
 
               {/* Workspaces List */}
-              <div className="max-h-60 space-y-1 overflow-y-auto pt-0.5">
+              <div className="max-h-60 space-y-0.5 overflow-y-auto pt-0.5">
                 {workspaces.map((ws) => {
                   const isSelected = ws.id === activeWorkspaceId;
 
@@ -377,22 +357,22 @@ export default function WorkspaceSwitcher() {
                       key={ws.id}
                       type="button"
                       onClick={() => handleSelectWorkspace(ws.id)}
-                      className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition ${
+                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition ${
                         isSelected
-                          ? "bg-white/[0.08] text-white font-medium"
-                          : "text-slate-300 hover:bg-white/[0.04] hover:text-white"
+                          ? "bg-[#F0ECFF] text-[#6347E8] font-medium"
+                          : "text-[#17151F] hover:bg-[#F3F1F8]"
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
-                          style={{ backgroundColor: ws.accentColor }}
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white"
+                          style={{ backgroundColor: ws.accentColor || "#6347E8" }}
                         >
                           {ws.name.slice(0, 2).toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                          <p className="truncate text-xs">{ws.name}</p>
-                          <p className="truncate text-[11px] text-slate-400">
+                          <p className="truncate text-xs font-medium">{ws.name}</p>
+                          <p className="truncate text-[10px] text-[#6F687A]">
                             {isDemo
                               ? "Sample Workspace"
                               : ws.type === "agency_master"
@@ -402,23 +382,23 @@ export default function WorkspaceSwitcher() {
                         </div>
                       </div>
 
-                      {isSelected && <Check size={14} className="text-cyan-400" />}
+                      {isSelected && <Check size={14} className="text-[#6347E8]" />}
                     </button>
                   );
                 })}
               </div>
 
               {!isDemo && (
-                <div className="mt-2 border-t border-white/[0.06] pt-2">
+                <div className="mt-2 border-t border-[#E2DEEA] pt-2">
                   <button
                     type="button"
                     onClick={() => {
                       setMenuOpen(false);
                       setAddModalOpen(true);
                     }}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 py-2 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-500/20"
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] py-1.5 text-xs font-medium text-[#6347E8] transition hover:bg-[#F0ECFF]"
                   >
-                    <Plus size={14} />
+                    <Plus size={13} />
                     Onboard Client Workspace
                   </button>
                 </div>
@@ -430,25 +410,25 @@ export default function WorkspaceSwitcher() {
 
       {/* Onboard Client Modal */}
       {addModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="relative w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#111216] p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-md rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-6 shadow-2xl">
             <button
               type="button"
               onClick={() => setAddModalOpen(false)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-white"
+              className="absolute right-4 top-4 text-[#6F687A] hover:text-[#17151F]"
             >
               <X size={18} />
             </button>
 
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-400">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#F0ECFF] text-[#6347E8]">
                 <Building2 size={18} />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-white">
+                <h3 className="text-base font-semibold text-[#17151F]">
                   Onboard Workspace
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-[#6F687A]">
                   Provision an isolated J10 tenant workspace.
                 </p>
               </div>
@@ -456,7 +436,7 @@ export default function WorkspaceSwitcher() {
 
             <form onSubmit={handleCreateClientWorkspace} className="mt-5 space-y-3.5">
               <div>
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                <label className="text-xs font-medium uppercase tracking-wider text-[#6F687A]">
                   Business / Workspace Name
                 </label>
                 <input
@@ -465,12 +445,12 @@ export default function WorkspaceSwitcher() {
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
                   placeholder="e.g. Apex Home & Commercial Services"
-                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-cyan-500/50 focus:outline-none"
+                  className="mt-1 w-full rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-3 py-2 text-xs text-[#17151F] placeholder:text-[#918A9D] focus:border-[#6347E8] focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                <label className="text-xs font-medium uppercase tracking-wider text-[#6F687A]">
                   Brand Title
                 </label>
                 <input
@@ -478,12 +458,12 @@ export default function WorkspaceSwitcher() {
                   value={brandName}
                   onChange={(e) => setBrandName(e.target.value)}
                   placeholder="e.g. Apex Autonomous Reception Desk"
-                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-cyan-500/50 focus:outline-none"
+                  className="mt-1 w-full rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-3 py-2 text-xs text-[#17151F] placeholder:text-[#918A9D] focus:border-[#6347E8] focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                <label className="text-xs font-medium uppercase tracking-wider text-[#6F687A]">
                   Subscription Plan
                 </label>
                 <div className="mt-1.5 grid grid-cols-3 gap-2">
@@ -494,14 +474,14 @@ export default function WorkspaceSwitcher() {
                         key={p}
                         type="button"
                         onClick={() => setPlan(p)}
-                        className={`rounded-xl border p-2.5 text-center transition ${
+                        className={`rounded-lg border p-2.5 text-center transition ${
                           isSelected
-                            ? "border-cyan-500 bg-cyan-500/20 text-white"
-                            : "border-white/[0.08] bg-black/30 text-slate-400 hover:border-white/20"
+                            ? "border-[#6347E8] bg-[#F0ECFF] text-[#6347E8]"
+                            : "border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] hover:bg-[#F3F1F8]"
                         }`}
                       >
                         <p className="text-xs font-semibold capitalize">{p}</p>
-                        <p className="mt-0.5 text-xs font-bold text-emerald-400">
+                        <p className="mt-0.5 text-xs font-bold text-[#168A65]">
                           ${PLAN_PRICING[p]}/mo
                         </p>
                       </button>
@@ -511,7 +491,7 @@ export default function WorkspaceSwitcher() {
               </div>
 
               <div>
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                <label className="text-xs font-medium uppercase tracking-wider text-[#6F687A]">
                   Contact Email
                 </label>
                 <input
@@ -520,7 +500,7 @@ export default function WorkspaceSwitcher() {
                   value={contactEmail}
                   onChange={(e) => setContactEmail(e.target.value)}
                   placeholder="admin@business.com"
-                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-cyan-500/50 focus:outline-none"
+                  className="mt-1 w-full rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-3 py-2 text-xs text-[#17151F] placeholder:text-[#918A9D] focus:border-[#6347E8] focus:outline-none"
                 />
               </div>
 
@@ -528,13 +508,13 @@ export default function WorkspaceSwitcher() {
                 <button
                   type="button"
                   onClick={() => setAddModalOpen(false)}
-                  className="w-1/2 rounded-lg border border-white/[0.08] py-2 text-xs font-medium text-slate-400 hover:bg-white/[0.05] hover:text-white"
+                  className="w-1/2 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] py-2 text-xs font-medium text-[#6F687A] hover:bg-[#F3F1F8]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 py-2 text-xs font-medium text-white shadow-sm hover:brightness-105"
+                  className="w-1/2 rounded-lg bg-[#6347E8] py-2 text-xs font-medium text-white shadow-sm hover:bg-[#5136D6]"
                 >
                   Provision Workspace
                 </button>

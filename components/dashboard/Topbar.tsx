@@ -254,7 +254,7 @@ export default function Topbar({
     event.preventDefault();
     const clean = query.trim().toLowerCase();
     if (clean.startsWith("ai") || clean.includes("operator")) {
-      navigate("/dashboard#j10-ai");
+      navigate("/dashboard/ai-operator"); // navigate("/dashboard#j10-ai")
       return;
     }
     const firstResult = results[0];
@@ -286,21 +286,21 @@ export default function Topbar({
   }, [pathname]);
 
   return (
-    <header className="sticky top-0 z-30 flex h-[56px] shrink-0 items-center border-b border-[#242A35] bg-[#090B10]/95 px-4 backdrop-blur-md sm:px-6">
+    <header className="sticky top-0 z-30 flex h-[56px] shrink-0 items-center border-b border-[#E2DEEA] bg-[#FFFFFF]/95 px-4 backdrop-blur-md sm:px-6">
       <div className="flex w-full items-center justify-between gap-3">
-        {/* Mobile Left: Menu Toggle + Page Title / J10 Mark */}
+        {/* Mobile Left: Menu Toggle + Page Title / J10 Mark (<= 56px, clean) */}
         <div className="flex items-center gap-2.5 lg:hidden">
           <button
             type="button"
             onClick={onOpenNavigation}
             aria-label="Open navigation"
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-[#242A35] bg-[#101319] text-[#98A2B3] transition hover:bg-[#151922] hover:text-[#F5F7FA]"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F]"
           >
             <Menu size={16} />
           </button>
 
           <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-[#101319] border border-[#242A35] p-0.5">
+            <div className="flex h-6 w-6 items-center justify-center rounded bg-[#F3F1F8] border border-[#E2DEEA] p-0.5">
               <Image
                 src="/brand/j10-logo.png"
                 alt="J10 monogram"
@@ -309,7 +309,7 @@ export default function Topbar({
                 className="h-full w-full object-contain"
               />
             </div>
-            <span className="text-xs font-semibold text-[#F5F7FA] truncate max-w-[140px]">
+            <span className="text-xs font-semibold text-[#17151F] truncate max-w-[140px]">
               {mobilePageTitle}
             </span>
           </div>
@@ -320,8 +320,8 @@ export default function Topbar({
           onSubmit={handleSubmit}
           className="relative hidden min-w-0 flex-1 max-w-[380px] lg:block"
         >
-          <div className="flex h-8 items-center rounded-md border border-[#242A35] bg-[#101319] px-2.5 transition focus-within:border-[#4F7CFF]/50 focus-within:ring-1 focus-within:ring-[#4F7CFF]/20">
-            <Search className="mr-2 shrink-0 text-[#667085]" size={14} />
+          <div className="flex h-8 items-center rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] px-2.5 transition focus-within:border-[#6347E8] focus-within:ring-1 focus-within:ring-[#6347E8]/20 focus-within:bg-[#FFFFFF]">
+            <Search className="mr-2 shrink-0 text-[#6F687A]" size={14} />
 
             <input
               ref={searchInputRef}
@@ -333,7 +333,7 @@ export default function Topbar({
               onFocus={() => setSearchOpen(true)}
               placeholder="Search J10..."
               aria-label="Search J10"
-              className="min-w-0 flex-1 bg-transparent text-xs text-[#F5F7FA] outline-none placeholder:text-[#667085]"
+              className="min-w-0 flex-1 bg-transparent text-xs text-[#17151F] outline-none placeholder:text-[#918A9D]"
             />
 
             {query ? (
@@ -344,32 +344,32 @@ export default function Topbar({
                   setQuery("");
                   searchInputRef.current?.focus();
                 }}
-                className="rounded p-0.5 text-[#667085] hover:text-[#F5F7FA]"
+                className="rounded p-0.5 text-[#6F687A] hover:text-[#17151F]"
               >
                 <X size={13} />
               </button>
             ) : (
-              <span className="flex items-center gap-0.5 text-[10px] text-[#667085]">
+              <span className="flex items-center gap-0.5 text-[10px] text-[#918A9D]">
                 <Command size={10} />K
               </span>
             )}
           </div>
 
           {searchOpen && (
-            <div className="absolute left-0 right-0 top-[calc(100%+6px)] overflow-hidden rounded-lg border border-[#242A35] bg-[#101319] p-1.5 shadow-xl z-50">
-              <div className="flex items-center justify-between px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#667085]">
+            <div className="absolute left-0 right-0 top-[calc(100%+6px)] overflow-hidden rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-1.5 shadow-[0_4px_16px_rgba(49,32,92,0.06)] z-50">
+              <div className="flex items-center justify-between px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#918A9D]">
                 <span>{query ? "Search results" : "Quick access"}</span>
                 <button
                   type="button"
                   onClick={() => setSearchOpen(false)}
-                  className="text-[#667085] hover:text-[#F5F7FA]"
+                  className="text-[#918A9D] hover:text-[#17151F]"
                 >
                   Close
                 </button>
               </div>
 
               {results.length === 0 ? (
-                <div className="px-3 py-4 text-center text-xs text-[#667085]">
+                <div className="px-3 py-4 text-center text-xs text-[#6F687A]">
                   No module matches “{query}”.
                 </div>
               ) : (
@@ -379,19 +379,19 @@ export default function Topbar({
                       key={item.id}
                       type="button"
                       onClick={() => navigate(item.href)}
-                      className="group flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition hover:bg-[#151922]"
+                      className="group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition hover:bg-[#F3F1F8]"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-[#F5F7FA]">
+                        <p className="text-xs font-medium text-[#17151F]">
                           {item.label}
                         </p>
-                        <p className="truncate text-[10px] text-[#667085]">
+                        <p className="truncate text-[10px] text-[#6F687A]">
                           {item.description}
                         </p>
                       </div>
                       <ChevronRight
                         size={12}
-                        className="text-[#667085] group-hover:text-[#4F7CFF] transition-colors"
+                        className="text-[#918A9D] group-hover:text-[#6347E8] transition-colors"
                       />
                     </button>
                   ))}
@@ -411,11 +411,11 @@ export default function Topbar({
                 ? `${attentionCount} notifications need attention`
                 : "Open notifications"
             }
-            className="relative flex h-8 w-8 items-center justify-center rounded-md border border-[#242A35] bg-[#101319] text-[#98A2B3] transition hover:bg-[#151922] hover:text-[#F5F7FA]"
+            className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F] shadow-sm"
           >
             <Bell size={15} />
             {attentionCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-black">
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#D97706] px-1 text-[9px] font-bold text-white">
                 {Math.min(attentionCount, 99)}
               </span>
             )}
@@ -436,7 +436,7 @@ export default function Topbar({
               }}
               aria-expanded={profileOpen}
               aria-label="Open user profile menu"
-              className="flex h-8 items-center gap-2 rounded-md border border-[#242A35] bg-[#101319] px-2 text-left transition hover:bg-[#151922]"
+              className="flex h-8 items-center gap-2 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2 text-left transition hover:bg-[#F3F1F8] shadow-sm"
             >
               {profileData.avatarUrl && !avatarLoadFailed ? (
                 <img
@@ -446,25 +446,25 @@ export default function Topbar({
                   height={22}
                   referrerPolicy="no-referrer"
                   onError={() => setAvatarLoadFailed(true)}
-                  className="h-5 w-5 rounded-full object-cover shrink-0 ring-1 ring-[#242A35]"
+                  className="h-5 w-5 rounded-full object-cover shrink-0 ring-1 ring-[#E2DEEA]"
                 />
               ) : (
                 <UserCircle2
                   size={18}
-                  className="text-[#98A2B3] shrink-0"
+                  className="text-[#6F687A] shrink-0"
                   aria-hidden="true"
                 />
               )}
               <div className="hidden sm:block">
-                <span className="text-xs font-medium text-[#F5F7FA] truncate max-w-[100px] block leading-none">
+                <span className="text-xs font-semibold text-[#17151F] truncate max-w-[100px] block leading-none">
                   {profileData.loading ? "..." : profileData.displayName}
                 </span>
               </div>
             </button>
 
             {profileOpen && (
-              <div className="absolute right-0 top-[calc(100%+6px)] w-60 rounded-lg border border-[#242A35] bg-[#101319] p-1.5 shadow-xl z-50">
-                <div className="rounded-md bg-[#151922] px-3 py-2 mb-1">
+              <div className="absolute right-0 top-[calc(100%+6px)] w-60 rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-1.5 shadow-[0_4px_16px_rgba(49,32,92,0.06)] z-50">
+                <div className="rounded-lg bg-[#F3F1F8] px-3 py-2 mb-1">
                   <div className="flex items-center gap-2.5">
                     {profileData.avatarUrl && !dropdownAvatarFailed ? (
                       <img
@@ -474,20 +474,20 @@ export default function Topbar({
                         height={30}
                         referrerPolicy="no-referrer"
                         onError={() => setDropdownAvatarFailed(true)}
-                        className="h-7 w-7 rounded-full object-cover shrink-0 ring-1 ring-[#242A35]"
+                        className="h-7 w-7 rounded-full object-cover shrink-0 ring-1 ring-[#E2DEEA]"
                       />
                     ) : (
                       <UserCircle2
                         size={28}
-                        className="text-[#98A2B3] shrink-0"
+                        className="text-[#6F687A] shrink-0"
                         aria-hidden="true"
                       />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-[#F5F7FA] truncate">
+                      <p className="text-xs font-semibold text-[#17151F] truncate">
                         {profileData.displayName}
                       </p>
-                      <p className="truncate text-[10px] text-[#667085]">
+                      <p className="truncate text-[10px] text-[#6F687A]">
                         {profileData.email || "No email"}
                       </p>
                     </div>
@@ -498,7 +498,7 @@ export default function Topbar({
                   <Link
                     href="/dashboard/settings/account"
                     onClick={() => setProfileOpen(false)}
-                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[#98A2B3] hover:bg-[#151922] hover:text-[#F5F7FA] transition-colors"
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F] transition-colors"
                   >
                     <UserCircle2 size={14} />
                     <span>Account Settings</span>
@@ -507,7 +507,7 @@ export default function Topbar({
                   <Link
                     href="/dashboard/settings"
                     onClick={() => setProfileOpen(false)}
-                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[#98A2B3] hover:bg-[#151922] hover:text-[#F5F7FA] transition-colors"
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F] transition-colors"
                   >
                     <Settings size={14} />
                     <span>Workspace Settings</span>
@@ -516,18 +516,18 @@ export default function Topbar({
                   <Link
                     href="/dashboard/settings/billing"
                     onClick={() => setProfileOpen(false)}
-                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[#98A2B3] hover:bg-[#151922] hover:text-[#F5F7FA] transition-colors"
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F] transition-colors"
                   >
                     <CreditCard size={14} />
                     <span>Billing & Subscription</span>
                   </Link>
 
-                  <div className="my-1 border-t border-[#242A35]" />
+                  <div className="my-1 border-t border-[#E2DEEA]" />
 
                   <button
                     type="button"
                     onClick={handleSignOut}
-                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors"
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[#E11D48] hover:bg-[#FFE4E8] transition-colors"
                   >
                     <LogOut size={14} />
                     <span>Sign Out</span>

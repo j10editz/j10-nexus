@@ -6,17 +6,30 @@ import { ChevronRight } from "lucide-react";
 
 /**
  * J10 NEXUS — Canonical Dashboard Primitives
- * Professional, calm, compact business operating system design tokens.
+ * Canonical Pearl Violet Palette:
+ * - Main background: #F8F7FC
+ * - Primary surface: #FFFFFF
+ * - Secondary surface: #F3F1F8
+ * - Subtle violet surface: #F0ECFF
+ * - Primary border: #E2DEEA
+ * - Strong border: #D5CEE3
+ * - Primary text: #17151F
+ * - Secondary text: #6F687A
+ * - Muted text: #918A9D
+ * - Primary violet: #6347E8
+ * - Violet hover: #5136D6
+ * - Violet focus: #8B7CF6
+ * - Dark violet: #3E2A8A
  *
- * Palette:
- * - Background: #090B10
- * - Primary Surface: #101319
- * - Elevated Surface: #151922
- * - Border: #242A35
- * - Primary Text: #F5F7FA
- * - Secondary Text: #98A2B3
- * - Muted Text: #667085
- * - Primary J10 Accent: #4F7CFF
+ * Semantic:
+ * - Success: #168A65 (bg #E8F8F2, border #A3E6D0)
+ * - Warning: #D97706 (bg #FEF3C7, border #FDE68A)
+ * - Error: #E11D48 (bg #FFE4E8, border #FECDD3)
+ *
+ * Elevation:
+ * - Subtle shadow: 0 4px 16px rgba(49, 32, 92, 0.06)
+ * - Panel radius: 10-12px (rounded-xl)
+ * - Control radius: 8px (rounded-lg)
  */
 
 // 1. Page Header
@@ -37,17 +50,17 @@ export function DashboardPageHeader({
 }: DashboardPageHeaderProps) {
   return (
     <div
-      className={`flex flex-col gap-3 pb-4 mb-5 border-b border-[#242A35] sm:flex-row sm:items-center sm:justify-between ${className}`}
+      className={`flex flex-col gap-3 pb-4 mb-5 border-b border-[#E2DEEA] sm:flex-row sm:items-center sm:justify-between ${className}`}
     >
       <div>
         <div className="flex items-center gap-2.5">
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#F5F7FA]">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#17151F]">
             {title}
           </h1>
           {badge}
         </div>
         {subtitle && (
-          <p className="mt-1 text-xs text-[#98A2B3] max-w-2xl leading-relaxed">
+          <p className="mt-1 text-xs text-[#6F687A] max-w-2xl leading-relaxed">
             {subtitle}
           </p>
         )}
@@ -79,17 +92,17 @@ export function DashboardSectionHeader({
     <div className={`flex items-center justify-between mb-3 ${className}`}>
       <div>
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold tracking-tight text-[#F5F7FA]">
+          <h2 className="text-sm font-semibold tracking-tight text-[#17151F]">
             {title}
           </h2>
           {typeof count === "number" && (
-            <span className="rounded bg-[#151922] border border-[#242A35] px-1.5 py-0.5 text-[10px] font-medium text-[#98A2B3]">
+            <span className="rounded bg-[#F3F1F8] border border-[#E2DEEA] px-1.5 py-0.5 text-[10px] font-medium text-[#6F687A]">
               {count}
             </span>
           )}
         </div>
         {description && (
-          <p className="text-[11px] text-[#667085] mt-0.5">{description}</p>
+          <p className="text-[11px] text-[#918A9D] mt-0.5">{description}</p>
         )}
       </div>
       {action && <div className="shrink-0">{action}</div>}
@@ -97,14 +110,14 @@ export function DashboardSectionHeader({
   );
 }
 
-// 3. Compact Metric Tile
+// 3. Compact Metric Tile (Canonical Pearl Violet)
 interface DashboardMetricTileProps {
   label: string;
   value: string | number;
   subtitle?: string;
   destinationLabel?: string;
   href?: string;
-  semanticStatus?: "neutral" | "warning" | "error";
+  semanticStatus?: "neutral" | "warning" | "error" | "success";
   className?: string;
 }
 
@@ -118,33 +131,41 @@ export function DashboardMetricTile({
   className = "",
 }: DashboardMetricTileProps) {
   const isProblem =
-    (semanticStatus === "warning" || semanticStatus === "error") &&
+    (semanticStatus === "warning" || semanticStatus === "error" || semanticStatus === "success") &&
     (typeof value === "number" ? value > 0 : value !== "0" && value !== "$0");
 
   const valueColor = isProblem
     ? semanticStatus === "warning"
-      ? "text-amber-400"
-      : "text-rose-400"
-    : "text-[#F5F7FA]";
+      ? "text-[#D97706]"
+      : semanticStatus === "error"
+      ? "text-[#E11D48]"
+      : "text-[#168A65]"
+    : "text-[#17151F]";
 
   const borderHighlight = isProblem
     ? semanticStatus === "warning"
-      ? "hover:border-amber-500/40"
-      : "hover:border-rose-500/40"
-    : "hover:border-[#4F7CFF]/40";
+      ? "hover:border-[#D97706]"
+      : semanticStatus === "error"
+      ? "hover:border-[#E11D48]"
+      : "hover:border-[#168A65]"
+    : "hover:border-[#6347E8]";
 
   const content = (
     <div
-      className={`group flex flex-col justify-between h-[88px] sm:h-[92px] rounded-lg border border-[#242A35] bg-[#101319] p-3.5 transition-colors duration-150 ${borderHighlight} hover:bg-[#151922] ${className}`}
+      className={`group flex flex-col justify-between h-[88px] sm:h-[92px] rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-3.5 shadow-[0_4px_16px_rgba(49,32,92,0.06)] transition-all duration-150 ${borderHighlight} hover:bg-[#FFFFFF] ${className}`}
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-[#667085] truncate">
+        <span className="text-xs font-medium text-[#6F687A] truncate">
           {label}
         </span>
         {isProblem && (
           <span
             className={`h-1.5 w-1.5 rounded-full ${
-              semanticStatus === "warning" ? "bg-amber-400" : "bg-rose-400"
+              semanticStatus === "warning"
+                ? "bg-[#D97706]"
+                : semanticStatus === "error"
+                ? "bg-[#E11D48]"
+                : "bg-[#168A65]"
             }`}
           />
         )}
@@ -155,15 +176,15 @@ export function DashboardMetricTile({
           {value}
         </div>
         {destinationLabel ? (
-          <div className="mt-1 flex items-center gap-1 text-[11px] text-[#98A2B3] group-hover:text-[#F5F7FA] transition-colors">
+          <div className="mt-1 flex items-center gap-1 text-[11px] text-[#6F687A] group-hover:text-[#6347E8] transition-colors">
             <span className="truncate">{destinationLabel}</span>
             <ChevronRight
               size={12}
-              className="shrink-0 text-[#667085] group-hover:text-[#4F7CFF] transition-transform group-hover:translate-x-0.5"
+              className="shrink-0 text-[#918A9D] group-hover:text-[#6347E8] transition-transform group-hover:translate-x-0.5"
             />
           </div>
         ) : subtitle ? (
-          <div className="mt-1 text-[11px] text-[#667085] truncate">
+          <div className="mt-1 text-[11px] text-[#918A9D] truncate">
             {subtitle}
           </div>
         ) : null}
@@ -182,7 +203,7 @@ export function DashboardMetricTile({
   return content;
 }
 
-// 4. Status Badge
+// 4. Status Badge (Canonical Pearl Violet Restrained)
 type StatusBadgeVariant =
   | "connected"
   | "available"
@@ -206,32 +227,32 @@ export function DashboardStatusBadge({
   className = "",
 }: DashboardStatusBadgeProps) {
   const styles: Record<StatusBadgeVariant, string> = {
-    connected: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    success: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    available: "bg-[#4F7CFF]/10 text-[#4F7CFF] border-[#4F7CFF]/20",
-    setup_incomplete: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-    warning: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-    degraded: "bg-rose-500/10 text-rose-400 border-rose-500/20",
-    error: "bg-rose-500/10 text-rose-400 border-rose-500/20",
-    coming_soon: "bg-white/[0.03] text-[#667085] border-white/[0.08]",
-    neutral: "bg-white/[0.04] text-[#98A2B3] border-white/[0.08]",
+    connected: "bg-[#E8F8F2] text-[#168A65] border-[#A3E6D0]",
+    success: "bg-[#E8F8F2] text-[#168A65] border-[#A3E6D0]",
+    available: "bg-[#F0ECFF] text-[#6347E8] border-[#D5CEE3]",
+    setup_incomplete: "bg-[#FEF3C7] text-[#D97706] border-[#FDE68A]",
+    warning: "bg-[#FEF3C7] text-[#D97706] border-[#FDE68A]",
+    degraded: "bg-[#FFE4E8] text-[#E11D48] border-[#FECDD3]",
+    error: "bg-[#FFE4E8] text-[#E11D48] border-[#FECDD3]",
+    coming_soon: "bg-[#F3F1F8] text-[#6F687A] border-[#E2DEEA]",
+    neutral: "bg-[#F3F1F8] text-[#6F687A] border-[#E2DEEA]",
   };
 
   const dotColors: Record<StatusBadgeVariant, string> = {
-    connected: "bg-emerald-400",
-    success: "bg-emerald-400",
-    available: "bg-[#4F7CFF]",
-    setup_incomplete: "bg-amber-400",
-    warning: "bg-amber-400",
-    degraded: "bg-rose-400",
-    error: "bg-rose-400",
-    coming_soon: "bg-[#667085]",
-    neutral: "bg-[#98A2B3]",
+    connected: "bg-[#168A65]",
+    success: "bg-[#168A65]",
+    available: "bg-[#6347E8]",
+    setup_incomplete: "bg-[#D97706]",
+    warning: "bg-[#D97706]",
+    degraded: "bg-[#E11D48]",
+    error: "bg-[#E11D48]",
+    coming_soon: "bg-[#918A9D]",
+    neutral: "bg-[#6F687A]",
   };
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium border ${styles[status]} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium border ${styles[status]} ${className}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotColors[status]}`} />
       <span>{label}</span>
@@ -239,7 +260,7 @@ export function DashboardStatusBadge({
   );
 }
 
-// 5. Compact Empty State (Not giant decorative cards)
+// 5. Compact Empty State
 interface DashboardEmptyStateProps {
   message: string;
   subtext?: string;
@@ -255,18 +276,18 @@ export function DashboardEmptyState({
 }: DashboardEmptyStateProps) {
   return (
     <div
-      className={`flex items-center justify-between gap-3 rounded-lg border border-[#242A35] bg-[#101319] px-4 py-3 text-xs ${className}`}
+      className={`flex items-center justify-between gap-3 rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] px-4 py-3 text-xs shadow-[0_4px_16px_rgba(49,32,92,0.06)] ${className}`}
     >
       <div className="min-w-0 flex-1">
-        <p className="font-medium text-[#98A2B3]">{message}</p>
-        {subtext && <p className="text-[11px] text-[#667085] mt-0.5">{subtext}</p>}
+        <p className="font-medium text-[#17151F]">{message}</p>
+        {subtext && <p className="text-[11px] text-[#6F687A] mt-0.5">{subtext}</p>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>
   );
 }
 
-// 6. Action Row (for operational priority list)
+// 6. Action Row (for operational priority list & activity)
 interface DashboardActionRowProps {
   title: string;
   context?: string;
@@ -290,24 +311,24 @@ export function DashboardActionRow({
 }: DashboardActionRowProps) {
   return (
     <div
-      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-4 py-3 border-b border-[#242A35] last:border-b-0 hover:bg-[#151922] transition-colors ${className}`}
+      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-4 py-3 border-b border-[#E2DEEA] last:border-b-0 hover:bg-[#F3F1F8] transition-colors ${className}`}
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-medium text-[#F5F7FA]">{title}</span>
+          <span className="text-xs font-semibold text-[#17151F]">{title}</span>
           {statusBadge}
         </div>
         {context && (
-          <p className="text-[11px] text-[#667085] mt-0.5 truncate">{context}</p>
+          <p className="text-[11px] text-[#6F687A] mt-0.5 truncate">{context}</p>
         )}
       </div>
 
       <div className="flex items-center gap-3 shrink-0 justify-between sm:justify-end">
-        {time && <span className="text-[11px] text-[#667085]">{time}</span>}
+        {time && <span className="text-[11px] text-[#918A9D]">{time}</span>}
         {actionHref ? (
           <Link
             href={actionHref}
-            className="inline-flex items-center gap-1 rounded bg-[#151922] border border-[#242A35] px-2.5 py-1 text-[11px] font-medium text-[#F5F7FA] hover:border-[#4F7CFF]/50 hover:bg-[#4F7CFF]/10 hover:text-[#4F7CFF] transition-colors"
+            className="inline-flex items-center gap-1 rounded-lg bg-[#FFFFFF] border border-[#E2DEEA] px-2.5 py-1 text-[11px] font-medium text-[#17151F] hover:border-[#6347E8] hover:bg-[#F0ECFF] hover:text-[#6347E8] transition-colors shadow-sm"
           >
             <span>{actionLabel}</span>
             <ChevronRight size={12} />
@@ -316,7 +337,7 @@ export function DashboardActionRow({
           <button
             type="button"
             onClick={onAction}
-            className="inline-flex items-center gap-1 rounded bg-[#151922] border border-[#242A35] px-2.5 py-1 text-[11px] font-medium text-[#F5F7FA] hover:border-[#4F7CFF]/50 hover:bg-[#4F7CFF]/10 hover:text-[#4F7CFF] transition-colors"
+            className="inline-flex items-center gap-1 rounded-lg bg-[#FFFFFF] border border-[#E2DEEA] px-2.5 py-1 text-[11px] font-medium text-[#17151F] hover:border-[#6347E8] hover:bg-[#F0ECFF] hover:text-[#6347E8] transition-colors shadow-sm"
           >
             <span>{actionLabel}</span>
             <ChevronRight size={12} />
@@ -327,10 +348,10 @@ export function DashboardActionRow({
   );
 }
 
-// 7. Surface / Card Container
+// 7. Surface / Card Container (Pearl Violet)
 interface DashboardSurfaceProps {
   children: ReactNode;
-  level?: "primary" | "elevated";
+  level?: "primary" | "secondary" | "subtle";
   className?: string;
 }
 
@@ -339,17 +360,22 @@ export function DashboardSurface({
   level = "primary",
   className = "",
 }: DashboardSurfaceProps) {
-  const bg = level === "primary" ? "bg-[#101319]" : "bg-[#151922]";
+  const bg =
+    level === "primary"
+      ? "bg-[#FFFFFF]"
+      : level === "secondary"
+      ? "bg-[#F3F1F8]"
+      : "bg-[#F0ECFF]";
   return (
     <div
-      className={`rounded-lg border border-[#242A35] ${bg} overflow-hidden ${className}`}
+      className={`rounded-xl border border-[#E2DEEA] ${bg} shadow-[0_4px_16px_rgba(49,32,92,0.06)] overflow-hidden ${className}`}
     >
       {children}
     </div>
   );
 }
 
-// 8. Standard Button
+// 8. Standard Button (Pearl Violet)
 interface DashboardButtonProps {
   children: ReactNode;
   variant?: "primary" | "secondary" | "ghost";
@@ -370,15 +396,15 @@ export function DashboardButton({
   className = "",
 }: DashboardButtonProps) {
   const base =
-    "inline-flex items-center justify-center gap-1.5 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+    "inline-flex items-center justify-center gap-1.5 font-medium rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed";
   const sizes = {
     sm: "h-8 px-2.5 text-xs",
     md: "h-9 px-3.5 text-xs",
   };
   const variants = {
-    primary: "bg-[#4F7CFF] text-white hover:bg-[#3D68E6]",
-    secondary: "bg-[#151922] text-[#F5F7FA] border border-[#242A35] hover:bg-[#1a202c]",
-    ghost: "bg-transparent text-[#98A2B3] hover:text-[#F5F7FA] hover:bg-[#151922]",
+    primary: "bg-[#6347E8] text-white hover:bg-[#5136D6] active:bg-[#3E2A8A] shadow-sm",
+    secondary: "bg-[#FFFFFF] text-[#17151F] border border-[#E2DEEA] hover:border-[#D5CEE3] hover:bg-[#F3F1F8] shadow-sm",
+    ghost: "bg-transparent text-[#6F687A] hover:text-[#17151F] hover:bg-[#F3F1F8]",
   };
 
   return (

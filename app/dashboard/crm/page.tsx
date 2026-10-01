@@ -255,7 +255,7 @@ export default function CRMPage() {
   }
 
   return (
-    <div className="min-h-[calc(100dvh-56px)] bg-[#090B10] text-[#F5F7FA]">
+    <div className="min-h-[calc(100dvh-56px)] bg-[#F8F7FC] text-[#17151F]">
       <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 space-y-6">
         {/* HEADER */}
         <DashboardPageHeader
@@ -264,14 +264,14 @@ export default function CRMPage() {
           actions={
             <div className="flex flex-wrap items-center gap-2.5">
               {/* VIEW MODE TOGGLE */}
-              <div className="flex items-center rounded-lg border border-[#242A35] bg-[#101319] p-1">
+              <div className="flex items-center rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] p-1 shadow-sm">
                 <button
                   type="button"
                   onClick={() => setViewMode("table")}
                   className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
                     viewMode === "table"
-                      ? "bg-[#4F7CFF] text-white"
-                      : "text-[#98A2B3] hover:text-[#F5F7FA]"
+                      ? "bg-[#6347E8] text-white"
+                      : "text-[#6F687A] hover:text-[#17151F]"
                   }`}
                 >
                   <Table2 size={13} />
@@ -282,8 +282,8 @@ export default function CRMPage() {
                   onClick={() => setViewMode("kanban")}
                   className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
                     viewMode === "kanban"
-                      ? "bg-[#4F7CFF] text-white"
-                      : "text-[#98A2B3] hover:text-[#F5F7FA]"
+                      ? "bg-[#6347E8] text-white"
+                      : "text-[#6F687A] hover:text-[#17151F]"
                   }`}
                 >
                   <Columns3 size={13} />
@@ -294,8 +294,8 @@ export default function CRMPage() {
                   onClick={() => setViewMode("cards")}
                   className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
                     viewMode === "cards"
-                      ? "bg-[#4F7CFF] text-white"
-                      : "text-[#98A2B3] hover:text-[#F5F7FA]"
+                      ? "bg-[#6347E8] text-white"
+                      : "text-[#6F687A] hover:text-[#17151F]"
                   }`}
                 >
                   <LayoutGrid size={13} />
@@ -346,13 +346,13 @@ export default function CRMPage() {
           <div className="relative w-full max-w-md">
             <Search
               size={15}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#667085]"
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#918A9D]"
             />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by name, company, email, or phone..."
-              className="w-full rounded-lg border border-[#242A35] bg-[#101319] py-2 pl-10 pr-3 text-xs text-[#F5F7FA] outline-none placeholder:text-[#667085] focus:border-[#4F7CFF]"
+              className="w-full rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] py-2 pl-10 pr-3 text-xs text-[#17151F] outline-none placeholder:text-[#918A9D] focus:border-[#6347E8]"
             />
           </div>
 
@@ -360,7 +360,7 @@ export default function CRMPage() {
             <select
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value as ContactType | "All")}
-              className="rounded-lg border border-[#242A35] bg-[#101319] px-3 py-2 text-xs text-[#98A2B3] outline-none focus:border-[#4F7CFF]"
+              className="rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-3 py-2 text-xs text-[#17151F] outline-none focus:border-[#6347E8]"
             >
               {typeOptions.map((type) => (
                 <option key={type} value={type}>
@@ -372,7 +372,7 @@ export default function CRMPage() {
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value as ContactStatus | "All")}
-              className="rounded-lg border border-[#242A35] bg-[#101319] px-3 py-2 text-xs text-[#98A2B3] outline-none focus:border-[#4F7CFF]"
+              className="rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-3 py-2 text-xs text-[#17151F] outline-none focus:border-[#6347E8]"
             >
               {statusOptions.map((status) => (
                 <option key={status} value={status}>
@@ -386,7 +386,7 @@ export default function CRMPage() {
               onClick={refreshCRM}
               disabled={loading}
               title="Refresh CRM"
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#242A35] bg-[#101319] text-[#98A2B3] transition hover:text-[#F5F7FA] disabled:opacity-40"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] transition hover:text-[#17151F] disabled:opacity-40"
             >
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             </button>
@@ -394,7 +394,7 @@ export default function CRMPage() {
         </div>
 
         {errorMessage && (
-          <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3.5 py-2.5 text-xs text-rose-400">
+          <div className="rounded-lg border border-[#E11D48]/20 bg-[#E11D48]/10 px-3.5 py-2.5 text-xs text-[#E11D48]">
             {errorMessage}
           </div>
         )}
@@ -406,7 +406,7 @@ export default function CRMPage() {
               {[1, 2, 3].map((item) => (
                 <div
                   key={item}
-                  className="h-[260px] animate-pulse rounded-2xl border border-white/[0.06] bg-[#111216]"
+                  className="h-[260px] animate-pulse rounded-2xl border border-[#E2DEEA] bg-[#FFFFFF]"
                 />
               ))}
             </div>
@@ -499,18 +499,18 @@ function KanbanBoardView({
         return (
           <div
             key={col.stage}
-            className="flex w-[300px] shrink-0 flex-col rounded-xl border border-[#242A35] bg-[#101319] p-3 snap-start"
+            className="flex w-[300px] shrink-0 flex-col rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-3 shadow-[0_4px_16px_rgba(49,32,92,0.06)] snap-start"
           >
             {/* COLUMN HEADER */}
-            <div className="flex items-center justify-between border-b border-[#242A35] pb-2.5">
+            <div className="flex items-center justify-between border-b border-[#E2DEEA] pb-2.5">
               <div className="flex items-center gap-2">
                 <StageDot status={col.stage} />
-                <h3 className="text-xs font-semibold text-[#F5F7FA]">{col.label}</h3>
-                <span className="rounded bg-[#151922] px-1.5 py-0.5 text-[10px] text-[#98A2B3]">
+                <h3 className="text-xs font-semibold text-[#17151F]">{col.label}</h3>
+                <span className="rounded bg-[#F3F1F8] px-1.5 py-0.5 text-[10px] text-[#6F687A]">
                   {col.contacts.length}
                 </span>
               </div>
-              <p className="text-xs font-medium text-[#98A2B3]">
+              <p className="text-xs font-medium text-[#6F687A]">
                 {formatUSD(col.totalValue)}
               </p>
             </div>
@@ -518,7 +518,7 @@ function KanbanBoardView({
             {/* CARDS LIST */}
             <div className="mt-2.5 flex flex-1 flex-col gap-2 min-h-[260px]">
               {col.contacts.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#242A35] p-4 text-center text-xs text-[#667085]">
+                <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#E2DEEA] p-4 text-center text-xs text-[#918A9D]">
                   No deals in {col.label}
                 </div>
               ) : (
@@ -531,35 +531,35 @@ function KanbanBoardView({
                   return (
                     <div
                       key={contact.id}
-                      className="group rounded-lg border border-[#242A35] bg-[#151922] p-3 shadow-sm transition hover:border-[#4F7CFF]/40"
+                      className="group rounded-lg border border-[#E2DEEA] bg-[#F8F7FC] p-3 shadow-sm transition hover:border-[#6347E8]/40"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p
                             onClick={() => onOpenContact(contact)}
-                            className="cursor-pointer text-xs font-semibold text-[#F5F7FA] hover:text-[#4F7CFF]"
+                            className="cursor-pointer text-xs font-semibold text-[#17151F] hover:text-[#6347E8]"
                           >
                             {getFullName(contact)}
                           </p>
-                          <p className="text-[11px] text-[#98A2B3]">
+                          <p className="text-[11px] text-[#6F687A]">
                             {contact.company || contact.job_title || contact.type}
                           </p>
                         </div>
-                        <span className="rounded border border-[#242A35] bg-[#101319] px-1.5 py-0.5 text-[11px] font-medium text-[#F5F7FA]">
+                        <span className="rounded border border-[#E2DEEA] bg-[#FFFFFF] px-1.5 py-0.5 text-[11px] font-medium text-[#17151F]">
                           {formatUSD(contact.estimated_value)}
                         </span>
                       </div>
 
                       {/* STALENESS / CONTACTED STATUS */}
                       <div className="mt-2 flex items-center gap-1.5 text-[10px]">
-                        <Clock size={11} className={staleness.isStale ? "text-amber-400" : "text-[#667085]"} />
-                        <span className={staleness.isStale ? "text-amber-400" : "text-[#667085]"}>
+                        <Clock size={11} className={staleness.isStale ? "text-[#D97706]" : "text-[#918A9D]"} />
+                        <span className={staleness.isStale ? "text-[#D97706]" : "text-[#918A9D]"}>
                           {staleness.label}
                         </span>
                       </div>
 
                       {/* ACTIONS ROW */}
-                      <div className="mt-2.5 flex items-center justify-between border-t border-[#242A35] pt-2">
+                      <div className="mt-2.5 flex items-center justify-between border-t border-[#E2DEEA] pt-2">
                         <div className="flex items-center gap-1.5">
                           {/* 1-CLICK WHATSAPP */}
                           <a
@@ -567,7 +567,7 @@ function KanbanBoardView({
                             target="_blank"
                             rel="noopener noreferrer"
                             title="1-Click WhatsApp contextual follow-up"
-                            className="flex h-6 w-6 items-center justify-center rounded border border-[#242A35] bg-[#101319] text-[#98A2B3] transition hover:border-emerald-500/40 hover:text-emerald-400"
+                            className="flex h-6 w-6 items-center justify-center rounded border border-[#E2DEEA] bg-[#FFFFFF] text-[#168A65] transition hover:border-[#168A65]/40 hover:bg-[#168A65]/5"
                           >
                             <MessageSquare size={12} />
                           </a>
@@ -578,7 +578,7 @@ function KanbanBoardView({
                             onClick={() => onMarkContacted(contact)}
                             disabled={isUpdating}
                             title="Mark Contacted Today"
-                            className="flex h-6 w-6 items-center justify-center rounded border border-[#242A35] bg-[#101319] text-[#98A2B3] transition hover:text-[#F5F7FA]"
+                            className="flex h-6 w-6 items-center justify-center rounded border border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] transition hover:text-[#17151F]"
                           >
                             <UserCheck size={12} />
                           </button>
@@ -590,7 +590,7 @@ function KanbanBoardView({
                             type="button"
                             onClick={() => onAdvanceStage(contact, nextStage)}
                             disabled={isUpdating}
-                            className="flex items-center gap-1 rounded border border-[#242A35] bg-[#101319] px-2 py-0.5 text-[10px] font-medium text-[#98A2B3] transition hover:text-[#F5F7FA] hover:border-[#4F7CFF]"
+                            className="flex items-center gap-1 rounded border border-[#E2DEEA] bg-[#FFFFFF] px-2 py-0.5 text-[10px] font-medium text-[#6F687A] transition hover:text-[#6347E8] hover:border-[#6347E8]"
                           >
                             <span>Move to {nextStage}</span>
                             <ArrowRight size={10} />
@@ -629,10 +629,10 @@ function TableView({
   updatingContactId: string | null;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-[#242A35] bg-[#101319]">
+    <div className="overflow-hidden rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs">
-          <thead className="border-b border-[#242A35] bg-[#151922] text-[11px] font-semibold uppercase tracking-wider text-[#98A2B3]">
+          <thead className="border-b border-[#E2DEEA] bg-[#F3F1F8] text-[11px] font-semibold uppercase tracking-wider text-[#6F687A]">
             <tr>
               <th className="px-4 py-3">Customer</th>
               <th className="px-3 py-3">Company & Role</th>
@@ -642,7 +642,7 @@ function TableView({
               <th className="px-4 py-3 text-right">Quick Follow-Up</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#242A35]/60">
+          <tbody className="divide-y divide-[#E2DEEA]">
             {contacts.map((contact) => {
               const staleness = getStalenessInfo(contact.last_contacted_at);
               const waLink = buildContextualWhatsAppLink(contact);
@@ -651,23 +651,23 @@ function TableView({
               return (
                 <tr
                   key={contact.id}
-                  className="transition hover:bg-[#151922]/50"
+                  className="transition hover:bg-[#F8F7FC]"
                 >
                   <td className="px-4 py-3">
                     <div
                       onClick={() => onOpenContact(contact)}
-                      className="cursor-pointer font-medium text-[#F5F7FA] hover:text-[#4F7CFF]"
+                      className="cursor-pointer font-medium text-[#17151F] hover:text-[#6347E8]"
                     >
                       {getFullName(contact)}
                     </div>
-                    <div className="text-[11px] text-[#667085]">
+                    <div className="text-[11px] text-[#918A9D]">
                       {contact.email || contact.phone || "No contact info"}
                     </div>
                   </td>
 
                   <td className="px-3 py-3">
-                    <div className="text-[#F5F7FA]">{contact.company || "—"}</div>
-                    <div className="text-[11px] text-[#667085]">{contact.job_title || contact.type}</div>
+                    <div className="text-[#17151F]">{contact.company || "—"}</div>
+                    <div className="text-[11px] text-[#918A9D]">{contact.job_title || contact.type}</div>
                   </td>
 
                   <td className="px-3 py-3">
@@ -677,7 +677,7 @@ function TableView({
                       onChange={(e) =>
                         onAdvanceStage(contact, e.target.value as ContactStatus)
                       }
-                      className="rounded border border-[#242A35] bg-[#151922] px-2 py-1 text-xs font-medium text-[#F5F7FA] outline-none focus:border-[#4F7CFF]"
+                      className="rounded border border-[#E2DEEA] bg-[#FFFFFF] px-2 py-1 text-xs font-medium text-[#17151F] outline-none focus:border-[#6347E8]"
                     >
                       {statusOptions
                         .filter((s) => s !== "All")
@@ -689,14 +689,14 @@ function TableView({
                     </select>
                   </td>
 
-                  <td className="px-3 py-3 font-semibold text-[#F5F7FA]">
+                  <td className="px-3 py-3 font-semibold text-[#17151F]">
                     {formatUSD(contact.estimated_value)}
                   </td>
 
                   <td className="px-3 py-3">
                     <span
                       className={`inline-flex items-center gap-1 text-[11px] ${
-                        staleness.isStale ? "text-amber-400" : "text-[#98A2B3]"
+                        staleness.isStale ? "text-[#D97706]" : "text-[#6F687A]"
                       }`}
                     >
                       <Clock size={11} />
@@ -710,7 +710,7 @@ function TableView({
                         href={waLink}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded border border-[#242A35] bg-[#151922] px-2 py-1 text-xs font-medium text-[#98A2B3] transition hover:border-[#4F7CFF] hover:text-[#F5F7FA]"
+                        className="inline-flex items-center gap-1 rounded border border-[#E2DEEA] bg-[#FFFFFF] px-2 py-1 text-xs font-medium text-[#168A65] transition hover:border-[#168A65]/40 hover:bg-[#168A65]/5"
                       >
                         <MessageSquare size={12} />
                         WhatsApp
@@ -720,7 +720,7 @@ function TableView({
                         type="button"
                         onClick={() => onMarkContacted(contact)}
                         disabled={isUpdating}
-                        className="rounded border border-[#242A35] bg-[#151922] px-2 py-1 text-xs font-medium text-[#98A2B3] transition hover:text-[#F5F7FA]"
+                        className="rounded border border-[#E2DEEA] bg-[#FFFFFF] px-2 py-1 text-xs font-medium text-[#6F687A] transition hover:text-[#17151F]"
                       >
                         Contacted
                       </button>
@@ -728,7 +728,7 @@ function TableView({
                       <button
                         type="button"
                         onClick={() => onOpenContact(contact)}
-                        className="rounded p-1 text-[#667085] hover:text-[#F5F7FA]"
+                        className="rounded p-1 text-[#918A9D] hover:text-[#17151F]"
                       >
                         <ChevronRight size={14} />
                       </button>
@@ -794,59 +794,59 @@ function EnhancedContactCard({
   const waLink = buildContextualWhatsAppLink(contact);
 
   return (
-    <div className="group rounded-2xl border border-white/[0.07] bg-[#111216] p-5 transition-all hover:-translate-y-1 hover:border-violet-500/20">
+    <div className="group rounded-2xl border border-[#E2DEEA] bg-[#FFFFFF] p-5 shadow-[0_4px_16px_rgba(49,32,92,0.06)] transition-all hover:-translate-y-1 hover:border-[#6347E8]/40">
       <div className="flex items-start justify-between">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-500/10 text-sm font-semibold text-violet-400">
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#F0ECFF] text-sm font-semibold text-[#6347E8]">
           {contact.first_name.charAt(0).toUpperCase()}
         </div>
 
         <div className="flex items-center gap-2">
           <StatusBadge status={contact.status} />
-          <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[10px] text-zinc-400">
+          <span className="rounded-full border border-[#E2DEEA] bg-[#F3F1F8] px-2 py-0.5 text-[10px] text-[#6F687A]">
             {contact.type}
           </span>
         </div>
       </div>
 
-      <h2 className="mt-4 font-semibold text-white">{fullName}</h2>
+      <h2 className="mt-4 font-semibold text-[#17151F]">{fullName}</h2>
 
-      <p className="mt-0.5 text-xs text-zinc-400">
+      <p className="mt-0.5 text-xs text-[#6F687A]">
         {contact.job_title || contact.type}
       </p>
 
       {contact.company && (
-        <div className="mt-3 flex items-center gap-2 text-sm text-zinc-400">
-          <Building2 size={14} className="text-zinc-500" />
+        <div className="mt-3 flex items-center gap-2 text-sm text-[#6F687A]">
+          <Building2 size={14} className="text-[#918A9D]" />
           <span>{contact.company}</span>
         </div>
       )}
 
       {contact.email && (
-        <div className="mt-1.5 flex items-center gap-2 text-xs text-zinc-500">
-          <Mail size={13} className="text-zinc-600" />
+        <div className="mt-1.5 flex items-center gap-2 text-xs text-[#6F687A]">
+          <Mail size={13} className="text-[#918A9D]" />
           <span className="truncate">{contact.email}</span>
         </div>
       )}
 
       {contact.phone && (
-        <div className="mt-1.5 flex items-center gap-2 text-xs text-zinc-500">
-          <Phone size={13} className="text-zinc-600" />
+        <div className="mt-1.5 flex items-center gap-2 text-xs text-[#6F687A]">
+          <Phone size={13} className="text-[#918A9D]" />
           <span>{contact.phone}</span>
         </div>
       )}
 
       {/* METRICS ROW */}
-      <div className="mt-4 grid grid-cols-2 gap-2 border-t border-white/[0.05] pt-3">
-        <div className="rounded-xl border border-white/[0.05] bg-black/20 p-2.5">
-          <p className="text-[10px] uppercase tracking-wider text-zinc-500">Deal Value</p>
-          <p className="mt-0.5 text-sm font-semibold text-white">
+      <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[#E2DEEA] pt-3">
+        <div className="rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-2.5">
+          <p className="text-[10px] uppercase tracking-wider text-[#918A9D]">Deal Value</p>
+          <p className="mt-0.5 text-sm font-semibold text-[#17151F]">
             {formatUSD(contact.estimated_value)}
           </p>
         </div>
 
-        <div className="rounded-xl border border-white/[0.05] bg-black/20 p-2.5">
-          <p className="text-[10px] uppercase tracking-wider text-zinc-500">Last Touch</p>
-          <p className={`mt-0.5 text-xs font-medium truncate ${staleness.isStale ? "text-amber-400" : "text-zinc-300"}`}>
+        <div className="rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-2.5">
+          <p className="text-[10px] uppercase tracking-wider text-[#918A9D]">Last Touch</p>
+          <p className={`mt-0.5 text-xs font-medium truncate ${staleness.isStale ? "text-[#D97706]" : "text-[#6F687A]"}`}>
             {staleness.label}
           </p>
         </div>
@@ -858,7 +858,7 @@ function EnhancedContactCard({
           href={waLink}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500/20"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#168A65]/30 bg-[#168A65]/10 px-3 py-2 text-xs font-medium text-[#168A65] transition hover:bg-[#168A65]/20"
         >
           <MessageSquare size={13} />
           WhatsApp
@@ -868,7 +868,7 @@ function EnhancedContactCard({
           type="button"
           onClick={onMarkContacted}
           disabled={isUpdating}
-          className="flex items-center justify-center gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-white/[0.08]"
+          className="flex items-center justify-center gap-1 rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] px-3 py-2 text-xs font-medium text-[#6F687A] hover:text-[#17151F]"
         >
           <UserCheck size={13} />
           Touch
@@ -877,7 +877,7 @@ function EnhancedContactCard({
         <button
           type="button"
           onClick={onOpen}
-          className="flex items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] p-2 text-zinc-400 hover:text-white"
+          className="flex items-center justify-center rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-2 text-[#918A9D] hover:text-[#17151F]"
         >
           <ChevronRight size={15} />
         </button>
@@ -894,25 +894,25 @@ STAT CARD
 
 function StageDot({ status }: { status: ContactStatus }) {
   const colors: Record<ContactStatus, string> = {
-    New: "bg-[#667085]",
-    Contacted: "bg-[#98A2B3]",
-    Qualified: "bg-[#4F7CFF]",
-    Interested: "bg-amber-400",
-    Won: "bg-emerald-400",
-    Lost: "bg-rose-400",
+    New: "bg-[#918A9D]",
+    Contacted: "bg-[#6F687A]",
+    Qualified: "bg-[#6347E8]",
+    Interested: "bg-[#D97706]",
+    Won: "bg-[#168A65]",
+    Lost: "bg-[#E11D48]",
   };
 
-  return <span className={`h-2 w-2 rounded-full ${colors[status] || "bg-[#667085]"}`} />;
+  return <span className={`h-2 w-2 rounded-full ${colors[status] || "bg-[#918A9D]"}`} />;
 }
 
 function StatusBadge({ status }: { status: ContactStatus }) {
   const styles: Record<ContactStatus, string> = {
-    New: "border-[#242A35] bg-[#151922] text-[#98A2B3]",
-    Contacted: "border-[#242A35] bg-[#151922] text-[#98A2B3]",
-    Qualified: "border-[#4F7CFF]/25 bg-[#4F7CFF]/10 text-[#4F7CFF]",
-    Interested: "border-amber-500/25 bg-amber-500/10 text-amber-300",
-    Won: "border-emerald-500/25 bg-emerald-500/10 text-emerald-400",
-    Lost: "border-rose-500/25 bg-rose-500/10 text-rose-400",
+    New: "border-[#E2DEEA] bg-[#F3F1F8] text-[#6F687A]",
+    Contacted: "border-[#E2DEEA] bg-[#F3F1F8] text-[#6F687A]",
+    Qualified: "border-[#6347E8]/20 bg-[#F0ECFF] text-[#6347E8]",
+    Interested: "border-[#D97706]/20 bg-[#D97706]/10 text-[#D97706]",
+    Won: "border-[#168A65]/20 bg-[#168A65]/10 text-[#168A65]",
+    Lost: "border-[#E11D48]/20 bg-[#E11D48]/10 text-[#E11D48]",
   };
 
   return (
@@ -1067,7 +1067,7 @@ function CreateContactModal({
       </div>
 
       <div className="mt-4">
-        <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+        <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-[#6F687A]">
           Notes
         </label>
         <textarea
@@ -1075,12 +1075,12 @@ function CreateContactModal({
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
           placeholder="Key deal requirements, conversation takeaways..."
-          className="w-full resize-none rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm text-white outline-none focus:border-violet-500/40"
+          className="w-full resize-none rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] px-4 py-3 text-sm text-[#17151F] placeholder:text-[#918A9D] outline-none focus:border-[#6347E8] focus:bg-[#FFFFFF]"
         />
       </div>
 
       {errorMessage && (
-        <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
+        <div className="mt-4 rounded-xl border border-[#E11D48]/20 bg-[#E11D48]/10 p-3 text-sm text-[#E11D48]">
           {errorMessage}
         </div>
       )}
@@ -1089,7 +1089,7 @@ function CreateContactModal({
         type="button"
         onClick={createContact}
         disabled={creating || !firstName.trim()}
-        className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black disabled:opacity-40"
+        className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#6347E8] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#5136D6] disabled:opacity-40"
       >
         {creating ? (
           <RefreshCw size={15} className="animate-spin" />
@@ -1264,19 +1264,19 @@ function ContactModal({
           </div>
 
           <div className="mt-4">
-            <label className="mb-2 block text-xs uppercase tracking-wider text-zinc-500">
+            <label className="mb-2 block text-xs uppercase tracking-wider text-[#6F687A]">
               Notes
             </label>
             <textarea
               rows={3}
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
-              className="w-full resize-none rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sm outline-none"
+              className="w-full resize-none rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] px-4 py-3 text-sm text-[#17151F] placeholder:text-[#918A9D] outline-none focus:border-[#6347E8] focus:bg-[#FFFFFF]"
             />
           </div>
 
           {errorMessage && (
-            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
+            <div className="mt-4 rounded-xl border border-[#E11D48]/20 bg-[#E11D48]/10 p-3 text-sm text-[#E11D48]">
               {errorMessage}
             </div>
           )}
@@ -1285,7 +1285,7 @@ function ContactModal({
             <button
               type="button"
               onClick={() => setEditing(false)}
-              className="flex-1 rounded-xl border border-white/[0.08] px-4 py-2.5 text-sm text-zinc-400"
+              className="flex-1 rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] px-4 py-2.5 text-sm font-medium text-[#6F687A] hover:text-[#17151F]"
             >
               Cancel
             </button>
@@ -1293,7 +1293,7 @@ function ContactModal({
               type="button"
               onClick={saveContact}
               disabled={actionLoading === "save" || !firstName.trim()}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#6347E8] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#5136D6] disabled:opacity-40"
             >
               {actionLoading === "save" ? (
                 <RefreshCw size={15} className="animate-spin" />
@@ -1318,11 +1318,11 @@ function ContactModal({
           </div>
 
           {/* LAST CONTACTED & QUICK WHATSAPP */}
-          <div className="mt-4 rounded-xl border border-white/[0.06] bg-black/30 p-4">
+          <div className="mt-4 rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-zinc-500">Contact Activity Status</p>
-                <p className={`mt-1 text-sm font-medium ${staleness.isStale ? "text-amber-400" : "text-zinc-300"}`}>
+                <p className="text-[10px] uppercase tracking-wider text-[#918A9D]">Contact Activity Status</p>
+                <p className={`mt-1 text-sm font-medium ${staleness.isStale ? "text-[#D97706]" : "text-[#6F687A]"}`}>
                   {staleness.label}
                 </p>
               </div>
@@ -1331,7 +1331,7 @@ function ContactModal({
                 href={waLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-400 transition hover:bg-emerald-500/20"
+                className="flex items-center justify-center gap-2 rounded-xl border border-[#168A65]/30 bg-[#168A65]/10 px-4 py-2 text-xs font-semibold text-[#168A65] transition hover:bg-[#168A65]/20"
               >
                 <MessageSquare size={14} />
                 Send Tailored WhatsApp
@@ -1340,14 +1340,14 @@ function ContactModal({
           </div>
 
           {contact.notes && (
-            <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-              <p className="text-xs text-zinc-500">Notes</p>
-              <p className="mt-1 text-sm leading-6 text-zinc-300">{contact.notes}</p>
+            <div className="mt-4 rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-4">
+              <p className="text-xs text-[#918A9D]">Notes</p>
+              <p className="mt-1 text-sm leading-6 text-[#17151F]">{contact.notes}</p>
             </div>
           )}
 
           {errorMessage && (
-            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
+            <div className="mt-4 rounded-xl border border-[#E11D48]/20 bg-[#E11D48]/10 p-3 text-sm text-[#E11D48]">
               {errorMessage}
             </div>
           )}
@@ -1356,7 +1356,7 @@ function ContactModal({
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-zinc-300 hover:bg-white/[0.06]"
+              className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] px-4 py-2.5 text-sm font-medium text-[#6F687A] hover:text-[#17151F]"
             >
               Edit Details
             </button>
@@ -1365,7 +1365,7 @@ function ContactModal({
               type="button"
               onClick={markContacted}
               disabled={actionLoading === "contacted"}
-              className="flex items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-400 disabled:opacity-40"
+              className="flex items-center justify-center gap-2 rounded-xl border border-[#168A65]/20 bg-[#168A65]/10 px-4 py-2.5 text-sm font-medium text-[#168A65] transition hover:bg-[#168A65]/20 disabled:opacity-40"
             >
               {actionLoading === "contacted" ? (
                 <RefreshCw size={15} className="animate-spin" />
@@ -1380,7 +1380,7 @@ function ContactModal({
             type="button"
             onClick={deleteContact}
             disabled={actionLoading === "delete"}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2.5 text-sm text-red-400 disabled:opacity-40"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[#E11D48]/20 bg-[#E11D48]/10 px-4 py-2.5 text-sm font-medium text-[#E11D48] transition hover:bg-[#E11D48]/20 disabled:opacity-40"
           >
             {actionLoading === "delete" ? (
               <RefreshCw size={15} className="animate-spin" />
@@ -1413,21 +1413,21 @@ function ModalShell({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0b0b0e] shadow-2xl">
-        <div className="sticky top-0 z-10 flex items-start justify-between border-b border-white/[0.07] bg-[#0b0b0e]/95 p-6 backdrop-blur">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17151F]/40 p-4 backdrop-blur-sm">
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-start justify-between border-b border-[#E2DEEA] bg-[#FFFFFF]/95 p-6 backdrop-blur">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6347E8]">
               J10 NEXUS CRM
             </p>
-            <h2 className="mt-1 text-xl font-semibold text-white">{title}</h2>
-            <p className="mt-0.5 text-xs text-zinc-400">{subtitle}</p>
+            <h2 className="mt-1 text-xl font-semibold text-[#17151F]">{title}</h2>
+            <p className="mt-0.5 text-xs text-[#6F687A]">{subtitle}</p>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-zinc-500 hover:bg-white/[0.05] hover:text-white"
+            className="rounded-lg p-2 text-[#918A9D] hover:bg-[#F3F1F8] hover:text-[#17151F]"
           >
             <X size={18} />
           </button>
@@ -1456,7 +1456,7 @@ function FormField({
 }) {
   return (
     <div>
-      <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+      <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-[#6F687A]">
         {label}
         {required && " *"}
       </label>
@@ -1465,7 +1465,7 @@ function FormField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-violet-500/40"
+        className="w-full rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] px-4 py-2.5 text-sm text-[#17151F] outline-none placeholder:text-[#918A9D] focus:border-[#6347E8] focus:bg-[#FFFFFF]"
       />
     </div>
   );
@@ -1484,13 +1484,13 @@ function SelectField({
 }) {
   return (
     <div>
-      <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+      <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-[#6F687A]">
         {label}
       </label>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-white/[0.08] bg-[#111114] px-4 py-2.5 text-sm text-white outline-none focus:border-violet-500/40"
+        className="w-full rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] px-4 py-2.5 text-sm text-[#17151F] outline-none focus:border-[#6347E8] focus:bg-[#FFFFFF]"
       >
         {options.map((option) => (
           <option key={option} value={option}>
@@ -1504,25 +1504,25 @@ function SelectField({
 
 function InfoBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-black/20 p-3.5">
-      <p className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className="mt-1 break-words text-sm font-medium text-zinc-200">{value}</p>
+    <div className="rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-3.5">
+      <p className="text-[10px] uppercase tracking-wider text-[#918A9D]">{label}</p>
+      <p className="mt-1 break-words text-sm font-medium text-[#17151F]">{value}</p>
     </div>
   );
 }
 
 function EmptyCRM({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="rounded-2xl border border-dashed border-white/[0.08] bg-[#111216] px-6 py-16 text-center">
-      <Users size={24} className="mx-auto text-violet-400" />
-      <h2 className="mt-4 text-lg font-semibold text-white">Your CRM is empty</h2>
-      <p className="mx-auto mt-1 max-w-md text-sm text-zinc-500">
+    <div className="rounded-2xl border border-dashed border-[#E2DEEA] bg-[#FFFFFF] px-6 py-16 text-center shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+      <Users size={24} className="mx-auto text-[#6347E8]" />
+      <h2 className="mt-4 text-lg font-semibold text-[#17151F]">Your CRM is empty</h2>
+      <p className="mx-auto mt-1 max-w-md text-sm text-[#6F687A]">
         Add your first enterprise lead or prospect and J10 NEXUS will begin building your customer pipeline.
       </p>
       <button
         type="button"
         onClick={onCreate}
-        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black"
+        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#6347E8] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#5136D6]"
       >
         <Plus size={15} />
         Add First Contact

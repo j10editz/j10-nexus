@@ -57,7 +57,7 @@ const iconMap: Record<DashboardIconName, LucideIcon | null> = {
   palette: Palette,
   plug: Plug,
   settings: Settings,
-  sparkles: Sparkles,
+  sparkles: Megaphone, // Neutral marketing icon instead of sparkle
   store: Store,
   users: Users,
   workflow: Workflow,
@@ -95,17 +95,17 @@ export default function Sidebar({
     const Icon = iconMap[item.icon];
     const active = isActive(item);
     const available = item.status === "ready" && Boolean(item.href);
-    const isJ10 = item.id === "j10-ai" || item.icon === "monogram";
+    const isJ10 = item.id === "command-center" || item.icon === "monogram";
 
     const className = `
       group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2
-      text-left text-xs font-medium transition-colors duration-150
+      text-left text-xs font-medium transition-all duration-150
       ${
         active
-          ? "bg-[#4F7CFF] text-white font-semibold shadow-sm"
+          ? "bg-[#6347E8] text-white font-semibold shadow-sm border-l-2 border-[#3E2A8A]"
           : available
-            ? "text-[#98A2B3] hover:bg-[#151922] hover:text-[#F5F7FA]"
-            : "cursor-not-allowed text-[#667085]/60"
+            ? "text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F]"
+            : "cursor-not-allowed text-[#918A9D]/60"
       }
     `;
 
@@ -118,7 +118,7 @@ export default function Sidebar({
               alt="J10 monogram"
               width={16}
               height={16}
-              className="h-full w-full object-contain"
+              className={`h-full w-full object-contain ${active ? "brightness-0 invert" : ""}`}
             />
           </div>
         ) : Icon ? (
@@ -129,8 +129,8 @@ export default function Sidebar({
               active
                 ? "text-white"
                 : available
-                  ? "text-[#667085] transition-colors group-hover:text-[#F5F7FA]"
-                  : "text-[#667085]/40"
+                  ? "text-[#6F687A] transition-colors group-hover:text-[#17151F]"
+                  : "text-[#918A9D]/50"
             }
           />
         ) : null}
@@ -138,7 +138,7 @@ export default function Sidebar({
         <span className="min-w-0 flex-1 truncate">{item.label}</span>
 
         {item.status === "building" ? (
-          <span className="rounded border border-[#242A35] bg-[#151922] px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-wider text-[#667085]">
+          <span className="rounded border border-[#E2DEEA] bg-[#F3F1F8] px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-wider text-[#6F687A]">
             Soon
           </span>
         ) : null}
@@ -179,7 +179,7 @@ export default function Sidebar({
         <button
           type="button"
           aria-label="Close navigation"
-          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
           onClick={onClose}
         />
       )}
@@ -187,19 +187,19 @@ export default function Sidebar({
       <aside
         className={`
           fixed left-0 top-0 z-50 flex h-dvh w-[228px] flex-col
-          border-r border-[#242A35] bg-[#090B10]
+          border-r border-[#E2DEEA] bg-[#FFFFFF]
           transition-transform duration-200 lg:translate-x-0
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
         {/* Brand Header — Compact 56px */}
-        <div className="flex h-[56px] shrink-0 items-center justify-between border-b border-[#242A35] px-4">
+        <div className="flex h-[56px] shrink-0 items-center justify-between border-b border-[#E2DEEA] px-4">
           <Link
             href="/dashboard"
             onClick={handleNavigation}
             className="flex items-center gap-2.5"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-md p-1 bg-[#101319] border border-[#242A35]">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md p-1 bg-[#F3F1F8] border border-[#E2DEEA]">
               <Image
                 src="/brand/j10-logo.png"
                 alt="J10 monogram"
@@ -210,8 +210,8 @@ export default function Sidebar({
             </div>
 
             <div>
-              <div className="text-sm font-bold tracking-tight text-[#F5F7FA]">
-                J10 <span className="font-normal text-[#98A2B3]">NEXUS</span>
+              <div className="text-sm font-bold tracking-tight text-[#17151F]">
+                J10 <span className="font-normal text-[#6F687A]">NEXUS</span>
               </div>
             </div>
           </Link>
@@ -220,7 +220,7 @@ export default function Sidebar({
             type="button"
             onClick={onClose}
             aria-label="Close navigation"
-            className="rounded-md p-1.5 text-[#667085] transition hover:bg-[#151922] hover:text-[#F5F7FA] lg:hidden"
+            className="rounded-md p-1.5 text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F] lg:hidden"
           >
             <X size={16} />
           </button>
@@ -230,7 +230,7 @@ export default function Sidebar({
         <nav className="mt-3 flex-1 overflow-y-auto px-2.5 pb-4 scrollbar-thin">
           {dashboardNavigationSections.map((section) => (
             <div key={section.title} className="mb-4">
-              <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-[#667085]">
+              <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-[#918A9D]">
                 {section.title}
               </div>
               <div className="space-y-0.5">{section.items.map(renderItem)}</div>
@@ -239,18 +239,18 @@ export default function Sidebar({
         </nav>
 
         {/* Footer Workspace Info */}
-        <div className="shrink-0 border-t border-[#242A35] bg-[#090B10] p-2.5">
+        <div className="shrink-0 border-t border-[#E2DEEA] bg-[#FFFFFF] p-2.5">
           {renderItem(dashboardSettingsItem)}
 
-          <div className="mt-2 flex items-center gap-2.5 rounded-lg border border-[#242A35] bg-[#101319] p-2.5">
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-[#151922] text-[11px] font-bold text-[#98A2B3] border border-[#242A35]">
+          <div className="mt-2 flex items-center gap-2.5 rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] p-2.5">
+            <div className="flex h-6 w-6 items-center justify-center rounded bg-[#FFFFFF] text-[11px] font-bold text-[#6347E8] border border-[#E2DEEA]">
               W
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-medium text-[#F5F7FA]">
+              <div className="truncate text-xs font-semibold text-[#17151F]">
                 Active Workspace
               </div>
-              <div className="truncate text-[10px] text-[#667085]">
+              <div className="truncate text-[10px] text-[#6F687A]">
                 Production Tenant
               </div>
             </div>
