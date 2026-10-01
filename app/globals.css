@@ -220,6 +220,320 @@ body {
 }
 
 /* ==========================================================================
+   AUTHENTICATED DASHBOARD — J10 BLACK EMERALD
+
+   The dashboard previously mixed the Pearl Violet experiment with legacy
+   cyan, blue, purple, and charcoal surfaces. This scope is intentionally
+   isolated from the marketing site. It gives every authenticated route one
+   canvas, one surface system, and one primary action color while preserving
+   amber and rose strictly for real warning/error states.
+   ========================================================================== */
+
+.j10-dashboard-theme {
+  --j10-dashboard-canvas: #070a08;
+  --j10-dashboard-surface: #0d120f;
+  --j10-dashboard-elevated: #121915;
+  --j10-dashboard-hover: #17211b;
+  --j10-dashboard-border: #26342b;
+  --j10-dashboard-border-strong: #34483b;
+  --j10-dashboard-text: #f3f7f4;
+  --j10-dashboard-text-secondary: #aab7ae;
+  --j10-dashboard-text-muted: #748178;
+  --j10-dashboard-accent: #35c46a;
+  --j10-dashboard-accent-hover: #46d779;
+  --j10-dashboard-accent-deep: #123d23;
+  --j10-dashboard-accent-soft: rgba(53, 196, 106, 0.11);
+  --j10-dashboard-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+  --j10-electric-blue: var(--j10-dashboard-accent);
+  --j10-primary-blue: var(--j10-dashboard-accent);
+  --j10-indigo: var(--j10-dashboard-accent);
+  --j10-violet: var(--j10-dashboard-accent);
+  --j10-border-bright: rgba(53, 196, 106, 0.28);
+  --j10-border-violet: rgba(53, 196, 106, 0.28);
+  --j10-border-focus: rgba(53, 196, 106, 0.55);
+  background: var(--j10-dashboard-canvas);
+  color: var(--j10-dashboard-text);
+  color-scheme: dark;
+}
+
+.j10-dashboard-theme .j10-canvas,
+.j10-dashboard-theme .j10-surface,
+.j10-dashboard-theme .j10-surface-elevated,
+.j10-dashboard-theme .j10-surface-glow,
+.j10-dashboard-theme .j10-surface-violet-glow {
+  background-image: none !important;
+}
+
+.j10-dashboard-theme .j10-canvas {
+  background-color: var(--j10-dashboard-canvas) !important;
+}
+
+.j10-dashboard-theme .j10-surface,
+.j10-dashboard-theme .j10-surface-glow,
+.j10-dashboard-theme .j10-surface-violet-glow {
+  background-color: var(--j10-dashboard-surface) !important;
+  border-color: var(--j10-dashboard-border) !important;
+  box-shadow: var(--j10-dashboard-shadow) !important;
+}
+
+.j10-dashboard-theme .j10-surface-elevated {
+  background-color: var(--j10-dashboard-elevated) !important;
+  border-color: var(--j10-dashboard-border-strong) !important;
+  box-shadow: var(--j10-dashboard-shadow) !important;
+}
+
+.j10-dashboard-theme ::selection {
+  background: rgba(53, 196, 106, 0.28);
+  color: #ffffff;
+}
+
+.j10-dashboard-theme :focus-visible {
+  outline-color: var(--j10-dashboard-accent);
+}
+
+/* Pearl Violet surfaces are normalized at the dashboard boundary. */
+.j10-dashboard-theme [class*="bg-[#F8F7FC]"] {
+  background-color: var(--j10-dashboard-canvas) !important;
+}
+
+.j10-dashboard-theme [class*="bg-[#F3F1F8]"] {
+  background-color: var(--j10-dashboard-elevated) !important;
+}
+
+.j10-dashboard-theme [class*="bg-[#FFFFFF]"],
+.j10-dashboard-theme [class*="bg-[#fff]"] {
+  background-color: var(--j10-dashboard-surface) !important;
+}
+
+.j10-dashboard-theme [class*="bg-[#F0ECFF]"] {
+  background-color: var(--j10-dashboard-accent-soft) !important;
+}
+
+.j10-dashboard-theme [class*="bg-[#E2DEEA]"] {
+  background-color: var(--j10-dashboard-hover) !important;
+}
+
+.j10-dashboard-theme [class*="border-[#E2DEEA]"],
+.j10-dashboard-theme [class*="border-[#D5CEE3]"] {
+  border-color: var(--j10-dashboard-border) !important;
+}
+
+.j10-dashboard-theme [class*="text-[#17151F]"] {
+  color: var(--j10-dashboard-text) !important;
+}
+
+.j10-dashboard-theme [class*="text-[#6F687A]"] {
+  color: var(--j10-dashboard-text-secondary) !important;
+}
+
+.j10-dashboard-theme [class*="text-[#918A9D]"],
+.j10-dashboard-theme [class*="text-[#8d96a8]"] {
+  color: var(--j10-dashboard-text-muted) !important;
+}
+
+.j10-dashboard-theme [class*="text-[#6347E8]"],
+.j10-dashboard-theme [class*="text-[#5136D6]"],
+.j10-dashboard-theme [class*="text-[#3E2A8A]"] {
+  color: var(--j10-dashboard-accent) !important;
+}
+
+.j10-dashboard-theme [class*="bg-[#6347E8]"],
+.j10-dashboard-theme [class*="bg-[#5136D6]"],
+.j10-dashboard-theme [class*="bg-[#3E2A8A]"] {
+  background-color: var(--j10-dashboard-accent) !important;
+  color: #061008 !important;
+}
+
+.j10-dashboard-theme [class*="shadow-[0_4px_16px_rgba(49,32,92"] {
+  box-shadow: var(--j10-dashboard-shadow) !important;
+}
+
+/* Normalize the older dark dashboard surfaces to the same carbon scale. */
+.j10-dashboard-theme [class*="bg-[#07090f]"],
+.j10-dashboard-theme [class*="bg-[#080A0F]"],
+.j10-dashboard-theme [class*="bg-[#0A0B0E]"] {
+  background-color: var(--j10-dashboard-canvas) !important;
+}
+
+.j10-dashboard-theme [class*="bg-[#111216]"],
+.j10-dashboard-theme [class*="bg-[#101320]"],
+.j10-dashboard-theme [class*="bg-[#0D0E15]"],
+.j10-dashboard-theme [class*="bg-[#0d111c]"],
+.j10-dashboard-theme [class*="bg-[#0B0C0F]"],
+.j10-dashboard-theme [class*="bg-[#0E0F14]"],
+.j10-dashboard-theme [class*="bg-[#0E1014]"],
+.j10-dashboard-theme [class*="bg-[#0E121B]"],
+.j10-dashboard-theme [class*="bg-[#101115]"],
+.j10-dashboard-theme [class*="bg-[#12141A]"],
+.j10-dashboard-theme [class*="bg-[#14161b]"] {
+  background-color: var(--j10-dashboard-surface) !important;
+}
+
+.j10-dashboard-theme [class*="bg-[#09090B]"] {
+  background-color: var(--j10-dashboard-canvas) !important;
+}
+
+/* Semantic states remain meaningful, but never become bright pastel panels. */
+.j10-dashboard-theme [class*="bg-[#E8F8F2]"] {
+  background-color: rgba(53, 196, 106, 0.11) !important;
+}
+
+.j10-dashboard-theme [class*="border-[#A3E6D0]"] {
+  border-color: rgba(53, 196, 106, 0.3) !important;
+}
+
+.j10-dashboard-theme [class*="text-[#168A65]"] {
+  color: var(--j10-dashboard-accent) !important;
+}
+
+.j10-dashboard-theme [class*="bg-[#FEF3C7]"] {
+  background-color: rgba(217, 119, 6, 0.12) !important;
+}
+
+.j10-dashboard-theme [class*="border-[#FDE68A]"] {
+  border-color: rgba(217, 119, 6, 0.34) !important;
+}
+
+.j10-dashboard-theme [class*="bg-[#FFE4E8]"] {
+  background-color: rgba(225, 29, 72, 0.12) !important;
+}
+
+.j10-dashboard-theme [class*="border-[#FECDD3]"] {
+  border-color: rgba(225, 29, 72, 0.34) !important;
+}
+
+.j10-dashboard-theme .j10-gradient,
+.j10-dashboard-theme .j10-gradient-cyan,
+.j10-dashboard-theme .j10-gradient-violet {
+  background-image: none !important;
+  background-color: var(--j10-dashboard-accent) !important;
+}
+
+.j10-dashboard-theme .j10-gradient-text {
+  background-image: none !important;
+  color: var(--j10-dashboard-accent) !important;
+  -webkit-text-fill-color: currentColor;
+}
+
+/* One action color. Exact class-token matching avoids turning hover rules on. */
+.j10-dashboard-theme [class~="text-cyan-300"],
+.j10-dashboard-theme [class~="text-cyan-400"],
+.j10-dashboard-theme [class~="text-blue-300"],
+.j10-dashboard-theme [class~="text-blue-400"],
+.j10-dashboard-theme [class~="text-indigo-300"],
+.j10-dashboard-theme [class~="text-indigo-400"],
+.j10-dashboard-theme [class~="text-purple-300"],
+.j10-dashboard-theme [class~="text-purple-400"],
+.j10-dashboard-theme [class~="text-violet-300"],
+.j10-dashboard-theme [class~="text-violet-400"] {
+  color: var(--j10-dashboard-accent) !important;
+}
+
+.j10-dashboard-theme [class~="bg-cyan-400"],
+.j10-dashboard-theme [class~="bg-cyan-500"],
+.j10-dashboard-theme [class~="bg-cyan-600"],
+.j10-dashboard-theme [class~="bg-blue-500"],
+.j10-dashboard-theme [class~="bg-blue-600"],
+.j10-dashboard-theme [class~="bg-indigo-500"],
+.j10-dashboard-theme [class~="bg-indigo-600"],
+.j10-dashboard-theme [class~="bg-purple-500"],
+.j10-dashboard-theme [class~="bg-purple-600"],
+.j10-dashboard-theme [class~="bg-violet-500"],
+.j10-dashboard-theme [class~="bg-violet-600"] {
+  background-color: var(--j10-dashboard-accent) !important;
+  color: #061008 !important;
+}
+
+/* Catch every legacy blue/cyan/violet token without matching variant tokens
+   such as hover:bg-* until that interaction is actually active. */
+.j10-dashboard-theme :is(
+  [class^="text-blue-"], [class*=" text-blue-"],
+  [class^="text-cyan-"], [class*=" text-cyan-"],
+  [class^="text-indigo-"], [class*=" text-indigo-"],
+  [class^="text-purple-"], [class*=" text-purple-"],
+  [class^="text-violet-"], [class*=" text-violet-"]
+) {
+  color: var(--j10-dashboard-accent) !important;
+}
+
+.j10-dashboard-theme :is(
+  [class^="border-blue-"], [class*=" border-blue-"],
+  [class^="border-cyan-"], [class*=" border-cyan-"],
+  [class^="border-indigo-"], [class*=" border-indigo-"],
+  [class^="border-purple-"], [class*=" border-purple-"],
+  [class^="border-violet-"], [class*=" border-violet-"]
+) {
+  border-color: rgba(53, 196, 106, 0.28) !important;
+}
+
+.j10-dashboard-theme :is(
+  [class^="bg-blue-"], [class*=" bg-blue-"],
+  [class^="bg-cyan-"], [class*=" bg-cyan-"],
+  [class^="bg-indigo-"], [class*=" bg-indigo-"],
+  [class^="bg-purple-"], [class*=" bg-purple-"],
+  [class^="bg-violet-"], [class*=" bg-violet-"]
+) {
+  background-color: var(--j10-dashboard-accent) !important;
+}
+
+.j10-dashboard-theme :is(
+  [class^="bg-blue-"], [class*=" bg-blue-"],
+  [class^="bg-cyan-"], [class*=" bg-cyan-"],
+  [class^="bg-indigo-"], [class*=" bg-indigo-"],
+  [class^="bg-purple-"], [class*=" bg-purple-"],
+  [class^="bg-violet-"], [class*=" bg-violet-"]
+)[class*="/"] {
+  background-color: var(--j10-dashboard-accent-soft) !important;
+}
+
+.j10-dashboard-theme [class*="hover:bg-blue-"]:hover,
+.j10-dashboard-theme [class*="hover:bg-cyan-"]:hover,
+.j10-dashboard-theme [class*="hover:bg-indigo-"]:hover,
+.j10-dashboard-theme [class*="hover:bg-purple-"]:hover,
+.j10-dashboard-theme [class*="hover:bg-violet-"]:hover {
+  background-color: var(--j10-dashboard-accent-hover) !important;
+  color: #061008 !important;
+}
+
+.j10-dashboard-theme [class*="hover:text-blue-"]:hover,
+.j10-dashboard-theme [class*="hover:text-cyan-"]:hover,
+.j10-dashboard-theme [class*="hover:text-indigo-"]:hover,
+.j10-dashboard-theme [class*="hover:text-purple-"]:hover,
+.j10-dashboard-theme [class*="hover:text-violet-"]:hover {
+  color: var(--j10-dashboard-accent-hover) !important;
+}
+
+.j10-dashboard-theme :is(
+  [class^="shadow-blue-"], [class*=" shadow-blue-"],
+  [class^="shadow-cyan-"], [class*=" shadow-cyan-"],
+  [class^="shadow-indigo-"], [class*=" shadow-indigo-"],
+  [class^="shadow-purple-"], [class*=" shadow-purple-"],
+  [class^="shadow-violet-"], [class*=" shadow-violet-"]
+) {
+  --tw-shadow-color: rgba(0, 0, 0, 0.28) !important;
+}
+
+.j10-dashboard-theme [class*="from-blue-"],
+.j10-dashboard-theme [class*="from-cyan-"],
+.j10-dashboard-theme [class*="from-indigo-"],
+.j10-dashboard-theme [class*="from-purple-"],
+.j10-dashboard-theme [class*="from-violet-"] {
+  background-image: linear-gradient(135deg, #183d25, #35c46a) !important;
+}
+
+/* Interactive surfaces get a quiet emerald response without colored panels. */
+.j10-dashboard-theme a[class*="hover:bg-[#F3F1F8]"]:hover,
+.j10-dashboard-theme button[class*="hover:bg-[#F3F1F8]"]:hover,
+.j10-dashboard-theme [class*="hover:bg-white"]:hover {
+  background-color: var(--j10-dashboard-hover) !important;
+}
+
+.j10-dashboard-theme [class*="hover:border-[#6347E8]"]:hover,
+.j10-dashboard-theme [class*="focus:border-[#6347E8]"]:focus {
+  border-color: var(--j10-dashboard-accent) !important;
+}
+
+/* ==========================================================================
    SURFACE SYSTEM & GLASSMORPHISM
    ========================================================================== */
 
