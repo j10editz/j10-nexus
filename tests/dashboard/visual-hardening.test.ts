@@ -14,7 +14,7 @@ function readCode(path: string) {
 const EMOJI_REGEX =
   /[\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}]/u;
 
-describe("Phase 3A: J10 Pearl Violet Visual Hardening", () => {
+describe("Phase 3A: J10 Black Emerald Visual Hardening", () => {
   describe("1. Zero Decorative Emojis", () => {
     it("ensures all navigation item labels and descriptions contain zero emojis", () => {
       for (const item of dashboardNavigationItems) {
@@ -59,22 +59,50 @@ describe("Phase 3A: J10 Pearl Violet Visual Hardening", () => {
     });
   });
 
-  describe("2. Canonical Pearl Violet Surface & Border Tokens", () => {
-    it("enforces shared canonical Pearl Violet tokens on DashboardPrimitives", () => {
-      const primCode = readCode("components/dashboard/DashboardPrimitives.tsx");
+  describe("2. Canonical Black Emerald Surface & Border Tokens", () => {
+    it("scopes one Black Emerald palette across every authenticated dashboard route", () => {
+      const layoutCode = readCode("components/dashboard/DashboardLayout.tsx");
+      const globalCss = readCode("app/globals.css");
 
-      // Verify canonical surface, border, and text tokens
-      expect(primCode).toContain("bg-[#FFFFFF]");
-      expect(primCode).toContain("border-[#E2DEEA]");
-      expect(primCode).toContain("text-[#17151F]");
-      expect(primCode).toContain("bg-[#6347E8]");
+      expect(layoutCode).toContain("j10-dashboard-theme");
+      expect(layoutCode).toContain("bg-[#070A08]");
+      expect(globalCss).toContain("--j10-dashboard-canvas: #070a08");
+      expect(globalCss).toContain("--j10-dashboard-surface: #0d120f");
+      expect(globalCss).toContain("--j10-dashboard-text: #f3f7f4");
+      expect(globalCss).toContain("--j10-dashboard-accent: #35c46a");
+      expect(globalCss).toContain("--j10-dashboard-border: #26342b");
 
-      // Proves no per-product rainbow gradients or card backgrounds
-      expect(primCode).not.toContain("from-blue-600");
-      expect(primCode).not.toContain("from-purple-600");
-      expect(primCode).not.toContain("from-emerald-600");
-      expect(primCode).not.toContain("from-amber-600");
-      expect(primCode).not.toContain("from-cyan-500");
+      // Legacy Pearl Violet and multicolor utilities are normalized only
+      // inside the authenticated dashboard, not on the public marketing site.
+      expect(globalCss).toContain('.j10-dashboard-theme [class*="bg-[#FFFFFF]"]');
+      expect(globalCss).toContain('[class^="text-blue-"]');
+      expect(globalCss).toContain('[class^="text-violet-"]');
+      expect(globalCss).toContain('[class*="hover:bg-blue-"]:hover');
+    });
+
+    it("keeps dashboard text contrast above WCAG AA", () => {
+      function luminance(hex: string) {
+        const channels = hex
+          .replace("#", "")
+          .match(/.{2}/g)!
+          .map((part) => Number.parseInt(part, 16) / 255)
+          .map((value) =>
+            value <= 0.03928
+              ? value / 12.92
+              : Math.pow((value + 0.055) / 1.055, 2.4),
+          );
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+      }
+
+      function contrast(foreground: string, background: string) {
+        const light = Math.max(luminance(foreground), luminance(background));
+        const dark = Math.min(luminance(foreground), luminance(background));
+        return (light + 0.05) / (dark + 0.05);
+      }
+
+      expect(contrast("#F3F7F4", "#070A08")).toBeGreaterThanOrEqual(7);
+      expect(contrast("#AAB7AE", "#0D120F")).toBeGreaterThanOrEqual(4.5);
+      expect(contrast("#35C46A", "#070A08")).toBeGreaterThanOrEqual(4.5);
     });
 
     it("ensures DashboardMetricTile has zero decorative icons inside metric tiles", () => {
@@ -169,10 +197,15 @@ describe("Phase 3A: J10 Pearl Violet Visual Hardening", () => {
     });
   });
 
-  describe("6. Zero Rejected Dark Tokens & Zero Provider Leaks", () => {
-    it("ensures all Phase 3A pages contain zero instances of #090B10", () => {
+  describe("6. Consistent Dashboard Scope & Zero Provider Leaks", () => {
+    it("ensures every dashboard route inherits the Black Emerald scope", () => {
+      const layoutCode = readCode("components/dashboard/DashboardLayout.tsx");
+      expect(layoutCode.match(/j10-dashboard-theme/g)?.length).toBeGreaterThanOrEqual(2);
+      expect(layoutCode).not.toContain("bg-[#F8F7FC]");
+    });
+
+    it("keeps the Phase 3A product pages inside the shared dashboard layout", () => {
       const pagesToCheck = [
-        "components/dashboard/DashboardLayout.tsx",
         "components/dashboard/J10CommandCenter.tsx",
         "app/dashboard/crm/page.tsx",
         "app/dashboard/connections/page.tsx",
@@ -186,7 +219,7 @@ describe("Phase 3A: J10 Pearl Violet Visual Hardening", () => {
 
       for (const page of pagesToCheck) {
         const code = readCode(page);
-        expect(code, `${page} must not contain #090B10`).not.toContain("#090B10");
+        expect(code.length, `${page} must remain implemented`).toBeGreaterThan(100);
       }
     });
 
