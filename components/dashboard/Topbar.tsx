@@ -294,7 +294,7 @@ export default function Topbar({
   }, [pathname]);
 
   return (
-    <header className="sticky top-0 z-30 flex h-[56px] shrink-0 items-center border-b border-[#E2DEEA] bg-[#FFFFFF]/95 px-4 backdrop-blur-md sm:px-6">
+    <header className="sticky top-0 z-30 flex h-[56px] shrink-0 items-center border-b border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)]/95 px-4 backdrop-blur-md sm:px-6">
       <div className="flex w-full items-center justify-between gap-3">
         {/* Mobile Left: Menu Toggle + Page Title / J10 Mark (<= 56px, clean) */}
         <div className="flex items-center gap-2.5 lg:hidden">
@@ -302,13 +302,13 @@ export default function Topbar({
             type="button"
             onClick={onOpenNavigation}
             aria-label="Open navigation"
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F]"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] text-[var(--j10-dashboard-text-secondary)] transition hover:bg-[var(--j10-dashboard-hover)] hover:text-[var(--j10-dashboard-text)]"
           >
             <Menu size={16} />
           </button>
 
           <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-[#F3F1F8] border border-[#E2DEEA] p-0.5">
+            <div className="flex h-6 w-6 items-center justify-center rounded border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface-elevated)] p-0.5">
               <Image
                 src="/brand/j10-logo.png"
                 alt="J10 monogram"
@@ -317,7 +317,7 @@ export default function Topbar({
                 className="h-full w-full object-contain"
               />
             </div>
-            <span className="text-xs font-semibold text-[#17151F] truncate max-w-[140px]">
+            <span className="max-w-[140px] truncate text-xs font-semibold text-[var(--j10-dashboard-text)]">
               {mobilePageTitle}
             </span>
           </div>
@@ -328,8 +328,8 @@ export default function Topbar({
           onSubmit={handleSubmit}
           className="relative hidden min-w-0 flex-1 max-w-[380px] lg:block"
         >
-          <div className="flex h-8 items-center rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] px-2.5 transition focus-within:border-[#6347E8] focus-within:ring-1 focus-within:ring-[#6347E8]/20 focus-within:bg-[#FFFFFF]">
-            <Search className="mr-2 shrink-0 text-[#6F687A]" size={14} />
+          <div className="flex h-8 items-center rounded-lg border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface-elevated)] px-2.5 transition focus-within:border-[var(--j10-dashboard-accent)] focus-within:bg-[var(--j10-dashboard-surface)] focus-within:ring-1 focus-within:ring-[var(--j10-dashboard-accent)]/20">
+            <Search className="mr-2 shrink-0 text-[var(--j10-dashboard-text-secondary)]" size={14} />
 
             <input
               ref={searchInputRef}
@@ -341,7 +341,7 @@ export default function Topbar({
               onFocus={() => setSearchOpen(true)}
               placeholder="Search J10..."
               aria-label="Search J10"
-              className="min-w-0 flex-1 bg-transparent text-xs text-[#17151F] outline-none placeholder:text-[#918A9D]"
+              className="min-w-0 flex-1 bg-transparent text-xs text-[var(--j10-dashboard-text)] outline-none placeholder:text-[var(--j10-dashboard-text-muted)]"
             />
 
             {query ? (
@@ -352,32 +352,32 @@ export default function Topbar({
                   setQuery("");
                   searchInputRef.current?.focus();
                 }}
-                className="rounded p-0.5 text-[#6F687A] hover:text-[#17151F]"
+                className="rounded p-0.5 text-[var(--j10-dashboard-text-secondary)] hover:text-[var(--j10-dashboard-text)]"
               >
                 <X size={13} />
               </button>
             ) : (
-              <span className="flex items-center gap-0.5 text-[10px] text-[#918A9D]">
+              <span className="flex items-center gap-0.5 text-[10px] text-[var(--j10-dashboard-text-muted)]">
                 <Command size={10} />K
               </span>
             )}
           </div>
 
           {searchOpen && (
-            <div className="absolute left-0 right-0 top-[calc(100%+6px)] overflow-hidden rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-1.5 shadow-[0_4px_16px_rgba(49,32,92,0.06)] z-50">
-              <div className="flex items-center justify-between px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#918A9D]">
+            <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 overflow-hidden rounded-xl border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.32)]">
+              <div className="flex items-center justify-between px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--j10-dashboard-text-muted)]">
                 <span>{query ? "Search results" : "Quick access"}</span>
                 <button
                   type="button"
                   onClick={() => setSearchOpen(false)}
-                  className="text-[#918A9D] hover:text-[#17151F]"
+                  className="text-[var(--j10-dashboard-text-muted)] hover:text-[var(--j10-dashboard-text)]"
                 >
                   Close
                 </button>
               </div>
 
               {results.length === 0 ? (
-                <div className="px-3 py-4 text-center text-xs text-[#6F687A]">
+                <div className="px-3 py-4 text-center text-xs text-[var(--j10-dashboard-text-secondary)]">
                   No module matches “{query}”.
                 </div>
               ) : (
@@ -387,19 +387,19 @@ export default function Topbar({
                       key={item.id}
                       type="button"
                       onClick={() => navigate(item.href)}
-                      className="group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition hover:bg-[#F3F1F8]"
+                      className="group flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition hover:bg-[var(--j10-dashboard-hover)]"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-[#17151F]">
+                        <p className="text-xs font-medium text-[var(--j10-dashboard-text)]">
                           {item.label}
                         </p>
-                        <p className="truncate text-[10px] text-[#6F687A]">
+                        <p className="truncate text-[10px] text-[var(--j10-dashboard-text-secondary)]">
                           {item.description}
                         </p>
                       </div>
                       <ChevronRight
                         size={12}
-                        className="text-[#918A9D] group-hover:text-[#6347E8] transition-colors"
+                        className="text-[var(--j10-dashboard-text-muted)] transition-colors group-hover:text-[var(--j10-dashboard-accent)]"
                       />
                     </button>
                   ))}
@@ -415,7 +415,7 @@ export default function Topbar({
             type="button"
             onClick={onToggleColorMode}
             aria-label={`Switch to ${colorMode === "dark" ? "light" : "dark"} dashboard`}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F]"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] text-[var(--j10-dashboard-text-secondary)] transition hover:bg-[var(--j10-dashboard-hover)] hover:text-[var(--j10-dashboard-text)]"
             title={`Use ${colorMode === "dark" ? "light" : "dark"} dashboard`}
           >
             {colorMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
@@ -429,7 +429,7 @@ export default function Topbar({
                 ? `${attentionCount} notifications need attention`
                 : "Open notifications"
             }
-            className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F] shadow-sm"
+            className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] text-[var(--j10-dashboard-text-secondary)] shadow-sm transition hover:bg-[var(--j10-dashboard-hover)] hover:text-[var(--j10-dashboard-text)]"
           >
             <Bell size={15} />
             {attentionCount > 0 && (
@@ -454,7 +454,7 @@ export default function Topbar({
               }}
               aria-expanded={profileOpen}
               aria-label="Open user profile menu"
-              className="flex h-8 items-center gap-2 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-2 text-left transition hover:bg-[#F3F1F8] shadow-sm"
+              className="flex h-8 items-center gap-2 rounded-lg border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] px-2 text-left shadow-sm transition hover:bg-[var(--j10-dashboard-hover)]"
             >
               {profileData.avatarUrl && !avatarLoadFailed ? (
                 <img
@@ -464,25 +464,25 @@ export default function Topbar({
                   height={22}
                   referrerPolicy="no-referrer"
                   onError={() => setAvatarLoadFailed(true)}
-                  className="h-5 w-5 rounded-full object-cover shrink-0 ring-1 ring-[#E2DEEA]"
+                  className="h-5 w-5 shrink-0 rounded-full object-cover ring-1 ring-[var(--j10-dashboard-border)]"
                 />
               ) : (
                 <UserCircle2
                   size={18}
-                  className="text-[#6F687A] shrink-0"
+                  className="shrink-0 text-[var(--j10-dashboard-text-secondary)]"
                   aria-hidden="true"
                 />
               )}
               <div className="hidden sm:block">
-                <span className="text-xs font-semibold text-[#17151F] truncate max-w-[100px] block leading-none">
+                <span className="block max-w-[100px] truncate text-xs font-semibold leading-none text-[var(--j10-dashboard-text)]">
                   {profileData.loading ? "..." : profileData.displayName}
                 </span>
               </div>
             </button>
 
             {profileOpen && (
-              <div className="absolute right-0 top-[calc(100%+6px)] w-60 rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-1.5 shadow-[0_4px_16px_rgba(49,32,92,0.06)] z-50">
-                <div className="rounded-lg bg-[#F3F1F8] px-3 py-2 mb-1">
+              <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-60 rounded-xl border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.32)]">
+                <div className="mb-1 rounded-lg bg-[var(--j10-dashboard-surface-elevated)] px-3 py-2">
                   <div className="flex items-center gap-2.5">
                     {profileData.avatarUrl && !dropdownAvatarFailed ? (
                       <img
@@ -492,20 +492,20 @@ export default function Topbar({
                         height={30}
                         referrerPolicy="no-referrer"
                         onError={() => setDropdownAvatarFailed(true)}
-                        className="h-7 w-7 rounded-full object-cover shrink-0 ring-1 ring-[#E2DEEA]"
+                        className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-[var(--j10-dashboard-border)]"
                       />
                     ) : (
                       <UserCircle2
                         size={28}
-                        className="text-[#6F687A] shrink-0"
+                        className="shrink-0 text-[var(--j10-dashboard-text-secondary)]"
                         aria-hidden="true"
                       />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-[#17151F] truncate">
+                      <p className="truncate text-xs font-semibold text-[var(--j10-dashboard-text)]">
                         {profileData.displayName}
                       </p>
-                      <p className="truncate text-[10px] text-[#6F687A]">
+                      <p className="truncate text-[10px] text-[var(--j10-dashboard-text-secondary)]">
                         {profileData.email || "No email"}
                       </p>
                       <div className="mt-1 flex items-center gap-1.5 text-[10px]">
@@ -528,7 +528,7 @@ export default function Topbar({
                   <Link
                     href="/dashboard/settings/account"
                     onClick={() => setProfileOpen(false)}
-                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F] transition-colors"
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[var(--j10-dashboard-text-secondary)] transition-colors hover:bg-[var(--j10-dashboard-hover)] hover:text-[var(--j10-dashboard-text)]"
                   >
                     <UserCircle2 size={14} />
                     <span>Account Settings</span>
@@ -537,7 +537,7 @@ export default function Topbar({
                   <Link
                     href="/dashboard/settings"
                     onClick={() => setProfileOpen(false)}
-                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F] transition-colors"
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[var(--j10-dashboard-text-secondary)] transition-colors hover:bg-[var(--j10-dashboard-hover)] hover:text-[var(--j10-dashboard-text)]"
                   >
                     <Settings size={14} />
                     <span>Workspace Settings</span>
@@ -546,13 +546,13 @@ export default function Topbar({
                   <Link
                     href="/dashboard/settings/billing"
                     onClick={() => setProfileOpen(false)}
-                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F] transition-colors"
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[var(--j10-dashboard-text-secondary)] transition-colors hover:bg-[var(--j10-dashboard-hover)] hover:text-[var(--j10-dashboard-text)]"
                   >
                     <CreditCard size={14} />
                     <span>Billing & Subscription</span>
                   </Link>
 
-                  <div className="my-1 border-t border-[#E2DEEA]" />
+                  <div className="my-1 border-t border-[var(--j10-dashboard-border)]" />
 
                   <button
                     type="button"

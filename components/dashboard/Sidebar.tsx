@@ -102,10 +102,10 @@ export default function Sidebar({
       text-left text-xs font-medium transition-all duration-150
       ${
         active
-          ? "bg-[#7C3AED] text-white font-semibold shadow-sm border-l-2 border-[#D8B565]"
+          ? "border-l-2 border-[#D8B565] bg-[var(--j10-dashboard-accent-soft)] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(124,58,237,0.38)]"
           : available
-            ? "text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F]"
-            : "cursor-not-allowed text-[#918A9D]/60"
+            ? "text-[var(--j10-dashboard-text-secondary)] hover:bg-[var(--j10-dashboard-hover)] hover:text-[var(--j10-dashboard-text)]"
+            : "cursor-not-allowed text-[var(--j10-dashboard-text-muted)] opacity-60"
       }
     `;
 
@@ -129,8 +129,8 @@ export default function Sidebar({
               active
                 ? "text-white"
                 : available
-                  ? "text-[#6F687A] transition-colors group-hover:text-[#17151F]"
-                  : "text-[#918A9D]/50"
+                  ? "text-[var(--j10-dashboard-text-secondary)] transition-colors group-hover:text-[var(--j10-dashboard-text)]"
+                  : "text-[var(--j10-dashboard-text-muted)] opacity-50"
             }
           />
         ) : null}
@@ -138,7 +138,7 @@ export default function Sidebar({
         <span className="min-w-0 flex-1 truncate">{item.label}</span>
 
         {item.status === "building" ? (
-          <span className="rounded border border-[#E2DEEA] bg-[#F3F1F8] px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-wider text-[#6F687A]">
+          <span className="rounded border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface-elevated)] px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-wider text-[var(--j10-dashboard-text-secondary)]">
             Soon
           </span>
         ) : null}
@@ -187,19 +187,19 @@ export default function Sidebar({
       <aside
         className={`
           fixed left-0 top-0 z-50 flex h-dvh w-[228px] flex-col
-          border-r border-[#E2DEEA] bg-[#FFFFFF]
+          border-r border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)]
           transition-transform duration-200 lg:translate-x-0
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
         {/* Brand Header — Compact 56px */}
-        <div className="flex h-[56px] shrink-0 items-center justify-between border-b border-[#E2DEEA] px-4">
+        <div className="flex h-[56px] shrink-0 items-center justify-between border-b border-[var(--j10-dashboard-border)] px-4">
           <Link
             href="/dashboard"
             onClick={handleNavigation}
             className="flex items-center gap-2.5"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-md p-1 bg-[#F3F1F8] border border-[#E2DEEA]">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface-elevated)] p-1">
               <Image
                 src="/brand/j10-logo.png"
                 alt="J10 monogram"
@@ -210,8 +210,8 @@ export default function Sidebar({
             </div>
 
             <div>
-              <div className="text-sm font-bold tracking-tight text-[#17151F]">
-                J10 <span className="font-normal text-[#6F687A]">NEXUS</span>
+              <div className="text-sm font-bold tracking-tight text-[var(--j10-dashboard-text)]">
+                J10 <span className="font-normal text-[var(--j10-dashboard-text-secondary)]">NEXUS</span>
               </div>
             </div>
           </Link>
@@ -220,7 +220,7 @@ export default function Sidebar({
             type="button"
             onClick={onClose}
             aria-label="Close navigation"
-            className="rounded-md p-1.5 text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F] lg:hidden"
+            className="rounded-md p-1.5 text-[var(--j10-dashboard-text-secondary)] transition hover:bg-[var(--j10-dashboard-hover)] hover:text-[var(--j10-dashboard-text)] lg:hidden"
           >
             <X size={16} />
           </button>
@@ -230,7 +230,7 @@ export default function Sidebar({
         <nav className="mt-3 flex-1 overflow-y-auto px-2.5 pb-4 scrollbar-thin">
           {dashboardNavigationSections.map((section) => (
             <div key={section.title} className="mb-4">
-              <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-[#918A9D]">
+              <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--j10-dashboard-text-muted)]">
                 {section.title}
               </div>
               <div className="space-y-0.5">{section.items.map(renderItem)}</div>
@@ -239,18 +239,18 @@ export default function Sidebar({
         </nav>
 
         {/* Footer Workspace Info */}
-        <div className="shrink-0 border-t border-[#E2DEEA] bg-[#FFFFFF] p-2.5">
+        <div className="shrink-0 border-t border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] p-2.5">
           {renderItem(dashboardSettingsItem)}
 
-          <div className="mt-2 flex items-center gap-2.5 rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] p-2.5">
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-[#FFFFFF] text-[11px] font-bold text-[#D8B565] border border-[#E2DEEA]">
+          <div className="mt-2 flex items-center gap-2.5 rounded-lg border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface-elevated)] p-2.5">
+            <div className="flex h-6 w-6 items-center justify-center rounded border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] text-[11px] font-bold text-[#D8B565]">
               W
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-semibold text-[#17151F]">
+              <div className="truncate text-xs font-semibold text-[var(--j10-dashboard-text)]">
                 Active Workspace
               </div>
-              <div className="truncate text-[10px] text-[#6F687A]">
+              <div className="truncate text-[10px] text-[var(--j10-dashboard-text-secondary)]">
                 Production Tenant
               </div>
             </div>

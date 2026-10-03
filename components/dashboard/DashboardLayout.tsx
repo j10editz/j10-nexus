@@ -18,7 +18,7 @@ export default function DashboardLayout({
   const [colorMode, setColorMode] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("j10-dashboard-color-mode");
+    const saved = window.localStorage.getItem("j10-dashboard-color-mode-v2");
     if (saved === "light" || saved === "dark") {
       setColorMode(saved);
     }
@@ -27,7 +27,7 @@ export default function DashboardLayout({
   function toggleColorMode() {
     setColorMode((current) => {
       const next = current === "dark" ? "light" : "dark";
-      window.localStorage.setItem("j10-dashboard-color-mode", next);
+      window.localStorage.setItem("j10-dashboard-color-mode-v2", next);
       return next;
     });
   }
