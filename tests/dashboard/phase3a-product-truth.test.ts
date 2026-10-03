@@ -116,13 +116,15 @@ describe("Phase 3A: J10 Product Truth & Dashboard Foundation", () => {
       expect(compCode).toContain("J10 Pay");
       expect(compCode).toContain("J10 AI Operator");
 
-      // Verify all 8 core metrics are linked to products
+      // Verify the four executive metrics are linked to products and the
+      // supporting execution states remain visible from live API data.
       expect(compCode).toContain("metrics.newLeads.href");
-      expect(compCode).toContain("metrics.leadsNeedingAttention.href");
       expect(compCode).toContain("metrics.unansweredConversations.href");
       expect(compCode).toContain("metrics.upcomingBookings.href");
       expect(compCode).toContain("metrics.pendingPayments.href");
-      expect(compCode).toContain("metrics.tasksRequiringHumanAction.href");
+      expect(compCode).toContain("metrics.tasksRequiringHumanAction.count");
+      expect(compCode).toContain("metrics.aiActionsCompleted.href");
+      expect(compCode).toContain("metrics.failedAutomations.count");
       expect(compCode).toContain("metrics.aiActionsCompleted.href");
       expect(compCode).toContain("metrics.failedAutomations.href");
 

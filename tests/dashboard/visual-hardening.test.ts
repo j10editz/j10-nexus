@@ -14,7 +14,7 @@ function readCode(path: string) {
 const EMOJI_REGEX =
   /[\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}]/u;
 
-describe("Phase 3A: J10 Black Emerald Visual Hardening", () => {
+describe("J10 Royal Night Product System", () => {
   describe("1. Zero Decorative Emojis", () => {
     it("ensures all navigation item labels and descriptions contain zero emojis", () => {
       for (const item of dashboardNavigationItems) {
@@ -59,18 +59,20 @@ describe("Phase 3A: J10 Black Emerald Visual Hardening", () => {
     });
   });
 
-  describe("2. Canonical Black Emerald Surface & Border Tokens", () => {
-    it("scopes one Black Emerald palette across every authenticated dashboard route", () => {
+  describe("2. Canonical Royal Night Surface & Border Tokens", () => {
+    it("scopes one Royal Night palette across every authenticated dashboard route", () => {
       const layoutCode = readCode("components/dashboard/DashboardLayout.tsx");
       const globalCss = readCode("app/globals.css");
 
       expect(layoutCode).toContain("j10-dashboard-theme");
-      expect(layoutCode).toContain("bg-[#070A08]");
-      expect(globalCss).toContain("--j10-dashboard-canvas: #070a08");
-      expect(globalCss).toContain("--j10-dashboard-surface: #0d120f");
-      expect(globalCss).toContain("--j10-dashboard-text: #f3f7f4");
-      expect(globalCss).toContain("--j10-dashboard-accent: #35c46a");
-      expect(globalCss).toContain("--j10-dashboard-border: #26342b");
+      expect(layoutCode).toContain("bg-[var(--j10-dashboard-canvas)]");
+      expect(globalCss).toContain("--j10-dashboard-canvas: #080713");
+      expect(globalCss).toContain("--j10-dashboard-surface: #0e0c1a");
+      expect(globalCss).toContain("--j10-dashboard-text: #f7f3ff");
+      expect(globalCss).toContain("--j10-dashboard-accent: #7c3aed");
+      expect(globalCss).toContain("--j10-dashboard-gold: #d8b565");
+      expect(globalCss).toContain("--j10-dashboard-border: #2d2644");
+      expect(globalCss).toContain('[data-dashboard-mode="light"]');
 
       // Legacy Pearl Violet and multicolor utilities are normalized only
       // inside the authenticated dashboard, not on the public marketing site.
@@ -100,9 +102,10 @@ describe("Phase 3A: J10 Black Emerald Visual Hardening", () => {
         return (light + 0.05) / (dark + 0.05);
       }
 
-      expect(contrast("#F3F7F4", "#070A08")).toBeGreaterThanOrEqual(7);
-      expect(contrast("#AAB7AE", "#0D120F")).toBeGreaterThanOrEqual(4.5);
-      expect(contrast("#35C46A", "#070A08")).toBeGreaterThanOrEqual(4.5);
+      expect(contrast("#F7F3FF", "#080713")).toBeGreaterThanOrEqual(7);
+      expect(contrast("#B8AEC9", "#0E0C1A")).toBeGreaterThanOrEqual(4.5);
+      expect(contrast("#A78BFA", "#080713")).toBeGreaterThanOrEqual(4.5);
+      expect(contrast("#D8B565", "#080713")).toBeGreaterThanOrEqual(4.5);
     });
 
     it("ensures DashboardMetricTile has zero decorative icons inside metric tiles", () => {
@@ -140,10 +143,8 @@ describe("Phase 3A: J10 Black Emerald Visual Hardening", () => {
     it("applies critical/warning semantic status only to real issues in J10CommandCenter", () => {
       const ccCode = readCode("components/dashboard/J10CommandCenter.tsx");
 
-      // Failed automations tile triggers error only when count > 0
-      expect(ccCode).toContain('metrics.failedAutomations.count > 0 ? "error" : "neutral"');
-      // Needs attention tile triggers warning only when count > 0
-      expect(ccCode).toContain('metrics.leadsNeedingAttention.count > 0 ? "warning" : "neutral"');
+      expect(ccCode).toContain('metrics.failedAutomations.count > 0');
+      expect(ccCode).toContain('metrics.unansweredConversations.count > 0 ? "warning" : "neutral"');
     });
   });
 
@@ -198,7 +199,7 @@ describe("Phase 3A: J10 Black Emerald Visual Hardening", () => {
   });
 
   describe("6. Consistent Dashboard Scope & Zero Provider Leaks", () => {
-    it("ensures every dashboard route inherits the Black Emerald scope", () => {
+    it("ensures every dashboard route inherits the Royal Night scope", () => {
       const layoutCode = readCode("components/dashboard/DashboardLayout.tsx");
       expect(layoutCode.match(/j10-dashboard-theme/g)?.length).toBeGreaterThanOrEqual(2);
       expect(layoutCode).not.toContain("bg-[#F8F7FC]");

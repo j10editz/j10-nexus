@@ -268,6 +268,9 @@ export default function WorkspaceSwitcher() {
             <span className="truncate text-xs font-medium text-[#6F687A]">
               No authorized workspace
             </span>
+            <span className="text-[9px] uppercase tracking-wider text-[#E11D48] font-semibold block">
+              NO ACCESS
+            </span>
           </div>
 
           <ChevronDown size={12} className="text-[#918A9D]" />

@@ -6,17 +6,8 @@ import { ChevronRight } from "lucide-react";
 
 /**
  * J10 NEXUS — Canonical Dashboard Primitives
- * Canonical Black Emerald Palette (scoped by DashboardLayout):
- * - Main background: #070A08
- * - Primary surface: #0D120F
- * - Elevated surface: #121915
- * - Primary border: #26342B
- * - Strong border: #34483B
- * - Primary text: #F3F7F4
- * - Secondary text: #AAB7AE
- * - Muted text: #748178
- * - Primary emerald: #35C46A
- * - Emerald hover: #46D779
+ * Canonical Royal Night palette is scoped by DashboardLayout and expressed
+ * through CSS variables so dark and light modes preserve the same hierarchy.
  *
  * Semantic:
  * - Success: #168A65 (bg #E8F8F2, border #A3E6D0)
@@ -107,7 +98,7 @@ export function DashboardSectionHeader({
   );
 }
 
-// 3. Compact Metric Tile (Canonical Black Emerald)
+// 3. Compact Metric Tile (Canonical Royal Night)
 interface DashboardMetricTileProps {
   label: string;
   value: string | number;
@@ -200,7 +191,7 @@ export function DashboardMetricTile({
   return content;
 }
 
-// 4. Status Badge (Canonical Black Emerald, restrained semantics)
+// 4. Status Badge (Royal Night, restrained semantics)
 type StatusBadgeVariant =
   | "connected"
   | "available"

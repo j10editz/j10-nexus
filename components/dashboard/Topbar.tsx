@@ -17,8 +17,10 @@ import {
   CreditCard,
   LogOut,
   Menu,
+  Moon,
   Search,
   Settings,
+  Sun,
   UserCircle2,
   X,
 } from "lucide-react";
@@ -30,6 +32,8 @@ import WorkspaceSwitcher from "@/components/dashboard/WorkspaceSwitcher";
 
 type TopbarProps = {
   onOpenNavigation: () => void;
+  colorMode: "dark" | "light";
+  onToggleColorMode: () => void;
 };
 
 type NotificationsSummaryResponse = {
@@ -41,6 +45,8 @@ type NotificationsSummaryResponse = {
 
 export default function Topbar({
   onOpenNavigation,
+  colorMode,
+  onToggleColorMode,
 }: TopbarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -124,6 +130,7 @@ export default function Topbar({
               ...prev,
               loading: false,
               authFailed: true,
+              workspaceRole: "Authorization unavailable",
             }));
           }
           return;
@@ -157,6 +164,7 @@ export default function Topbar({
             ...prev,
             loading: false,
             authFailed: true,
+            workspaceRole: "Authorization unavailable",
           }));
         }
       }
@@ -403,6 +411,16 @@ export default function Topbar({
 
         {/* Right Side: Notifications + Workspace Switcher (Desktop) + User Avatar */}
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onToggleColorMode}
+            aria-label={`Switch to ${colorMode === "dark" ? "light" : "dark"} dashboard`}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F]"
+            title={`Use ${colorMode === "dark" ? "light" : "dark"} dashboard`}
+          >
+            {colorMode === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+
           {/* Notifications */}
           <Link
             href="/dashboard/notifications"
@@ -490,6 +508,18 @@ export default function Topbar({
                       <p className="truncate text-[10px] text-[#6F687A]">
                         {profileData.email || "No email"}
                       </p>
+                      <div className="mt-1 flex items-center gap-1.5 text-[10px]">
+                        {profileData.workspaceRole === "Owner" && (
+                          <span className="rounded bg-[#F0ECFF] px-1.5 py-0.5 font-medium text-[#6347E8]">
+                            Owner
+                          </span>
+                        )}
+                        {profileData.platformRole === "platform_founder" && (
+                          <span className="rounded bg-[#F0ECFF] px-1.5 py-0.5 font-medium text-[#6347E8]">
+                            Founder
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

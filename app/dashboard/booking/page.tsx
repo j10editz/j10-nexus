@@ -14,6 +14,7 @@ import {
   User,
   CreditCard,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import {
   DashboardPageHeader,
@@ -23,9 +24,11 @@ import {
 interface BookingItem {
   id: string;
   contact_id?: string;
+  title: string;
   status: string;
-  scheduled_start?: string;
-  scheduled_end?: string;
+  scheduled_at?: string;
+  duration_minutes?: number;
+  notes?: string | null;
   metadata?: {
     clientName?: string;
     serviceName?: string;
@@ -40,6 +43,10 @@ export default function J10BookingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"appointments" | "availability" | "reminders">("appointments");
+  const [showCreate, setShowCreate] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [bookingForm, setBookingForm] = useState({ title: "", scheduledAt: "", durationMinutes: "60", notes: "" });
+  const [businessHours, setBusinessHours] = useState<string | null>(null);
 
   const fetchBookings = useCallback(async () => {
     try {
@@ -61,7 +68,40 @@ export default function J10BookingPage() {
 
   useEffect(() => {
     void fetchBookings();
+    fetch("/api/bot/config", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => setBusinessHours(payload?.config?.business_hours || null))
+      .catch(() => setBusinessHours(null));
   }, [fetchBookings]);
+
+  async function createBooking(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/crm/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: bookingForm.title,
+          scheduledAt: new Date(bookingForm.scheduledAt).toISOString(),
+          durationMinutes: Number(bookingForm.durationMinutes) || 60,
+          notes: bookingForm.notes,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Booking could not be created.");
+      }
+      setBookingForm({ title: "", scheduledAt: "", durationMinutes: "60", notes: "" });
+      setShowCreate(false);
+      await fetchBookings();
+    } catch (creationError) {
+      setError(creationError instanceof Error ? creationError.message : "Booking could not be created.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="min-h-[calc(100dvh-56px)] bg-[#F8F7FC] px-4 py-6 sm:px-6 lg:px-8 text-[#17151F]">
@@ -80,16 +120,36 @@ export default function J10BookingPage() {
                 <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
                 <span>Refresh</span>
               </DashboardButton>
-              <Link
-                href="/dashboard/connections"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2DEEA] bg-[#FFFFFF] px-3 py-1.5 text-xs font-medium text-[#6F687A] transition hover:bg-[#F3F1F8] hover:text-[#17151F]"
+              <button
+                type="button"
+                onClick={() => setShowCreate(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#6347E8] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#5136D6]"
               >
-                <CalendarIcon size={13} />
-                <span>Google Calendar (Coming Soon)</span>
-              </Link>
+                <Plus size={13} />
+                <span>New booking</span>
+              </button>
             </div>
           }
         />
+
+        {showCreate ? (
+          <form onSubmit={createBooking} className="rounded-xl border border-[#D8B565]/30 bg-[#FFFFFF] p-4 shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-[#17151F]">Create an internal booking</h2>
+                <p className="text-[11px] text-[#6F687A]">This records the appointment in J10. It does not claim an external calendar reservation.</p>
+              </div>
+              <button type="button" onClick={() => setShowCreate(false)} aria-label="Close booking form" className="text-[#6F687A]"><X size={16} /></button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-4">
+              <label className="md:col-span-2 text-[11px] text-[#6F687A]">Title<input required value={bookingForm.title} onChange={(event) => setBookingForm((current) => ({ ...current, title: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] px-3 py-2 text-xs text-[#17151F]" /></label>
+              <label className="text-[11px] text-[#6F687A]">Date and time<input required type="datetime-local" value={bookingForm.scheduledAt} onChange={(event) => setBookingForm((current) => ({ ...current, scheduledAt: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] px-3 py-2 text-xs text-[#17151F]" /></label>
+              <label className="text-[11px] text-[#6F687A]">Duration<input required min="15" step="15" type="number" value={bookingForm.durationMinutes} onChange={(event) => setBookingForm((current) => ({ ...current, durationMinutes: event.target.value }))} className="mt-1 w-full rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] px-3 py-2 text-xs text-[#17151F]" /></label>
+            </div>
+            <label className="mt-3 block text-[11px] text-[#6F687A]">Internal notes<textarea value={bookingForm.notes} onChange={(event) => setBookingForm((current) => ({ ...current, notes: event.target.value }))} className="mt-1 min-h-20 w-full rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] px-3 py-2 text-xs text-[#17151F]" /></label>
+            <div className="mt-3 flex justify-end"><button disabled={submitting} className="rounded-lg bg-[#6347E8] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{submitting ? "Creating…" : "Create booking"}</button></div>
+          </form>
+        ) : null}
 
         {/* Tab Selection */}
         <div className="flex items-center gap-1.5 border-b border-[#E2DEEA] pb-2">
@@ -180,11 +240,11 @@ export default function J10BookingPage() {
                       </div>
                       <div>
                         <div className="text-xs font-semibold text-[#17151F]">
-                          {b.metadata?.clientName || "Customer Appointment"}
+                          {b.metadata?.clientName || b.title || "Customer Appointment"}
                         </div>
                         <div className="text-[11px] text-[#6F687A]">
-                          {b.scheduled_start
-                            ? new Date(b.scheduled_start).toLocaleString([], {
+                          {b.scheduled_at
+                            ? new Date(b.scheduled_at).toLocaleString([], {
                                 dateStyle: "medium",
                                 timeStyle: "short",
                               })
@@ -220,7 +280,7 @@ export default function J10BookingPage() {
               Business Availability & Scheduling Sync
             </h3>
             <p className="text-xs text-[#6F687A]">
-              J10 AI Operator uses your configured operating hours and calendar sync to offer customers available slots in real time.
+              J10 uses the verified operating-hours configuration below. External calendar availability is not claimed until a calendar connection confirms it.
             </p>
             <div className="rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-4 text-xs text-[#6F687A] space-y-2">
               <div className="flex items-center justify-between">
@@ -232,8 +292,8 @@ export default function J10BookingPage() {
                   Edit in J10 AI Operator
                 </Link>
               </div>
-              <p>Monday - Friday: 9:00 AM - 6:00 PM</p>
-              <p>Buffer between appointments: 15 minutes</p>
+              <p>{businessHours || "Business hours have not been configured yet."}</p>
+              <p className="text-[11px]">Internal J10 bookings are available now. External calendar reservations require a verified connection.</p>
             </div>
           </div>
         )}
@@ -245,19 +305,19 @@ export default function J10BookingPage() {
               Automated Reminders & No-Show Recovery
             </h3>
             <p className="text-xs text-[#6F687A]">
-              Automated reminders reduce no-shows and give customers a quick way to confirm or reschedule through WhatsApp or Telegram.
+              Reminder workflows are shown as active only after a published automation and connected delivery channel are verified.
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-4 text-xs">
                 <div className="font-semibold text-[#17151F]">24-Hour Reminder</div>
                 <p className="mt-1 text-[#6F687A]">
-                  Automated WhatsApp or SMS reminder sent 24 hours prior to appointment with instant confirmation button.
+                  Configure a published reminder workflow for a connected WhatsApp or Telegram channel.
                 </p>
               </div>
               <div className="rounded-xl border border-[#E2DEEA] bg-[#F8F7FC] p-4 text-xs">
                 <div className="font-semibold text-[#17151F]">1-Hour Arrival Notice</div>
                 <p className="mt-1 text-[#6F687A]">
-                  Final reminder with directions and business contact number sent 60 minutes prior.
+                  No reminder is assumed active from this screen. Verify delivery in J10 Automations before relying on it.
                 </p>
               </div>
             </div>

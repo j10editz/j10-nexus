@@ -220,40 +220,65 @@ body {
 }
 
 /* ==========================================================================
-   AUTHENTICATED DASHBOARD — J10 BLACK EMERALD
+   AUTHENTICATED DASHBOARD — J10 ROYAL NIGHT
 
    The dashboard previously mixed the Pearl Violet experiment with legacy
    cyan, blue, purple, and charcoal surfaces. This scope is intentionally
    isolated from the marketing site. It gives every authenticated route one
-   canvas, one surface system, and one primary action color while preserving
-   amber and rose strictly for real warning/error states.
+   canvas, one surface system, and one primary action color. Brushed gold is
+   reserved for hierarchy and value, while amber and rose remain strictly
+   semantic warning/error states.
    ========================================================================== */
 
 .j10-dashboard-theme {
-  --j10-dashboard-canvas: #070a08;
-  --j10-dashboard-surface: #0d120f;
-  --j10-dashboard-elevated: #121915;
-  --j10-dashboard-hover: #17211b;
-  --j10-dashboard-border: #26342b;
-  --j10-dashboard-border-strong: #34483b;
-  --j10-dashboard-text: #f3f7f4;
-  --j10-dashboard-text-secondary: #aab7ae;
-  --j10-dashboard-text-muted: #748178;
-  --j10-dashboard-accent: #35c46a;
-  --j10-dashboard-accent-hover: #46d779;
-  --j10-dashboard-accent-deep: #123d23;
-  --j10-dashboard-accent-soft: rgba(53, 196, 106, 0.11);
-  --j10-dashboard-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+  --j10-dashboard-canvas: #080713;
+  --j10-dashboard-surface: #0e0c1a;
+  --j10-dashboard-elevated: #151126;
+  --j10-dashboard-hover: #1d1733;
+  --j10-dashboard-border: #2d2644;
+  --j10-dashboard-border-strong: #493a68;
+  --j10-dashboard-text: #f7f3ff;
+  --j10-dashboard-text-secondary: #b8aec9;
+  --j10-dashboard-text-muted: #817891;
+  --j10-dashboard-accent: #7c3aed;
+  --j10-dashboard-accent-text: #a78bfa;
+  --j10-dashboard-accent-hover: #8b5cf6;
+  --j10-dashboard-accent-deep: #4c1d95;
+  --j10-dashboard-accent-soft: rgba(124, 58, 237, 0.14);
+  --j10-dashboard-gold: #d8b565;
+  --j10-dashboard-gold-soft: rgba(216, 181, 101, 0.12);
+  --j10-dashboard-shadow: 0 18px 42px rgba(2, 1, 8, 0.32);
   --j10-electric-blue: var(--j10-dashboard-accent);
   --j10-primary-blue: var(--j10-dashboard-accent);
   --j10-indigo: var(--j10-dashboard-accent);
   --j10-violet: var(--j10-dashboard-accent);
-  --j10-border-bright: rgba(53, 196, 106, 0.28);
-  --j10-border-violet: rgba(53, 196, 106, 0.28);
-  --j10-border-focus: rgba(53, 196, 106, 0.55);
+  --j10-border-bright: rgba(216, 181, 101, 0.32);
+  --j10-border-violet: rgba(124, 58, 237, 0.34);
+  --j10-border-focus: rgba(139, 92, 246, 0.62);
   background: var(--j10-dashboard-canvas);
   color: var(--j10-dashboard-text);
   color-scheme: dark;
+}
+
+.j10-dashboard-theme[data-dashboard-mode="light"] {
+  --j10-dashboard-canvas: #f7f4fb;
+  --j10-dashboard-surface: #ffffff;
+  --j10-dashboard-elevated: #f1edf8;
+  --j10-dashboard-hover: #ebe5f5;
+  --j10-dashboard-border: #ded6eb;
+  --j10-dashboard-border-strong: #c8bbdc;
+  --j10-dashboard-text: #1a1425;
+  --j10-dashboard-text-secondary: #5f566d;
+  --j10-dashboard-text-muted: #82788f;
+  --j10-dashboard-accent: #6d28d9;
+  --j10-dashboard-accent-text: #6d28d9;
+  --j10-dashboard-accent-hover: #5b21b6;
+  --j10-dashboard-accent-deep: #4c1d95;
+  --j10-dashboard-accent-soft: rgba(109, 40, 217, 0.1);
+  --j10-dashboard-gold: #9a6a19;
+  --j10-dashboard-gold-soft: rgba(154, 106, 25, 0.09);
+  --j10-dashboard-shadow: 0 12px 30px rgba(49, 32, 92, 0.08);
+  color-scheme: light;
 }
 
 .j10-dashboard-theme .j10-canvas,
@@ -283,7 +308,7 @@ body {
 }
 
 .j10-dashboard-theme ::selection {
-  background: rgba(53, 196, 106, 0.28);
+  background: rgba(124, 58, 237, 0.32);
   color: #ffffff;
 }
 
@@ -331,17 +356,25 @@ body {
   color: var(--j10-dashboard-text-muted) !important;
 }
 
+.j10-dashboard-theme [class*="text-[#D8B565]"] {
+  color: var(--j10-dashboard-gold) !important;
+}
+
+.j10-dashboard-theme [class*="border-[#D8B565]"] {
+  border-color: var(--j10-dashboard-gold) !important;
+}
+
 .j10-dashboard-theme [class*="text-[#6347E8]"],
 .j10-dashboard-theme [class*="text-[#5136D6]"],
 .j10-dashboard-theme [class*="text-[#3E2A8A]"] {
-  color: var(--j10-dashboard-accent) !important;
+  color: var(--j10-dashboard-accent-text) !important;
 }
 
 .j10-dashboard-theme [class*="bg-[#6347E8]"],
 .j10-dashboard-theme [class*="bg-[#5136D6]"],
 .j10-dashboard-theme [class*="bg-[#3E2A8A]"] {
   background-color: var(--j10-dashboard-accent) !important;
-  color: #061008 !important;
+  color: #ffffff !important;
 }
 
 .j10-dashboard-theme [class*="shadow-[0_4px_16px_rgba(49,32,92"] {
@@ -375,15 +408,15 @@ body {
 
 /* Semantic states remain meaningful, but never become bright pastel panels. */
 .j10-dashboard-theme [class*="bg-[#E8F8F2]"] {
-  background-color: rgba(53, 196, 106, 0.11) !important;
+  background-color: rgba(22, 138, 101, 0.12) !important;
 }
 
 .j10-dashboard-theme [class*="border-[#A3E6D0]"] {
-  border-color: rgba(53, 196, 106, 0.3) !important;
+  border-color: rgba(22, 138, 101, 0.34) !important;
 }
 
 .j10-dashboard-theme [class*="text-[#168A65]"] {
-  color: var(--j10-dashboard-accent) !important;
+  color: #34d399 !important;
 }
 
 .j10-dashboard-theme [class*="bg-[#FEF3C7]"] {
@@ -411,7 +444,7 @@ body {
 
 .j10-dashboard-theme .j10-gradient-text {
   background-image: none !important;
-  color: var(--j10-dashboard-accent) !important;
+  color: var(--j10-dashboard-accent-text) !important;
   -webkit-text-fill-color: currentColor;
 }
 
@@ -426,7 +459,7 @@ body {
 .j10-dashboard-theme [class~="text-purple-400"],
 .j10-dashboard-theme [class~="text-violet-300"],
 .j10-dashboard-theme [class~="text-violet-400"] {
-  color: var(--j10-dashboard-accent) !important;
+  color: var(--j10-dashboard-accent-text) !important;
 }
 
 .j10-dashboard-theme [class~="bg-cyan-400"],
@@ -441,7 +474,7 @@ body {
 .j10-dashboard-theme [class~="bg-violet-500"],
 .j10-dashboard-theme [class~="bg-violet-600"] {
   background-color: var(--j10-dashboard-accent) !important;
-  color: #061008 !important;
+  color: #ffffff !important;
 }
 
 /* Catch every legacy blue/cyan/violet token without matching variant tokens
@@ -453,7 +486,7 @@ body {
   [class^="text-purple-"], [class*=" text-purple-"],
   [class^="text-violet-"], [class*=" text-violet-"]
 ) {
-  color: var(--j10-dashboard-accent) !important;
+  color: var(--j10-dashboard-accent-text) !important;
 }
 
 .j10-dashboard-theme :is(
@@ -463,7 +496,7 @@ body {
   [class^="border-purple-"], [class*=" border-purple-"],
   [class^="border-violet-"], [class*=" border-violet-"]
 ) {
-  border-color: rgba(53, 196, 106, 0.28) !important;
+  border-color: rgba(124, 58, 237, 0.34) !important;
 }
 
 .j10-dashboard-theme :is(
@@ -492,7 +525,7 @@ body {
 .j10-dashboard-theme [class*="hover:bg-purple-"]:hover,
 .j10-dashboard-theme [class*="hover:bg-violet-"]:hover {
   background-color: var(--j10-dashboard-accent-hover) !important;
-  color: #061008 !important;
+  color: #ffffff !important;
 }
 
 .j10-dashboard-theme [class*="hover:text-blue-"]:hover,
@@ -500,7 +533,7 @@ body {
 .j10-dashboard-theme [class*="hover:text-indigo-"]:hover,
 .j10-dashboard-theme [class*="hover:text-purple-"]:hover,
 .j10-dashboard-theme [class*="hover:text-violet-"]:hover {
-  color: var(--j10-dashboard-accent-hover) !important;
+  color: var(--j10-dashboard-accent-text) !important;
 }
 
 .j10-dashboard-theme :is(
@@ -518,7 +551,7 @@ body {
 .j10-dashboard-theme [class*="from-indigo-"],
 .j10-dashboard-theme [class*="from-purple-"],
 .j10-dashboard-theme [class*="from-violet-"] {
-  background-image: linear-gradient(135deg, #183d25, #35c46a) !important;
+  background-image: linear-gradient(135deg, #4c1d95, #7c3aed) !important;
 }
 
 /* Interactive surfaces get a quiet emerald response without colored panels. */

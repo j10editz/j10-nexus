@@ -18,6 +18,7 @@ interface J10CommandCenterProps {
 
 export default function J10CommandCenter({
   initialWorkspaceName = "Active Workspace",
+  userName = "",
 }: J10CommandCenterProps) {
   const [data, setData] = useState<CommandCenterData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -318,18 +319,20 @@ export default function J10CommandCenter({
   }
 
   const { metrics } = data;
+  const firstName = userName.trim().split(/\s+/)[0];
 
   return (
     <div className="p-4 sm:p-6 text-[#17151F]">
-      <div className="mx-auto max-w-[1360px] space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-[#E2DEEA]">
+      <div className="mx-auto max-w-[1440px] space-y-4">
+        <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#17151F]">
-              J10 Command Center
+              {firstName ? `Good morning, ${firstName}` : "J10 Command Center"}
             </h1>
             <p className="mt-0.5 text-xs text-[#6F687A]">
-              Operational business metrics and priority work items.
+              {data.isEmptyWorkspace
+                ? `Connect ${initialWorkspaceName} to start receiving verified activity.`
+                : "Here is what needs your attention today."}
             </p>
           </div>
 
@@ -355,10 +358,7 @@ export default function J10CommandCenter({
           </div>
         </div>
 
-        {/* 8 Compact Metric Panels (4-column desktop, 2-column mobile) */}
-        {/* Strictly no meaningless decorative purple dots. Status dots only for real problems/alerts */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {/* 1. New Leads (Neutral - no decorative dot) */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <DashboardMetricTile
             label="New Leads"
             value={metrics.newLeads.count}
@@ -367,18 +367,6 @@ export default function J10CommandCenter({
             semanticStatus="neutral"
           />
 
-          {/* 2. Needs Attention (Warning amber ONLY when count > 0) */}
-          <DashboardMetricTile
-            label="Needs Attention"
-            value={metrics.leadsNeedingAttention.count}
-            destinationLabel="Qualified Leads"
-            href={metrics.leadsNeedingAttention.href}
-            semanticStatus={
-              metrics.leadsNeedingAttention.count > 0 ? "warning" : "neutral"
-            }
-          />
-
-          {/* 3. Unanswered (Warning amber ONLY when count > 0) */}
           <DashboardMetricTile
             label="Unanswered"
             value={metrics.unansweredConversations.count}
@@ -389,16 +377,14 @@ export default function J10CommandCenter({
             }
           />
 
-          {/* 4. Upcoming Bookings (Neutral - no decorative dot) */}
           <DashboardMetricTile
-            label="Upcoming Bookings"
+            label="Booked"
             value={metrics.upcomingBookings.count}
             destinationLabel="J10 Booking"
             href={metrics.upcomingBookings.href}
             semanticStatus="neutral"
           />
 
-          {/* 5. Pending Payments (Neutral - no decorative dot) */}
           <DashboardMetricTile
             label="Pending Payments"
             value={`$${metrics.pendingPayments.amount.toLocaleString()}`}
@@ -407,124 +393,119 @@ export default function J10CommandCenter({
             semanticStatus="neutral"
           />
 
-          {/* 6. Human Actions (Neutral - no decorative dot) */}
-          <DashboardMetricTile
-            label="Human Actions"
-            value={metrics.tasksRequiringHumanAction.count}
-            destinationLabel="Approvals"
-            href={metrics.tasksRequiringHumanAction.href}
-            semanticStatus="neutral"
-          />
-
-          {/* 7. AI Actions (Neutral - no decorative dot) */}
-          <DashboardMetricTile
-            label="AI Actions"
-            value={metrics.aiActionsCompleted.count}
-            destinationLabel="J10 AI Operator"
-            href={metrics.aiActionsCompleted.href}
-            semanticStatus="neutral"
-          />
-
-          {/* 8. Failed Automations (Error red ONLY when count > 0) */}
-          <DashboardMetricTile
-            label="Failed Automations"
-            value={metrics.failedAutomations.count}
-            destinationLabel="Run Logs"
-            href={metrics.failedAutomations.href}
-            semanticStatus={
-              metrics.failedAutomations.count > 0 ? "error" : "neutral"
-            }
-          />
         </div>
 
-        {/* Section 1: Priority Work */}
-        <div>
-          <div className="flex items-center justify-between mb-2.5">
+        <section className="rounded-xl border border-[#D8B565]/30 bg-[#FFFFFF] px-4 py-3 shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+          <div className="mb-3 flex items-center justify-between">
             <div>
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-[#6347E8]">
-                Priority Work
+              <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8B565]">
+                Revenue workflow now
               </h2>
-              <p className="text-[11px] text-[#6F687A] mt-0.5">
-                Items requiring operator attention or follow-up action.
+              <p className="mt-0.5 text-[11px] text-[#6F687A]">
+                Live workspace counts, not conversion estimates.
               </p>
             </div>
-            <span className="text-[11px] font-medium text-[#6F687A] rounded-md bg-[#F3F1F8] border border-[#E2DEEA] px-2 py-0.5">
-              {priorityWorkItems.length}{" "}
-              {priorityWorkItems.length === 1 ? "item" : "items"}
-            </span>
           </div>
-
-          <div className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)] overflow-hidden divide-y divide-[#E2DEEA]">
-            {priorityWorkItems.length === 0 ? (
-              <div className="px-4 py-5 text-center text-xs text-[#6F687A]">
-                No items require attention today. All systems are operating normally.
+          <div className="grid gap-2 sm:grid-cols-4">
+            {[
+              ["New leads", metrics.newLeads.count],
+              ["Awaiting reply", metrics.unansweredConversations.count],
+              ["Upcoming bookings", metrics.upcomingBookings.count],
+              ["Pending invoices", metrics.pendingPayments.count],
+            ].map(([label, value], index) => (
+              <div key={String(label)} className="relative rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] px-3 py-2.5">
+                <div className="text-lg font-semibold text-[#17151F]">{value}</div>
+                <div className="text-[11px] text-[#6F687A]">{label}</div>
+                {index < 3 ? <ChevronRight className="absolute right-2 top-1/2 -translate-y-1/2 text-[#D8B565]" size={14} /> : null}
               </div>
-            ) : (
-              priorityWorkItems.slice(0, 6).map((item) => (
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#E2DEEA] pt-3 text-[11px] text-[#6F687A]">
+            <Link href={metrics.aiActionsCompleted.href} className="font-medium text-[#6347E8]">J10 AI Operator</Link>
+            <span>{metrics.aiActionsCompleted.count} completed AI actions</span>
+            <span>{metrics.tasksRequiringHumanAction.count} human approvals</span>
+            <span className={metrics.failedAutomations.count > 0 ? "text-[#E11D48]" : ""}>{metrics.failedAutomations.count} failed automations</span>
+          </div>
+        </section>
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.75fr)]">
+          <section className="min-w-0 rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+            <div className="flex items-center justify-between border-b border-[#E2DEEA] px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold text-[#17151F]">Needs your attention</h2>
+                <p className="text-[11px] text-[#6F687A]">Ordered by urgency and customer impact.</p>
+              </div>
+              <span className="rounded-md border border-[#E2DEEA] bg-[#F3F1F8] px-2 py-0.5 text-[11px] text-[#6F687A]">
+                {priorityWorkItems.length}
+              </span>
+            </div>
+            <div className="divide-y divide-[#E2DEEA] overflow-hidden">
+              {priorityWorkItems.length === 0 ? (
+                <DashboardEmptyState
+                  message="Nothing needs attention"
+                  subtext="J10 has not found unanswered conversations, failed automations, follow-up leads, or pending invoices in this workspace."
+                />
+              ) : priorityWorkItems.slice(0, 7).map((item) => (
                 <DashboardActionRow
                   key={item.id}
                   title={item.title}
                   context={item.context}
                   time={item.time}
-                  statusBadge={
-                    <DashboardStatusBadge
-                      status={item.status.variant}
-                      label={item.status.label}
-                    />
-                  }
+                  statusBadge={<DashboardStatusBadge status={item.status.variant} label={item.status.label} />}
                   actionLabel={item.actionLabel}
                   actionHref={item.actionHref}
                 />
-              ))
-            )}
+              ))}
+            </div>
+          </section>
+
+          <div className="space-y-4">
+            <section className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+              <div className="flex items-center justify-between border-b border-[#E2DEEA] px-4 py-3">
+                <h2 className="text-sm font-semibold text-[#17151F]">Upcoming</h2>
+                <Link href="/dashboard/booking" className="text-[11px] font-medium text-[#6347E8]">Open booking</Link>
+              </div>
+              <div className="divide-y divide-[#E2DEEA]">
+                {data.upcomingBookingsList.length === 0 ? (
+                  <p className="px-4 py-5 text-xs text-[#6F687A]">No upcoming bookings are recorded.</p>
+                ) : data.upcomingBookingsList.slice(0, 4).map((booking) => (
+                  <Link key={booking.id} href={`/dashboard/booking?id=${booking.id}`} className="block px-4 py-3 transition hover:bg-[#F3F1F8]">
+                    <div className="text-xs font-medium text-[#17151F]">{booking.clientName}</div>
+                    <div className="mt-0.5 text-[11px] text-[#6F687A]">{new Date(booking.scheduledStart).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-4 shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+              <h2 className="text-sm font-semibold text-[#17151F]">Money moving</h2>
+              <div className="mt-3 flex items-end justify-between">
+                <div>
+                  <div className="text-2xl font-semibold text-[#D8B565]">${metrics.pendingPayments.amount.toLocaleString()}</div>
+                  <p className="text-[11px] text-[#6F687A]">Across {metrics.pendingPayments.count} pending invoice{metrics.pendingPayments.count === 1 ? "" : "s"}</p>
+                </div>
+                <Link href="/dashboard/pay" className="text-xs font-medium text-[#6347E8]">Open J10 Pay</Link>
+              </div>
+            </section>
           </div>
         </div>
 
-        {/* Section 2: Recent Activity */}
-        <div>
-          <div className="flex items-center justify-between mb-2.5">
+        <section className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+          <div className="flex items-center justify-between border-b border-[#E2DEEA] px-4 py-3">
             <div>
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-[#6347E8]">
-                Recent Activity
-              </h2>
-              <p className="text-[11px] text-[#6F687A] mt-0.5">
-                Latest customer engagements, bookings, and channel updates.
-              </p>
+              <h2 className="text-sm font-semibold text-[#17151F]">Recent activity</h2>
+              <p className="text-[11px] text-[#6F687A]">Verified workspace events only.</p>
             </div>
-            <Link
-              href="/dashboard/inbox"
-              className="text-[11px] font-medium text-[#6347E8] hover:underline inline-flex items-center gap-1"
-            >
-              <span>View all in Inbox</span>
-              <ChevronRight size={12} />
-            </Link>
+            <Link href="/dashboard/inbox" className="inline-flex items-center gap-1 text-[11px] font-medium text-[#6347E8]">View inbox <ChevronRight size={12} /></Link>
           </div>
-
-          <div className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)] overflow-hidden divide-y divide-[#E2DEEA]">
+          <div className="divide-y divide-[#E2DEEA]">
             {recentActivityItems.length === 0 ? (
-              <div className="px-4 py-5 text-center text-xs text-[#6F687A]">
-                No recent activity recorded yet for this workspace.
-              </div>
-            ) : (
-              recentActivityItems.slice(0, 6).map((item) => (
-                <DashboardActionRow
-                  key={item.id}
-                  title={item.title}
-                  context={item.context}
-                  time={item.time}
-                  statusBadge={
-                    <DashboardStatusBadge
-                      status={item.status.variant}
-                      label={item.status.label}
-                    />
-                  }
-                  actionLabel={item.actionLabel}
-                  actionHref={item.actionHref}
-                />
-              ))
-            )}
+              <p className="px-4 py-5 text-xs text-[#6F687A]">No recent activity has been recorded for this workspace.</p>
+            ) : recentActivityItems.slice(0, 6).map((item) => (
+              <DashboardActionRow key={item.id} title={item.title} context={item.context} time={item.time} statusBadge={<DashboardStatusBadge status={item.status.variant} label={item.status.label} />} actionLabel={item.actionLabel} actionHref={item.actionHref} />
+            ))}
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

@@ -11,8 +11,8 @@ export async function middleware(request: NextRequest) {
   const isSanitizedLoginFailure =
     request.nextUrl.pathname === "/login" && authError === "auth_callback_failed";
 
-  // `auth_callback_failed` is our final, sanitized login-page state. Sending it
-  // back through /auth/callback would create an infinite callback/login loop.
+  // The sanitized login failure is the final destination. Redirecting it back
+  // through the callback creates an infinite callback/login loop.
   if ((code || authError) && !isCallbackPath && !isSanitizedLoginFailure) {
     const callbackUrl = new URL("/auth/callback", request.url);
     request.nextUrl.searchParams.forEach((value, key) => {

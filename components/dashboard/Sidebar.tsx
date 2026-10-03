@@ -102,7 +102,7 @@ export default function Sidebar({
       text-left text-xs font-medium transition-all duration-150
       ${
         active
-          ? "bg-[#35C46A] text-[#061008] font-semibold shadow-sm border-l-2 border-[#46D779]"
+          ? "bg-[#7C3AED] text-white font-semibold shadow-sm border-l-2 border-[#D8B565]"
           : available
             ? "text-[#6F687A] hover:bg-[#F3F1F8] hover:text-[#17151F]"
             : "cursor-not-allowed text-[#918A9D]/60"
@@ -127,7 +127,7 @@ export default function Sidebar({
             strokeWidth={1.8}
             className={
               active
-                ? "text-[#061008]"
+                ? "text-white"
                 : available
                   ? "text-[#6F687A] transition-colors group-hover:text-[#17151F]"
                   : "text-[#918A9D]/50"
@@ -243,7 +243,7 @@ export default function Sidebar({
           {renderItem(dashboardSettingsItem)}
 
           <div className="mt-2 flex items-center gap-2.5 rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] p-2.5">
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-[#FFFFFF] text-[11px] font-bold text-[#6347E8] border border-[#E2DEEA]">
+            <div className="flex h-6 w-6 items-center justify-center rounded bg-[#FFFFFF] text-[11px] font-bold text-[#D8B565] border border-[#E2DEEA]">
               W
             </div>
             <div className="min-w-0 flex-1">

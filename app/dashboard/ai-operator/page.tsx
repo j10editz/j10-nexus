@@ -15,16 +15,21 @@ import {
 export default function J10AiOperatorPage() {
   const [activeTab, setActiveTab] = useState<"receptionist" | "knowledge" | "automations">("receptionist");
   const [config, setConfig] = useState<any>(null);
+  const [knowledgeSummary, setKnowledgeSummary] = useState<any>(null);
+  const [automations, setAutomations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchConfig = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/bot/config");
-      if (res.ok) {
-        const json = await res.json();
-        setConfig(json.config || null);
-      }
+      const [configResponse, knowledgeResponse, automationsResponse] = await Promise.all([
+        fetch("/api/bot/config", { cache: "no-store" }),
+        fetch("/api/knowledge", { cache: "no-store" }),
+        fetch("/api/automations", { cache: "no-store" }),
+      ]);
+      if (configResponse.ok) setConfig((await configResponse.json()).config || null);
+      if (knowledgeResponse.ok) setKnowledgeSummary((await knowledgeResponse.json()).summary || null);
+      if (automationsResponse.ok) setAutomations((await automationsResponse.json()).automations || []);
     } catch {
       // Fallback
     } finally {
@@ -42,7 +47,7 @@ export default function J10AiOperatorPage() {
         {/* Page Header */}
         <DashboardPageHeader
           title="J10 AI Operator"
-          subtitle="Unified control center for J10 AI Receptionist, J10 Knowledge base, and J10 Automations."
+          subtitle="Configure what J10 may answer, automate, and escalate. Live behavior remains bounded by connected channels and published workflows."
           actions={
             <Link
               href="/dashboard/bot-setup?tab=simulator"
@@ -98,7 +103,7 @@ export default function J10AiOperatorPage() {
               <div>
                 <h2 className="text-sm font-semibold text-[#17151F]">Receptionist Configuration</h2>
                 <p className="mt-0.5 text-xs text-[#6F687A]">
-                  Define how your 24/7 AI operator responds, quotes pricing, and books appointments.
+                  Define how J10 responds, uses approved business information, and hands work to a person.
                 </p>
               </div>
 
@@ -136,7 +141,9 @@ export default function J10AiOperatorPage() {
                 <div className="rounded-lg border border-[#E2DEEA] bg-[#F8F7FC] p-4">
                   <div className="text-xs font-semibold text-[#17151F]">Human Escalation Protocol</div>
                   <p className="mt-1 text-xs text-[#6F687A]">
-                    When a lead asks for custom quoting or requests an owner call, AI pauses and escalates into J10 Inbox.
+                    {config?.escalation_instructions
+                      ? config.escalation_instructions
+                      : "No workspace-specific escalation instructions are configured yet."}
                   </p>
                   <Link
                     href="/dashboard/inbox?filter=needs_human"
@@ -156,7 +163,7 @@ export default function J10AiOperatorPage() {
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[#17151F]">Receptionist Testing</h3>
               </div>
               <p className="text-xs text-[#6F687A]">
-                Test your AI operator instantly before talking to live customers on WhatsApp or Telegram.
+                Test responses in the isolated simulator before enabling J10 on a connected customer channel.
               </p>
               <Link
                 href="/dashboard/bot-setup?tab=simulator"
@@ -175,7 +182,7 @@ export default function J10AiOperatorPage() {
               <div>
                 <h2 className="text-sm font-semibold text-[#17151F]">Knowledge Hub</h2>
                 <p className="mt-0.5 text-xs text-[#6F687A]">
-                  Upload business documents, policies, warranty details, and FAQs for high-precision retrieval.
+                  Manage the published documents J10 may use when answering customers.
                 </p>
               </div>
               <Link
@@ -189,10 +196,12 @@ export default function J10AiOperatorPage() {
             <div className="rounded-lg border border-[#E2DEEA] bg-[#F8F7FC] p-4 text-xs text-[#6F687A] space-y-2">
               <div className="flex items-center gap-2 text-[#17151F] font-medium">
                 <BookOpen size={14} className="text-[#6347E8]" />
-                <span>Deterministic Grounding</span>
+                <span>Published grounding sources</span>
               </div>
               <p className="text-[11px] leading-relaxed">
-                J10 AI operator quotes exclusively from your verified documents to ensure accurate prices, policies, and service answers without hallucination.
+                {knowledgeSummary
+                  ? `${knowledgeSummary.totalDocuments || 0} document${knowledgeSummary.totalDocuments === 1 ? "" : "s"} available; ${knowledgeSummary.activeGroundingDocuments || 0} marked active for grounding.`
+                  : "No knowledge summary is available. J10 will not claim document coverage until the backend confirms it."}
               </p>
             </div>
           </div>
@@ -217,18 +226,16 @@ export default function J10AiOperatorPage() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-[#E2DEEA] bg-[#F8F7FC] p-4 text-xs">
-                <div className="font-semibold text-[#17151F]">Instant Lead Response</div>
-                <p className="mt-1 text-[11px] text-[#6F687A]">
-                  Triggered on inbound message or form submission. Responds in &lt;11 seconds.
-                </p>
-              </div>
-              <div className="rounded-lg border border-[#E2DEEA] bg-[#F8F7FC] p-4 text-xs">
-                <div className="font-semibold text-[#17151F]">Appointment Follow-Up</div>
-                <p className="mt-1 text-[11px] text-[#6F687A]">
-                  Triggered after consultation completes. Delivers proposal and payment link.
-                </p>
-              </div>
+              {automations.length === 0 ? (
+                <div className="rounded-lg border border-[#E2DEEA] bg-[#F8F7FC] p-4 text-xs text-[#6F687A] sm:col-span-2">
+                  No automations are recorded for this workspace. Nothing is presented as active.
+                </div>
+              ) : automations.slice(0, 6).map((automation) => (
+                <div key={automation.id} className="rounded-lg border border-[#E2DEEA] bg-[#F8F7FC] p-4 text-xs">
+                  <div className="flex items-center justify-between gap-3"><span className="font-semibold text-[#17151F]">{automation.name}</span><span className="rounded border border-[#E2DEEA] px-2 py-0.5 text-[10px] uppercase text-[#6F687A]">{automation.status}</span></div>
+                  <p className="mt-1 text-[11px] text-[#6F687A]">{automation.description || `Trigger: ${automation.trigger_type || "not configured"}`}</p>
+                </div>
+              ))}
             </div>
           </div>
         )}
