@@ -83,11 +83,14 @@ export default function J10CommandCenter({ userName, initialWorkspaceName }: Pro
       {error && <div className="j10-command-notice">{error}. Showing the last available workspace data.</div>}
 
       <section className="j10-metric-grid" aria-label="Business snapshot">
-        {metrics.map((metric) => (
+        {metrics.map((metric, index) => (
           <Link href={metric.href} className="j10-metric-card" key={metric.label}>
-            <span>{metric.label}</span>
-            <strong>{String(metric.value)}</strong>
-            <small>{metric.note}</small>
+            <div className="j10-metric-marker">{String(index + 1).padStart(2, "0")}</div>
+            <div className="j10-metric-copy">
+              <span>{metric.label}</span>
+              <strong>{String(metric.value)}</strong>
+              <small>{metric.note}</small>
+            </div>
           </Link>
         ))}
       </section>
@@ -158,9 +161,10 @@ export default function J10CommandCenter({ userName, initialWorkspaceName }: Pro
       </section>
 
       <button className="j10-command-bar" onClick={() => window.location.assign("/dashboard#j10-ai")}>
-        <Image src="/brand/j10-logo.png" alt="" width={24} height={24} />
-        <span>Ask J10 about your business</span>
+        <span className="j10-command-bar-logo"><Image src="/brand/j10-logo.png" alt="" width={25} height={25} /></span>
+        <span><b>Ask J10</b><small>Ask about leads, bookings, payments, or today’s priorities</small></span>
         <kbd>⌘ K</kbd>
+        <i aria-hidden="true">→</i>
       </button>
       <p className="j10-workspace-label">{data.workspaceName || initialWorkspaceName}</p>
     </div>

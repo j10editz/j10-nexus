@@ -331,7 +331,7 @@ export default function Topbar({
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-[72px] shrink-0 items-center border-b border-[#d9b85f]/12 bg-[#090712]/78 px-4 text-white backdrop-blur-2xl sm:px-6 lg:px-8">
+    <header className="j10-topbar sticky top-0 z-30 flex h-[72px] shrink-0 items-center px-4 text-white backdrop-blur-2xl sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-[1680px] items-center gap-3">
         <button
           type="button"
