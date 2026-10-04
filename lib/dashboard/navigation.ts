@@ -77,12 +77,12 @@ export const dashboardNavigationSections: DashboardNavigationSection[] = [
         href: "/dashboard/booking",
       },
       {
-        id: "growth",
-        label: "J10 Growth",
-        description: "Campaigns, reactivation, and customer reviews.",
-        icon: "analytics",
+        id: "ai-receptionist",
+        label: "AI Receptionist",
+        description: "Calls, messages, qualification, and missed-call recovery.",
+        icon: "bot",
         status: "ready",
-        href: "/dashboard/marketing",
+        href: "/dashboard/bot-setup?tab=simulator",
       },
       {
         id: "ai-operator",
@@ -108,6 +108,8 @@ export const dashboardNavigationSections: DashboardNavigationSection[] = [
       { id: "connections", label: "Connections", description: "Connect messaging, email, calendars, and payments.", icon: "plug", status: "ready", href: "/dashboard/connections" },
       { id: "knowledge", label: "Knowledge", description: "Services, prices, policies, and business answers.", icon: "brain", status: "ready", href: "/dashboard/knowledge" },
       { id: "automations", label: "Automations", description: "Triggers, actions, and reusable workflows.", icon: "workflow", status: "ready", href: "/dashboard/automation" },
+      { id: "campaigns", label: "Campaigns", description: "Reactivation, offers, broadcasts, and follow-up.", icon: "marketing", status: "ready", href: "/dashboard/marketing" },
+      { id: "reviews", label: "Reviews", description: "Review requests, replies, and reputation alerts.", icon: "sparkles", status: "ready", href: "/dashboard/reviews" },
     ],
   },
 ];

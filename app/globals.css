@@ -444,6 +444,14 @@ body {
 .j10-booking-health p { margin: 6px 0; color: #aaa4af; font-size: 10px; }
 .j10-product-panel > a { display: block; margin-top: 22px; color: #b99bd9; font-size: 10px; }
 @media (max-width: 760px) { .j10-product-page { padding: 24px 18px; } .j10-booking-summary { grid-template-columns: 1fr 1fr; } .j10-booking-layout { grid-template-columns: 1fr; } }
+.j10-review-list { margin-top: 13px; }
+.j10-review-list article { display: grid; grid-template-columns: minmax(140px,.5fr) minmax(240px,1fr) 70px; align-items: center; gap: 18px; min-height: 64px; border-top: 1px solid rgba(255,255,255,.055); }
+.j10-review-list article > div { display: flex; flex-direction: column; gap: 4px; }
+.j10-review-list strong { color: #eeeaf1; font-size: 11px; }
+.j10-review-list span { color: #c7a74f; font-size: 9px; letter-spacing: .1em; }
+.j10-review-list p { margin: 0; color: #8a8490; font-size: 10px; }
+.j10-review-list time { color: #625d68; font-size: 9px; text-align: right; }
+@media (max-width: 620px) { .j10-review-list article { grid-template-columns: 1fr auto; padding: 12px 0; } .j10-review-list p { grid-column: 1 / -1; } }
 
 /* Standard glassmorphic surface */
 .j10-surface {
