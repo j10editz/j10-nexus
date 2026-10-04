@@ -21,13 +21,13 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import type {
-  GroundingSimulationResult,
-  KnowledgeCategory,
-  KnowledgeDocument,
-  KnowledgeSummary,
+import {
+  KNOWLEDGE_CATEGORIES,
+  type GroundingSimulationResult,
+  type KnowledgeCategory,
+  type KnowledgeDocument,
+  type KnowledgeSummary,
 } from "@/types/knowledge";
-import { KNOWLEDGE_CATEGORIES } from "@/lib/knowledge/service";
 
 const CATEGORY_KEYS: Array<{ key: KnowledgeCategory | "all"; label: string }> = [
   { key: "all", label: "All Documents" },

@@ -135,12 +135,11 @@ describe("Unified Omnichannel Inbox Engine", () => {
       "utf8",
     );
 
-    expect(pageContent).toContain("Unified Omnichannel Inbox");
-    expect(pageContent).toContain("Instant Stripe Billing");
+    expect(pageContent).toContain("J10 Inbox");
+    expect(pageContent).toContain("Stripe Payment Link");
     expect(pageContent).toContain("Pipeline Stage");
-    expect(pageContent).toContain("Deal Intelligence");
+    expect(pageContent).toContain("Contact Details");
     expect(pageContent).toContain("CHANNEL_METADATA");
     expect(pageContent).toContain("STAGE_METADATA");
   });
 });
-

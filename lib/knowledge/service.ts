@@ -1,20 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type {
-  GroundingSimulationResult,
-  KnowledgeCategory,
-  KnowledgeDocument,
-  KnowledgeGroundingSource,
-  KnowledgeSummary,
+import {
+  type GroundingSimulationResult,
+  type KnowledgeCategory,
+  type KnowledgeDocument,
+  type KnowledgeGroundingSource,
+  type KnowledgeSummary,
+  KNOWLEDGE_CATEGORIES,
 } from "@/types/knowledge";
 import { runJ10AI } from "@/lib/ai/runtime";
 
-export const KNOWLEDGE_CATEGORIES: Record<KnowledgeCategory, string> = {
-  product_service: "Products & Services",
-  pricing_terms: "Pricing & Commercial",
-  faq_support: "Support FAQs",
-  policies_compliance: "Policies & Compliance",
-  internal_sop: "Standard Operating Procedures",
-};
+export { KNOWLEDGE_CATEGORIES };
 
 export function estimateTokenCount(text: string): number {
   if (!text) return 0;

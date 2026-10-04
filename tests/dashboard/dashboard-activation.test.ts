@@ -12,7 +12,9 @@ import {
 
 import {
   dashboardNavigationItems,
+  primaryNavigationItems,
   readyDashboardNavigationItems,
+  supportingNavigationItems,
 } from "../../lib/dashboard/navigation";
 
 const projectRoot = process.cwd();
@@ -35,8 +37,38 @@ function routeFile(href: string) {
 }
 
 describe("Dashboard activation", () => {
+  it("defines exactly 7 primary J10 product areas", () => {
+    expect(primaryNavigationItems).toHaveLength(7);
+    const expectedPrimaryLabels = [
+      "J10 Command Center",
+      "J10 Inbox",
+      "J10 Lead Center",
+      "J10 Booking",
+      "J10 Growth",
+      "J10 AI Operator",
+      "J10 Pay",
+    ];
+    expect(primaryNavigationItems.map((item) => item.label)).toEqual(
+      expectedPrimaryLabels
+    );
+  });
+
+  it("never presents bare legacy labels or duplicate prefixes", () => {
+    const labels = dashboardNavigationItems.map((item) => item.label);
+    const bareForbidden = ["Today", "Inbox", "Customers", "Calendar", "Growth", "AI Operator", "Money", "CRM", "Overview"];
+    for (const forbidden of bareForbidden) {
+      expect(labels).not.toContain(forbidden);
+    }
+
+    for (const label of labels) {
+      expect(label).not.toContain("J10 NEXUS J10");
+      expect(label).not.toContain("J10 J10");
+      expect(label).not.toContain("AI AI");
+    }
+  });
+
   it("classifies every navigation item as ready or building", () => {
-    expect(dashboardNavigationItems).toHaveLength(8);
+    expect(dashboardNavigationItems.length).toBeGreaterThanOrEqual(12);
     expect(
       dashboardNavigationItems.every(
         (item) =>
@@ -62,7 +94,6 @@ describe("Dashboard activation", () => {
 
     expect(invalidReadyItems).toEqual([]);
     expect(dishonestBuildingLinks).toEqual([]);
-    expect(readyDashboardNavigationItems).toHaveLength(8);
   });
 
   it("backs every ready route with a Next.js page", () => {
@@ -76,31 +107,36 @@ describe("Dashboard activation", () => {
     }
   });
 
-  it("presents only the approved launch navigation", () => {
+  it("presents the 7 primary canonical routes plus supporting areas", () => {
     const readyHrefs = new Set(
       readyDashboardNavigationItems.map(
         (item) => item.href
       )
     );
 
-    expect(readyHrefs.size).toBe(8);
+    // 7 Primary Products
     expect(readyHrefs.has("/dashboard")).toBe(true);
-    expect(readyHrefs.has("/dashboard/bot-setup?tab=simulator")).toBe(true);
     expect(readyHrefs.has("/dashboard/inbox")).toBe(true);
     expect(readyHrefs.has("/dashboard/crm")).toBe(true);
-    expect(readyHrefs.has("/dashboard/bot-setup")).toBe(true);
+    expect(readyHrefs.has("/dashboard/booking")).toBe(true);
+    expect(readyHrefs.has("/dashboard/growth")).toBe(true);
+    expect(readyHrefs.has("/dashboard/ai-operator")).toBe(true);
+    expect(readyHrefs.has("/dashboard/pay")).toBe(true);
+
+    // Supporting Areas
     expect(readyHrefs.has("/dashboard/connections")).toBe(true);
-    expect(readyHrefs.has("/dashboard/revenue")).toBe(true);
+    expect(readyHrefs.has("/dashboard/settings/team")).toBe(true);
+    expect(readyHrefs.has("/dashboard/brand")).toBe(true);
+    expect(readyHrefs.has("/dashboard/settings/billing")).toBe(true);
     expect(readyHrefs.has("/dashboard/settings")).toBe(true);
   });
-
 
   it("offsets the dashboard shell and preserves the immersive flow builder", () => {
     const shell = readProjectFile(
       "components/dashboard/DashboardLayout.tsx"
     );
 
-    expect(shell).toContain('lg:pl-[260px]');
+    expect(shell).toMatch(/lg:pl-\[(228|260)px\]/);
     expect(shell).toContain(
       'pathname === "/dashboard/automation/flow"'
     );

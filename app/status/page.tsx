@@ -120,7 +120,7 @@ export default async function StatusPage() {
             </h1>
             <p className="mt-1 text-xs text-[#8d96a8]">
               Evidence-based status of 6 core infrastructure, automation, and
-              gateway connectors.
+              gateway connectors. Database reachable through server connection.
             </p>
           </div>
 

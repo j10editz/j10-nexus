@@ -85,7 +85,7 @@ function responseFromError(error: unknown) {
  * Resolves: endpointKey -> exact webhook endpoint -> exact integration -> exact workspace_id
  * Strict multi-tenant isolation: Never selects the newest global integration.
  */
-export async function resolveExactTenantWhatsAppBinding(endpointKey: string) {
+async function resolveExactTenantWhatsAppBinding(endpointKey: string) {
   const cleanKey = endpointKey?.trim();
   if (!cleanKey) {
     throw new IntegrationWebhookError(
