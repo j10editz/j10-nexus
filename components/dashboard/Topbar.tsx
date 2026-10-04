@@ -331,7 +331,7 @@ export default function Topbar({
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-[72px] shrink-0 items-center border-b border-white/[0.09] bg-[#0a0e17]/82 px-4 text-white backdrop-blur-2xl sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-30 flex h-[72px] shrink-0 items-center border-b border-[#d9b85f]/12 bg-[#090712]/78 px-4 text-white backdrop-blur-2xl sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-[1680px] items-center gap-3">
         <button
           type="button"
@@ -346,7 +346,7 @@ export default function Topbar({
           onSubmit={handleSubmit}
           className="relative min-w-0 flex-1 sm:max-w-[520px]"
         >
-          <div className="flex h-11 items-center rounded-xl border border-white/[0.1] bg-[#0d111b]/85 px-3.5 transition focus-within:border-cyan-300/45 focus-within:ring-2 focus-within:ring-blue-500/10">
+          <div className="flex h-11 items-center rounded-xl border border-[#d9b85f]/14 bg-[#100c1d]/80 px-3.5 transition focus-within:border-[#d9b85f]/55 focus-within:ring-2 focus-within:ring-[#7d43df]/20">
             <Search
               className="mr-3 shrink-0 text-white/35"
               size={17}
@@ -360,7 +360,7 @@ export default function Topbar({
                 setSearchOpen(true);
               }}
               onFocus={() => setSearchOpen(true)}
-              placeholder="Search J10 modules and operations..."
+            placeholder="Search leads, conversations, bookings..."
               aria-label="Search J10"
               className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/25"
             />
@@ -440,7 +440,7 @@ export default function Topbar({
           <button
             type="button"
             onClick={() => navigate("/dashboard#j10-ai")}
-            className="hidden h-10 items-center gap-2 rounded-xl border border-cyan-500/30 bg-gradient-to-r from-cyan-500/15 via-blue-600/15 to-cyan-500/10 px-3.5 text-xs font-semibold text-cyan-200 shadow-sm transition hover:border-cyan-400/50 hover:bg-cyan-500/20 active:scale-[0.99] md:flex"
+            className="hidden h-10 items-center gap-2 rounded-xl border border-[#d9b85f]/35 bg-gradient-to-r from-[#6e35d3]/35 via-[#4b258f]/30 to-[#b18c37]/20 px-3.5 text-xs font-semibold text-[#f4d77c] shadow-[0_0_24px_rgba(99,49,190,0.14)] transition hover:border-[#f4d77c]/55 hover:brightness-110 active:scale-[0.99] md:flex"
           >
             <Image
               src="/brand/j10-logo.png"

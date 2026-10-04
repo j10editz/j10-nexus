@@ -37,7 +37,7 @@ export default function DashboardLayout({
 
   return (
     <TrialProvider>
-      <div className="j10-canvas min-h-dvh text-white">
+      <div className="j10-dashboard-shell j10-canvas min-h-dvh text-white">
         <Sidebar
           mobileOpen={mobileOpen}
           onClose={() => setMobileOpen(false)}

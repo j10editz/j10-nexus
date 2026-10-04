@@ -226,10 +226,105 @@ body {
 /* Continuous background canvas with cinematic depth and zero grid lines */
 .j10-canvas {
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(47, 107, 255, 0.18), transparent 70%),
-    radial-gradient(ellipse 60% 40% at 85% 25%, rgba(168, 85, 247, 0.14), transparent 60%),
-    radial-gradient(ellipse 50% 30% at 15% 55%, rgba(0, 217, 255, 0.12), transparent 55%),
-    var(--j10-bg-midnight);
+    radial-gradient(ellipse 72% 48% at 52% -8%, rgba(108, 52, 211, 0.26), transparent 68%),
+    radial-gradient(ellipse 48% 34% at 92% 30%, rgba(218, 184, 95, 0.1), transparent 64%),
+    radial-gradient(ellipse 55% 44% at 9% 70%, rgba(90, 40, 165, 0.13), transparent 66%),
+    #07060c;
+  background-attachment: fixed;
+}
+
+/* Royal Night dashboard: one continuous canvas with gold hierarchy and violet focus. */
+.j10-dashboard-shell {
+  --j10-royal-gold: #d9b85f;
+  --j10-royal-gold-bright: #f4d77c;
+  --j10-royal-violet: #7c3fdf;
+}
+
+.j10-command-center {
+  background: transparent;
+}
+
+.j10-command-center :is(button, a):focus-visible {
+  outline: 2px solid rgba(244, 215, 124, 0.75);
+  outline-offset: 2px;
+}
+
+.j10-command-center [class*="border-slate-8"],
+.j10-command-center [class*="border-white/"] {
+  border-color: rgba(217, 184, 95, 0.14);
+}
+
+.j10-command-center [class*="bg-[#0E121B]"],
+.j10-command-center [class*="bg-slate-900"] {
+  background-color: rgba(16, 12, 29, 0.78);
+}
+
+.j10-command-center [class*="from-blue-600"] {
+  --tw-gradient-from: #7440d6 var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(116 64 214 / 0) var(--tw-gradient-to-position);
+}
+
+.j10-command-center [class*="to-cyan-600"] {
+  --tw-gradient-to: #b28b38 var(--tw-gradient-to-position);
+}
+
+.j10-thinking-overlay {
+  position: fixed;
+  inset: 72px 0 0 260px;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(7, 6, 12, 0.86);
+  backdrop-filter: blur(18px);
+}
+
+.j10-thinking {
+  position: relative;
+  display: flex;
+  min-width: min(86vw, 360px);
+  flex-direction: column;
+  align-items: center;
+  padding: 2.25rem 2rem 1.75rem;
+  border: 1px solid rgba(217, 184, 95, 0.22);
+  border-radius: 1.5rem;
+  background: linear-gradient(145deg, rgba(24, 15, 43, 0.96), rgba(10, 8, 17, 0.96));
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5), 0 0 55px rgba(112, 55, 210, 0.15);
+  overflow: hidden;
+}
+
+.j10-thinking__halo {
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(122, 64, 221, 0.36), transparent 67%);
+  animation: j10-think-pulse 2.2s ease-in-out infinite;
+}
+
+.j10-thinking__mascot {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  animation: j10-think-float 2.4s ease-in-out infinite;
+}
+
+.j10-thinking__mascot img { width: 100%; height: 100%; object-fit: contain; }
+.j10-thinking p { position: relative; margin-top: .7rem; color: #f7f2e8; font-size: .9rem; font-weight: 650; letter-spacing: .01em; }
+.j10-thinking__dots { position: relative; display: flex; gap: .32rem; margin-top: .85rem; }
+.j10-thinking__dots span { width: 6px; height: 6px; border-radius: 50%; background: #d9b85f; animation: j10-dot 1.15s ease-in-out infinite; }
+.j10-thinking__dots span:nth-child(2) { animation-delay: .16s; }
+.j10-thinking__dots span:nth-child(3) { animation-delay: .32s; }
+
+@keyframes j10-think-float { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-8px) rotate(1deg); } }
+@keyframes j10-think-pulse { 0%, 100% { opacity: .65; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.08); } }
+@keyframes j10-dot { 0%, 70%, 100% { opacity: .3; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-5px); } }
+
+@media (max-width: 1023px) {
+  .j10-thinking-overlay { left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .j10-thinking__halo, .j10-thinking__mascot, .j10-thinking__dots span { animation: none; }
 }
 
 /* Standard glassmorphic surface */

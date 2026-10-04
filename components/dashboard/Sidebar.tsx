@@ -110,7 +110,7 @@ export default function Sidebar({
       text-left text-[13px] font-medium transition-all duration-200
       ${
         active
-          ? "j10-gradient text-white shadow-[0_8px_20px_rgba(47,107,255,0.25)] font-semibold"
+          ? "border border-[#d9b85f]/35 bg-gradient-to-r from-[#5e2bbf]/85 to-[#31176e]/75 text-white shadow-[0_10px_28px_rgba(91,45,190,0.3)] font-semibold"
           : isJ10
             ? "bg-white/[0.04] text-white hover:bg-white/[0.08]"
             : available
@@ -158,7 +158,7 @@ export default function Sidebar({
             OS
           </span>
         ) : active ? (
-          <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_8px_#00d9ff]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-[#f4d77c] shadow-[0_0_10px_#d9b85f]" />
         ) : null}
       </>
     );
@@ -205,19 +205,19 @@ export default function Sidebar({
       <aside
         className={`
           fixed left-0 top-0 z-50 flex h-dvh w-[260px] flex-col
-          border-r border-white/[0.08] bg-[#07090f]/95 backdrop-blur-2xl
+          border-r border-[#d9b85f]/15 bg-[#080611]/92 backdrop-blur-2xl
           transition-transform duration-300 lg:translate-x-0
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
         {/* Brand Header */}
-        <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-white/[0.07] px-5">
+        <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-[#d9b85f]/12 px-5">
           <Link
             href="/dashboard"
             onClick={handleNavigation}
             className="flex items-center gap-3"
           >
-            <div className="j10-gradient flex h-8 w-8 items-center justify-center rounded-xl p-1.5 shadow-[0_6px_16px_rgba(47,107,255,0.3)]">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#f0cf72]/35 bg-gradient-to-br from-[#6f35dd] to-[#241052] p-1.5 shadow-[0_0_24px_rgba(159,101,255,0.3)]">
               <Image
                 src="/brand/j10-logo.png"
                 alt="J10 monogram"
@@ -231,8 +231,8 @@ export default function Sidebar({
               <div className="text-[15px] font-bold tracking-tight text-white">
                 J10 <span className="font-medium text-[#8d96a8]">NEXUS</span>
               </div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-cyan-400">
-                Revenue OS
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#d9b85f]">
+                AI Business Operator
               </div>
             </div>
           </Link>
@@ -251,7 +251,7 @@ export default function Sidebar({
         <nav className="mt-4 flex-1 overflow-y-auto px-3 pb-4 scrollbar-thin">
           {dashboardNavigationSections.map((section) => (
             <div key={section.title} className="mb-5">
-              <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#5f697d]">
+              <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#a98a43]">
                 {section.title}
               </div>
               <div className="space-y-1">
@@ -262,11 +262,11 @@ export default function Sidebar({
         </nav>
 
         {/* Footer Workspace Info */}
-        <div className="shrink-0 border-t border-white/[0.07] bg-[#07090f] p-3">
+        <div className="shrink-0 border-t border-[#d9b85f]/12 bg-[#080611]/90 p-3">
           {renderItem(dashboardSettingsItem)}
 
           <div className="mt-2 flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-3">
-            <div className="j10-gradient flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold text-white shadow-sm">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#7b3fe4] to-[#3a187b] text-xs font-bold text-[#f4d77c] shadow-sm">
               W
             </div>
             <div className="min-w-0 flex-1">

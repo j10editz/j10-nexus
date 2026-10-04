@@ -41,11 +41,11 @@ export type DashboardNavigationSection = {
 
 export const dashboardNavigationSections: DashboardNavigationSection[] = [
   {
-    title: "WORKSPACE",
+    title: "COMMAND",
     items: [
       {
         id: "overview",
-        label: "Overview",
+        label: "Command Center",
         description: "Revenue command center & operations overview.",
         icon: "monogram",
         status: "ready",
@@ -54,7 +54,7 @@ export const dashboardNavigationSections: DashboardNavigationSection[] = [
       },
       {
         id: "ai-receptionist",
-        label: "AI Receptionist",
+        label: "AI Operator",
         description: "Live simulator, prompt health & receptionist tuning.",
         icon: "bot",
         status: "ready",
@@ -62,7 +62,7 @@ export const dashboardNavigationSections: DashboardNavigationSection[] = [
       },
       {
         id: "inbox",
-        label: "Inbox",
+        label: "J10 Inbox",
         description: "Customer conversations requiring attention.",
         icon: "message",
         status: "ready",
@@ -70,7 +70,7 @@ export const dashboardNavigationSections: DashboardNavigationSection[] = [
       },
       {
         id: "crm",
-        label: "CRM",
+        label: "Lead Center",
         description: "Customer context, pipeline, and follow-up.",
         icon: "users",
         status: "ready",
@@ -94,7 +94,7 @@ export const dashboardNavigationSections: DashboardNavigationSection[] = [
       },
       {
         id: "revenue",
-        label: "Revenue",
+        label: "Booking & Pay",
         description: "Revenue pipeline, payments, and commercial movement.",
         icon: "finance",
         status: "ready",

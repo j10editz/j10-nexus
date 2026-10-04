@@ -32,6 +32,7 @@ import type {
   RevenueCommandDashboardData,
   WonDealItem,
 } from "@/types/revenue-dashboard";
+import J10ThinkingState from "@/components/dashboard/J10ThinkingState";
 
 export type DashboardViewTab =
   | "overview"
@@ -350,7 +351,12 @@ export default function RevenueCommandCenter({
   };
 
   return (
-    <div className="j10-canvas min-h-screen bg-[#080A0F] text-slate-200 font-sans antialiased selection:bg-cyan-500/20 w-full min-w-0">
+    <div className="j10-command-center min-h-screen text-slate-200 font-sans antialiased selection:bg-violet-500/25 w-full min-w-0">
+      {isLoading && (
+        <div className="j10-thinking-overlay">
+          <J10ThinkingState />
+        </div>
+      )}
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg border border-slate-700 bg-[#0E121B] px-4 py-2.5 text-xs font-medium text-slate-100 shadow-xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-3 duration-150">
