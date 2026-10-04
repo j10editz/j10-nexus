@@ -508,6 +508,16 @@ describe("Phase 2C: Social Authentication Behavioral Test Suite", () => {
       );
     });
 
+    it("renders the sanitized callback failure on login without redirecting back to callback", async () => {
+      const req = new NextRequest(
+        "https://j10-nexus.vercel.app/login?error=auth_callback_failed"
+      );
+      const res = await middleware(req);
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("location")).toBeNull();
+    });
+
     it("proves authorization code is never rendered on the homepage", () => {
       const homeContent = readFileSync(resolve(process.cwd(), "app/page.tsx"), "utf8");
       expect(homeContent).toContain("if (code)");

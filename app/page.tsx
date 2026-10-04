@@ -1,6 +1,4 @@
 import { redirect } from "next/navigation";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import LaunchHome from "@/components/marketing/LaunchHome";
 
 interface HomePageProps {
@@ -17,10 +15,8 @@ export default async function Home(props: HomePageProps) {
   }
 
   return (
-    <main className="min-h-screen bg-[#09090B] text-white">
-      <Navbar />
+    <main className="min-h-screen bg-[#07060f] text-white">
       <LaunchHome />
-      <Footer />
     </main>
   );
 }

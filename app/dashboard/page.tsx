@@ -1,4 +1,4 @@
-import RevenueCommandCenter from "@/components/dashboard/RevenueCommandCenter";
+import J10CommandCenter from "@/components/dashboard/J10CommandCenter";
 import { getCurrentUser } from "@/lib/auth";
 import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
 
@@ -10,10 +10,6 @@ export default async function DashboardPage() {
 
   const rawMetadata = (user?.user_metadata || {}) as Record<string, any>;
 
-  // Resolution order:
-  // 1. user profile display name
-  // 2. authenticated user metadata full_name/name
-  // 3. safe greeting without a name (or Demo Owner in demo mode)
   let displayName = "";
   if (context?.profile?.display_name && context.profile.display_name !== "Founder") {
     displayName = context.profile.display_name;
@@ -21,16 +17,17 @@ export default async function DashboardPage() {
     displayName = String(rawMetadata.full_name);
   } else if (rawMetadata.name) {
     displayName = String(rawMetadata.name);
-  } else if (!user) {
-    displayName = "Demo Owner";
+  } else if (user?.email) {
+    displayName = user.email.split("@")[0];
   }
 
   const workspaceName =
+    context?.workspace?.brand_name ||
     context?.workspace?.name ||
-    "Apex Commercial & Home Services";
+    "Active Workspace";
 
   return (
-    <RevenueCommandCenter
+    <J10CommandCenter
       userName={displayName}
       initialWorkspaceName={workspaceName}
     />

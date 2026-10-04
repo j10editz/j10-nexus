@@ -5,6 +5,14 @@ export type KnowledgeCategory =
   | "policies_compliance"
   | "internal_sop";
 
+export const KNOWLEDGE_CATEGORIES: Record<KnowledgeCategory, string> = {
+  product_service: "Products & Services",
+  pricing_terms: "Pricing & Commercial",
+  faq_support: "Support FAQs",
+  policies_compliance: "Policies & Compliance",
+  internal_sop: "Standard Operating Procedures",
+};
+
 export type KnowledgeDocumentStatus = "published" | "draft" | "archived";
 
 export interface KnowledgeDocument {

@@ -5,9 +5,7 @@ import { PLANS, getPlanById, type PlanId } from "@/lib/billing/plans";
 import { createWorkspaceSubscriptionCheckout } from "@/lib/billing/checkout";
 import { getFounders3SlotStatus } from "@/lib/billing/invitations";
 
-export { PLANS };
-
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   try {
     const context = await getActiveWorkspaceContext();
     if (!context) {

@@ -45,7 +45,7 @@ import {
   SEGMENT_LABELS,
   computeABTestMetrics,
   computeMarketingSummary,
-} from "@/lib/marketing/service";
+} from "@/lib/marketing/utils";
 import { stripEmojis } from "@/lib/website/service";
 
 const CHANNEL_ICONS: Record<CampaignChannel, typeof MessageSquare> = {
