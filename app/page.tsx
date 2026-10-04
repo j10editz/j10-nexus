@@ -3,6 +3,8 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import LaunchHome from "@/components/marketing/RoyalHero";
 
+import RoyalMarketingSections from "@/components/marketing/RoyalMarketingSections";
+
 interface HomePageProps {
   searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }
@@ -20,6 +22,7 @@ export default async function Home(props: HomePageProps) {
     <main className="min-h-screen bg-[#09090B] text-white">
       <Navbar />
       <LaunchHome />
+      <RoyalMarketingSections />
       <Footer />
     </main>
   );
