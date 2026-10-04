@@ -440,7 +440,7 @@ export default function Topbar({
           <button
             type="button"
             onClick={() => navigate("/dashboard#j10-ai")}
-            className="hidden h-10 items-center gap-2 rounded-xl border border-[#d9b85f]/35 bg-gradient-to-r from-[#6e35d3]/35 via-[#4b258f]/30 to-[#b18c37]/20 px-3.5 text-xs font-semibold text-[#f4d77c] shadow-[0_0_24px_rgba(99,49,190,0.14)] transition hover:border-[#f4d77c]/55 hover:brightness-110 active:scale-[0.99] md:flex"
+            className="hidden h-10 items-center gap-2 rounded-xl border border-[#7652aa]/35 bg-[#211530] px-3.5 text-xs font-semibold text-white/85 transition hover:border-[#a77bdd]/55 hover:bg-[#2a1a3e] active:scale-[0.99] md:flex"
           >
             <Image
               src="/brand/j10-logo.png"

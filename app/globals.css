@@ -327,6 +327,124 @@ body {
   .j10-thinking__halo, .j10-thinking__mascot, .j10-thinking__dots span { animation: none; }
 }
 
+/* Command Center — restrained SaaS interface, designed to fit a working day at a glance. */
+.j10-command-page {
+  width: min(100%, 1450px);
+  margin: 0 auto;
+  padding: 34px 32px 24px;
+  color: #f5f2f8;
+}
+
+.j10-command-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.j10-command-eyebrow { margin: 0 0 7px; color: #c9a956 !important; font-size: 10px !important; font-weight: 750; letter-spacing: .18em; text-transform: uppercase; }
+.j10-command-heading h1 { margin: 0; color: #fff; font-size: clamp(25px, 2.2vw, 34px); font-weight: 690; letter-spacing: -.035em; }
+.j10-command-heading p { margin: 7px 0 0; color: #8f8998; font-size: 13px; }
+.j10-command-controls { display: flex; align-items: center; gap: 10px; }
+.j10-operator-status { display: inline-flex; align-items: center; gap: 8px; color: #bcb6c4; font-size: 12px; }
+.j10-operator-status i { width: 7px; height: 7px; border-radius: 50%; background: #5fbc82; box-shadow: 0 0 0 4px rgba(95,188,130,.09); }
+.j10-mode-switch { display: flex; padding: 3px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; background: rgba(255,255,255,.025); }
+.j10-mode-switch button { padding: 6px 10px; border-radius: 6px; color: #7f7987; font-size: 11px; }
+.j10-mode-switch button.active { background: #2a193e; color: #fff; }
+.j10-command-notice { margin: -10px 0 18px; padding: 10px 12px; border: 1px solid rgba(206,169,77,.18); border-radius: 9px; color: #cdbb8a; background: rgba(206,169,77,.05); font-size: 12px; }
+
+.j10-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.j10-metric-card, .j10-command-card, .j10-flow-card {
+  border: 1px solid rgba(255,255,255,.075);
+  background: rgba(14,11,20,.72);
+  box-shadow: inset 0 1px rgba(255,255,255,.018);
+}
+.j10-metric-card { display: grid; min-height: 118px; padding: 18px 19px; border-radius: 12px; transition: border-color .18s, background .18s; }
+.j10-metric-card:hover { border-color: rgba(174,134,224,.26); background: rgba(22,15,31,.82); }
+.j10-metric-card span { color: #8e8896; font-size: 12px; }
+.j10-metric-card strong { align-self: end; color: #fff; font-size: 27px; font-weight: 660; letter-spacing: -.03em; }
+.j10-metric-card small { color: #746e7b; font-size: 10px; }
+
+.j10-flow-card { margin-top: 12px; padding: 16px 18px 18px; border-radius: 12px; }
+.j10-card-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.j10-card-title div { display: flex; align-items: baseline; gap: 9px; }
+.j10-card-title span { color: #f5f2f8; font-size: 13px; font-weight: 650; }
+.j10-card-title small { color: #716b79; font-size: 10px; }
+.j10-card-title a { color: #b69cd6; font-size: 10px; }
+.j10-flow-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,.055); border-radius: 9px; background: rgba(255,255,255,.055); }
+.j10-flow-step { position: relative; display: flex; align-items: center; gap: 12px; padding: 13px 15px; background: #0d0a13; }
+.j10-flow-step > b { display: grid; width: 23px; height: 23px; place-items: center; border: 1px solid rgba(208,175,91,.25); border-radius: 50%; color: #c9a956; font-size: 9px; font-weight: 650; }
+.j10-flow-step div { display: flex; flex-direction: column; }
+.j10-flow-step strong { color: #fff; font-size: 16px; font-weight: 650; }
+.j10-flow-step span { color: #77717f; font-size: 10px; }
+
+.j10-command-columns { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(330px, .8fr); gap: 12px; margin-top: 12px; }
+.j10-command-card { padding: 17px 18px; border-radius: 12px; }
+.j10-side-stack { display: grid; gap: 12px; }
+.j10-list { margin-top: 12px; border-top: 1px solid rgba(255,255,255,.055); }
+.j10-list-row { display: flex; min-height: 58px; align-items: center; gap: 11px; border-bottom: 1px solid rgba(255,255,255,.05); color: inherit; }
+.j10-list-row:last-child { border-bottom: 0; }
+.j10-list-row > i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #7d7783; }
+.j10-list-row > i.high { background: #b75f67; }
+.j10-list-row > i.medium { background: #c4a24d; }
+.j10-list-row > div { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.j10-list-row strong { overflow: hidden; color: #eae6ee; font-size: 11px; font-weight: 570; text-overflow: ellipsis; white-space: nowrap; }
+.j10-list-row span { overflow: hidden; color: #746f7a; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.j10-list-row em { color: #736c79; font-size: 8px; font-style: normal; text-transform: uppercase; }
+.j10-list-row time { width: 54px; color: #c6a957; font-size: 9px; }
+.j10-list-row > b { color: #d4b862; font-size: 11px; font-weight: 600; }
+.j10-list.compact { margin-top: 10px; }
+.j10-list.compact .j10-list-row { min-height: 46px; }
+
+.j10-command-bar { display: flex; width: 100%; height: 50px; align-items: center; gap: 11px; margin-top: 12px; padding: 0 15px; border: 1px solid rgba(139,92,194,.28); border-radius: 12px; background: rgba(29,17,43,.74); color: #9a93a1; text-align: left; }
+.j10-command-bar img { opacity: .86; }
+.j10-command-bar span { flex: 1; font-size: 11px; }
+.j10-command-bar kbd { border: 1px solid rgba(255,255,255,.08); border-radius: 5px; padding: 3px 6px; color: #716a78; font-size: 9px; }
+.j10-workspace-label { margin: 11px 2px 0; color: #4f4a55; font-size: 9px; text-align: right; }
+
+@media (max-width: 900px) {
+  .j10-command-page { padding: 24px 18px; }
+  .j10-command-heading { align-items: flex-start; flex-direction: column; }
+  .j10-metric-grid { grid-template-columns: repeat(2, 1fr); }
+  .j10-command-columns { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  .j10-command-controls { width: 100%; justify-content: space-between; }
+  .j10-metric-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .j10-metric-card { min-height: 100px; padding: 14px; }
+  .j10-flow-row { grid-template-columns: 1fr 1fr; }
+}
+
+.j10-product-page { width: min(100%, 1450px); margin: 0 auto; padding: 34px 32px; }
+.j10-product-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+.j10-product-heading p { margin: 0 0 7px; color: #c9a956; font-size: 10px; font-weight: 750; letter-spacing: .18em; }
+.j10-product-heading h1 { margin: 0; color: #fff; font-size: 31px; letter-spacing: -.035em; }
+.j10-product-heading span { display: block; margin-top: 7px; color: #817b88; font-size: 12px; }
+.j10-product-heading button { border: 1px solid rgba(186,151,75,.3); border-radius: 9px; background: #21162d; padding: 9px 13px; color: #e7ddc2; font-size: 11px; }
+.j10-booking-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 24px; }
+.j10-booking-summary div { display: flex; min-height: 85px; flex-direction: column; justify-content: space-between; border: 1px solid rgba(255,255,255,.07); border-radius: 11px; background: rgba(14,11,20,.72); padding: 15px; }
+.j10-booking-summary span { color: #817b88; font-size: 10px; }
+.j10-booking-summary strong { color: #fff; font-size: 22px; }
+.j10-booking-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; margin-top: 12px; }
+.j10-product-panel { border: 1px solid rgba(255,255,255,.07); border-radius: 12px; background: rgba(14,11,20,.72); padding: 17px; }
+.j10-product-panel-title { display: flex; align-items: center; justify-content: space-between; }
+.j10-product-panel-title h2 { margin: 0; color: #f4f1f6; font-size: 13px; }
+.j10-product-panel-title span { color: #77717e; font-size: 10px; }
+.j10-booking-days { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 17px; }
+.j10-booking-days div { display: flex; align-items: center; justify-content: space-between; border: 1px solid rgba(255,255,255,.055); border-radius: 8px; padding: 9px 11px; color: #77717e; }
+.j10-booking-days div.today { border-color: rgba(154,109,207,.35); background: #20142e; color: #fff; }
+.j10-booking-days span { font-size: 9px; }
+.j10-booking-days b { font-size: 11px; }
+.j10-booking-list { margin-top: 12px; }
+.j10-booking-list > div { display: flex; min-height: 58px; align-items: center; gap: 15px; border-top: 1px solid rgba(255,255,255,.055); }
+.j10-booking-list time { width: 64px; color: #c3a453; font-size: 10px; }
+.j10-booking-list > div > span { display: flex; flex: 1; flex-direction: column; gap: 3px; }
+.j10-booking-list strong { color: #eeeaf1; font-size: 11px; }
+.j10-booking-list small { color: #716b77; font-size: 9px; }
+.j10-booking-list em { color: #77717e; font-size: 8px; font-style: normal; text-transform: uppercase; }
+.j10-booking-health { display: flex; flex-direction: column; margin-top: 28px; }
+.j10-booking-health > strong { color: #fff; font-size: 40px; letter-spacing: -.04em; }
+.j10-booking-health > span { color: #77717e; font-size: 10px; }
+.j10-booking-health hr { width: 100%; margin: 22px 0 15px; border-color: rgba(255,255,255,.06); }
+.j10-booking-health p { margin: 6px 0; color: #aaa4af; font-size: 10px; }
+.j10-product-panel > a { display: block; margin-top: 22px; color: #b99bd9; font-size: 10px; }
+@media (max-width: 760px) { .j10-product-page { padding: 24px 18px; } .j10-booking-summary { grid-template-columns: 1fr 1fr; } .j10-booking-layout { grid-template-columns: 1fr; } }
+
 /* Standard glassmorphic surface */
 .j10-surface {
   background: linear-gradient(155deg, rgba(18, 24, 39, 0.88), rgba(11, 16, 32, 0.92));

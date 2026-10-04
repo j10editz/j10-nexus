@@ -1,4 +1,4 @@
-import RevenueCommandCenter from "@/components/dashboard/RevenueCommandCenter";
+import J10CommandCenter from "@/components/dashboard/J10CommandCenter";
 import { getCurrentUser } from "@/lib/auth";
 import { getActiveWorkspaceContext } from "@/lib/workspaces/server";
 
@@ -30,7 +30,7 @@ export default async function DashboardPage() {
     "Apex Commercial & Home Services";
 
   return (
-    <RevenueCommandCenter
+    <J10CommandCenter
       userName={displayName}
       initialWorkspaceName={workspaceName}
     />

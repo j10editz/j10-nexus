@@ -103,14 +103,14 @@ export default function Sidebar({
     const active = isActive(item);
     const available = item.status === "ready" && Boolean(item.href);
 
-    const isJ10 = item.id === "j10-ai" || item.icon === "monogram";
+    const isJ10 = item.icon === "monogram";
 
     const className = `
       group flex w-full items-center gap-3 rounded-xl px-3 py-2.5
       text-left text-[13px] font-medium transition-all duration-200
       ${
         active
-          ? "border border-[#d9b85f]/35 bg-gradient-to-r from-[#5e2bbf]/85 to-[#31176e]/75 text-white shadow-[0_10px_28px_rgba(91,45,190,0.3)] font-semibold"
+          ? "border border-[#7b52bd]/35 bg-[#241638] text-white font-semibold"
           : isJ10
             ? "bg-white/[0.04] text-white hover:bg-white/[0.08]"
             : available
@@ -153,12 +153,8 @@ export default function Sidebar({
           <span className="rounded-full border border-amber-400/15 bg-amber-400/[0.06] px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wider text-amber-300/60">
             Building
           </span>
-        ) : isJ10 && !active ? (
-          <span className="rounded-full bg-cyan-400/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-cyan-300">
-            OS
-          </span>
         ) : active ? (
-          <span className="h-1.5 w-1.5 rounded-full bg-[#f4d77c] shadow-[0_0_10px_#d9b85f]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-[#d6b866]" />
         ) : null}
       </>
     );
@@ -217,7 +213,7 @@ export default function Sidebar({
             onClick={handleNavigation}
             className="flex items-center gap-3"
           >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#f0cf72]/35 bg-gradient-to-br from-[#6f35dd] to-[#241052] p-1.5 shadow-[0_0_24px_rgba(159,101,255,0.3)]">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-[#171020] p-1.5">
               <Image
                 src="/brand/j10-logo.png"
                 alt="J10 monogram"

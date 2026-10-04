@@ -41,7 +41,7 @@ export type DashboardNavigationSection = {
 
 export const dashboardNavigationSections: DashboardNavigationSection[] = [
   {
-    title: "COMMAND",
+    title: "PRIMARY PRODUCTS",
     items: [
       {
         id: "overview",
@@ -51,14 +51,6 @@ export const dashboardNavigationSections: DashboardNavigationSection[] = [
         status: "ready",
         href: "/dashboard",
         featured: true,
-      },
-      {
-        id: "ai-receptionist",
-        label: "AI Operator",
-        description: "Live simulator, prompt health & receptionist tuning.",
-        icon: "bot",
-        status: "ready",
-        href: "/dashboard/bot-setup?tab=simulator",
       },
       {
         id: "inbox",
@@ -77,29 +69,45 @@ export const dashboardNavigationSections: DashboardNavigationSection[] = [
         href: "/dashboard/crm",
       },
       {
-        id: "bot-setup",
-        label: "Bot Setup",
-        description: "Configure AI receptionist, business profile, services & test bot.",
-        icon: "sparkles",
+        id: "booking",
+        label: "J10 Booking",
+        description: "Appointments, reminders, rescheduling, and no-show recovery.",
+        icon: "activity",
+        status: "ready",
+        href: "/dashboard/booking",
+      },
+      {
+        id: "growth",
+        label: "J10 Growth",
+        description: "Campaigns, reactivation, and customer reviews.",
+        icon: "analytics",
+        status: "ready",
+        href: "/dashboard/marketing",
+      },
+      {
+        id: "ai-operator",
+        label: "J10 AI Operator",
+        description: "Knowledge, rules, approvals, and agent activity.",
+        icon: "monogram",
         status: "ready",
         href: "/dashboard/bot-setup",
       },
       {
-        id: "connections",
-        label: "Connections",
-        description: "Manage profiles, Telegram bots, WhatsApp numbers, and integrations.",
-        icon: "plug",
-        status: "ready",
-        href: "/dashboard/connections",
-      },
-      {
-        id: "revenue",
-        label: "Booking & Pay",
-        description: "Revenue pipeline, payments, and commercial movement.",
+        id: "pay",
+        label: "J10 Pay",
+        description: "Payments, invoices, deposits, and financial movement.",
         icon: "finance",
         status: "ready",
-        href: "/dashboard/revenue",
+        href: "/dashboard/finance",
       },
+    ],
+  },
+  {
+    title: "SUPPORTING",
+    items: [
+      { id: "connections", label: "Connections", description: "Connect messaging, email, calendars, and payments.", icon: "plug", status: "ready", href: "/dashboard/connections" },
+      { id: "knowledge", label: "Knowledge", description: "Services, prices, policies, and business answers.", icon: "brain", status: "ready", href: "/dashboard/knowledge" },
+      { id: "automations", label: "Automations", description: "Triggers, actions, and reusable workflows.", icon: "workflow", status: "ready", href: "/dashboard/automation" },
     ],
   },
 ];
