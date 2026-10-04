@@ -19,7 +19,7 @@ export default async function Home(props: HomePageProps) {
   }
 
   return (
-    <main className="min-h-screen bg-[#09090B] text-white">
+    <main className="min-h-screen bg-[#03030a] text-white">
       <Navbar />
       <LaunchHome />
       <RoyalMarketingSections />

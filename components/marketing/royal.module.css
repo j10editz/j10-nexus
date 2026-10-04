@@ -1,5 +1,5 @@
-.page{background:#03030a;color:#fff;isolation:isolate;background-image:radial-gradient(ellipse at 60% 40%,#32105a66,transparent 48%)}
-.stage{max-width:1600px;margin:auto;padding:0 32px 24px}
+.page{color:#fff;isolation:isolate;background:transparent}
+.stage{max-width:1600px;margin:auto;padding:0 32px 74px}
 .hero{display:grid;grid-template-columns:39% 37% 24%;align-items:center;min-height:620px}
 .copy{z-index:3;padding:34px 0}.copy h1{font-size:clamp(40px,4.15vw,68px);line-height:1.06;letter-spacing:-.055em;font-weight:750;margin:24px 0}.copy h1 span{display:block;color:#ad6bff}.copy p{color:#d9d3e4;font-size:clamp(16px,1.35vw,21px);line-height:1.5}.copy .eyebrow{font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:#e9c573}
 .cta{display:flex;align-items:center;gap:22px;margin-top:28px}.cta a,.primary{display:inline-flex;align-items:center;justify-content:center;gap:20px;padding:16px 28px;border:1px solid #bd98ff;border-radius:14px;background:linear-gradient(120deg,#8645ff,#5819e9);font-size:20px;font-weight:650;box-shadow:0 0 25px #803bff65;flex-shrink:0}.cta p{border-left:1px solid #706278;padding-left:20px;font-size:12px;max-width:205px}
