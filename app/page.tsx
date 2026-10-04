@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import LaunchHome from "@/components/marketing/LaunchHome";
+import LaunchHome from "@/components/marketing/RoyalHero";
 
 interface HomePageProps {
   searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
