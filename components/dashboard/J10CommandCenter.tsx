@@ -322,14 +322,14 @@ export default function J10CommandCenter({
   const firstName = userName.trim().split(/\s+/)[0];
 
   return (
-    <div className="p-4 sm:p-6 text-[#17151F]">
-      <div className="mx-auto max-w-[1440px] space-y-4">
+    <div className="px-5 py-7 text-[var(--j10-dashboard-text)] sm:px-7 xl:px-8">
+      <div className="w-full space-y-5">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[#17151F]">
+            <h1 className="text-2xl font-black tracking-[-0.03em] text-[var(--j10-dashboard-text)] sm:text-4xl">
               {firstName ? `Good morning, ${firstName}` : "J10 Command Center"}
             </h1>
-            <p className="mt-0.5 text-xs text-[#6F687A]">
+            <p className="mt-1 text-sm text-[var(--j10-dashboard-text-secondary)]">
               {data.isEmptyWorkspace
                 ? `Connect ${initialWorkspaceName} to start receiving verified activity.`
                 : "Here is what needs your attention today."}
@@ -358,7 +358,7 @@ export default function J10CommandCenter({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <DashboardMetricTile
             label="New Leads"
             value={metrics.newLeads.count}
@@ -395,13 +395,13 @@ export default function J10CommandCenter({
 
         </div>
 
-        <section className="rounded-xl border border-[#D8B565]/30 bg-[#FFFFFF] px-4 py-3 shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
+        <section className="rounded-2xl border border-[var(--j10-dashboard-gold)]/55 bg-[var(--j10-dashboard-surface)] px-5 py-4 shadow-[0_0_34px_rgba(216,181,101,0.08)]">
           <div className="mb-3 flex items-center justify-between">
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#D8B565]">
                 Revenue workflow now
               </h2>
-              <p className="mt-0.5 text-[11px] text-[#6F687A]">
+              <p className="mt-1 text-xs text-[var(--j10-dashboard-text-secondary)]">
                 Live workspace counts, not conversion estimates.
               </p>
             </div>
@@ -413,14 +413,14 @@ export default function J10CommandCenter({
               ["Upcoming bookings", metrics.upcomingBookings.count],
               ["Pending invoices", metrics.pendingPayments.count],
             ].map(([label, value], index) => (
-              <div key={String(label)} className="relative rounded-lg border border-[#E2DEEA] bg-[#F3F1F8] px-3 py-2.5">
-                <div className="text-lg font-semibold text-[#17151F]">{value}</div>
-                <div className="text-[11px] text-[#6F687A]">{label}</div>
+              <div key={String(label)} className="relative rounded-xl border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-elevated)] px-4 py-3.5">
+                <div className="text-2xl font-black text-[var(--j10-dashboard-text)]">{value}</div>
+                <div className="mt-1 text-xs text-[var(--j10-dashboard-text-secondary)]">{label}</div>
                 {index < 3 ? <ChevronRight className="absolute right-2 top-1/2 -translate-y-1/2 text-[#D8B565]" size={14} /> : null}
               </div>
             ))}
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#E2DEEA] pt-3 text-[11px] text-[#6F687A]">
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-[var(--j10-dashboard-border)] pt-4 text-xs text-[var(--j10-dashboard-text-secondary)]">
             <Link href={metrics.aiActionsCompleted.href} className="font-medium text-[#6347E8]">J10 AI Operator</Link>
             <span>{metrics.aiActionsCompleted.count} completed AI actions</span>
             <span>{metrics.tasksRequiringHumanAction.count} human approvals</span>
@@ -428,18 +428,18 @@ export default function J10CommandCenter({
           </div>
         </section>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.75fr)]">
-          <section className="min-w-0 rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
-            <div className="flex items-center justify-between border-b border-[#E2DEEA] px-4 py-3">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
+          <section className="min-w-0 rounded-2xl border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] shadow-[var(--j10-dashboard-shadow)]">
+            <div className="flex items-center justify-between border-b border-[var(--j10-dashboard-border)] px-5 py-4">
               <div>
-                <h2 className="text-sm font-semibold text-[#17151F]">Needs your attention</h2>
-                <p className="text-[11px] text-[#6F687A]">Ordered by urgency and customer impact.</p>
+                <h2 className="text-lg font-bold text-[var(--j10-dashboard-text)]">Needs your attention</h2>
+                <p className="text-xs text-[var(--j10-dashboard-text-secondary)]">Ordered by urgency and customer impact.</p>
               </div>
               <span className="rounded-md border border-[#E2DEEA] bg-[#F3F1F8] px-2 py-0.5 text-[11px] text-[#6F687A]">
                 {priorityWorkItems.length}
               </span>
             </div>
-            <div className="divide-y divide-[#E2DEEA] overflow-hidden">
+            <div className="divide-y divide-[var(--j10-dashboard-border)] overflow-hidden">
               {priorityWorkItems.length === 0 ? (
                 <DashboardEmptyState
                   message="Nothing needs attention"
@@ -460,47 +460,47 @@ export default function J10CommandCenter({
           </section>
 
           <div className="space-y-4">
-            <section className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
-              <div className="flex items-center justify-between border-b border-[#E2DEEA] px-4 py-3">
-                <h2 className="text-sm font-semibold text-[#17151F]">Upcoming</h2>
-                <Link href="/dashboard/booking" className="text-[11px] font-medium text-[#6347E8]">Open booking</Link>
+            <section className="rounded-2xl border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] shadow-[var(--j10-dashboard-shadow)]">
+              <div className="flex items-center justify-between border-b border-[var(--j10-dashboard-border)] px-5 py-4">
+                <h2 className="text-lg font-bold text-[var(--j10-dashboard-text)]">Today</h2>
+                <Link href="/dashboard/booking" className="text-xs font-semibold text-[var(--j10-dashboard-accent-text)]">View calendar</Link>
               </div>
               <div className="divide-y divide-[#E2DEEA]">
                 {data.upcomingBookingsList.length === 0 ? (
-                  <p className="px-4 py-5 text-xs text-[#6F687A]">No upcoming bookings are recorded.</p>
+                  <p className="px-5 py-7 text-sm text-[var(--j10-dashboard-text-secondary)]">No upcoming bookings are recorded.</p>
                 ) : data.upcomingBookingsList.slice(0, 4).map((booking) => (
-                  <Link key={booking.id} href={`/dashboard/booking?id=${booking.id}`} className="block px-4 py-3 transition hover:bg-[#F3F1F8]">
-                    <div className="text-xs font-medium text-[#17151F]">{booking.clientName}</div>
-                    <div className="mt-0.5 text-[11px] text-[#6F687A]">{new Date(booking.scheduledStart).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
+                  <Link key={booking.id} href={`/dashboard/booking?id=${booking.id}`} className="block px-5 py-4 transition hover:bg-[var(--j10-dashboard-hover)]">
+                    <div className="text-sm font-semibold text-[var(--j10-dashboard-text)]">{booking.clientName}</div>
+                    <div className="mt-1 text-xs text-[var(--j10-dashboard-text-secondary)]">{new Date(booking.scheduledStart).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</div>
                   </Link>
                 ))}
               </div>
             </section>
 
-            <section className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-4 shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
-              <h2 className="text-sm font-semibold text-[#17151F]">Money moving</h2>
-              <div className="mt-3 flex items-end justify-between">
+            <section className="rounded-2xl border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] p-5 shadow-[var(--j10-dashboard-shadow)]">
+              <h2 className="text-lg font-bold text-[var(--j10-dashboard-text)]">Money moving</h2>
+              <div className="mt-4 flex items-end justify-between">
                 <div>
-                  <div className="text-2xl font-semibold text-[#D8B565]">${metrics.pendingPayments.amount.toLocaleString()}</div>
-                  <p className="text-[11px] text-[#6F687A]">Across {metrics.pendingPayments.count} pending invoice{metrics.pendingPayments.count === 1 ? "" : "s"}</p>
+                  <div className="text-3xl font-black text-[var(--j10-dashboard-gold)]">${metrics.pendingPayments.amount.toLocaleString()}</div>
+                  <p className="mt-1 text-xs text-[var(--j10-dashboard-text-secondary)]">Across {metrics.pendingPayments.count} pending invoice{metrics.pendingPayments.count === 1 ? "" : "s"}</p>
                 </div>
-                <Link href="/dashboard/pay" className="text-xs font-medium text-[#6347E8]">Open J10 Pay</Link>
+                <Link href="/dashboard/pay" className="text-xs font-semibold text-[var(--j10-dashboard-accent-text)]">Open J10 Pay</Link>
               </div>
             </section>
           </div>
         </div>
 
-        <section className="rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] shadow-[0_4px_16px_rgba(49,32,92,0.06)]">
-          <div className="flex items-center justify-between border-b border-[#E2DEEA] px-4 py-3">
+        <section className="rounded-2xl border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] shadow-[var(--j10-dashboard-shadow)]">
+          <div className="flex items-center justify-between border-b border-[var(--j10-dashboard-border)] px-5 py-4">
             <div>
-              <h2 className="text-sm font-semibold text-[#17151F]">Recent activity</h2>
-              <p className="text-[11px] text-[#6F687A]">Verified workspace events only.</p>
+              <h2 className="text-lg font-bold text-[var(--j10-dashboard-text)]">Recent activity</h2>
+              <p className="text-xs text-[var(--j10-dashboard-text-secondary)]">Verified workspace events only.</p>
             </div>
-            <Link href="/dashboard/inbox" className="inline-flex items-center gap-1 text-[11px] font-medium text-[#6347E8]">View inbox <ChevronRight size={12} /></Link>
+            <Link href="/dashboard/inbox" className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--j10-dashboard-accent-text)]">View inbox <ChevronRight size={13} /></Link>
           </div>
-          <div className="divide-y divide-[#E2DEEA]">
+          <div className="divide-y divide-[var(--j10-dashboard-border)]">
             {recentActivityItems.length === 0 ? (
-              <p className="px-4 py-5 text-xs text-[#6F687A]">No recent activity has been recorded for this workspace.</p>
+              <p className="px-5 py-7 text-sm text-[var(--j10-dashboard-text-secondary)]">No recent activity has been recorded for this workspace.</p>
             ) : recentActivityItems.slice(0, 6).map((item) => (
               <DashboardActionRow key={item.id} title={item.title} context={item.context} time={item.time} statusBadge={<DashboardStatusBadge status={item.status.variant} label={item.status.label} />} actionLabel={item.actionLabel} actionHref={item.actionHref} />
             ))}

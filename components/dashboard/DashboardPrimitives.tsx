@@ -140,10 +140,10 @@ export function DashboardMetricTile({
 
   const content = (
     <div
-      className={`group flex flex-col justify-between h-[88px] sm:h-[92px] rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] p-3.5 shadow-[0_4px_16px_rgba(49,32,92,0.06)] transition-all duration-150 ${borderHighlight} hover:bg-[#FFFFFF] ${className}`}
+      className={`group flex min-h-[112px] flex-col justify-between rounded-2xl border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] p-4 shadow-[var(--j10-dashboard-shadow)] transition-all duration-150 ${borderHighlight} hover:bg-[var(--j10-dashboard-hover)] ${className}`}
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-[#6F687A] truncate">
+        <span className="text-sm font-medium text-[var(--j10-dashboard-text-secondary)] truncate">
           {label}
         </span>
         {isProblem && (
@@ -160,11 +160,11 @@ export function DashboardMetricTile({
       </div>
 
       <div className="mt-1">
-        <div className={`text-2xl font-bold tracking-tight ${valueColor}`}>
+        <div className={`text-3xl font-black tracking-tight text-[var(--j10-dashboard-text)]`}>
           {value}
         </div>
         {destinationLabel ? (
-          <div className="mt-1 flex items-center gap-1 text-[11px] text-[#6F687A] group-hover:text-[#6347E8] transition-colors">
+          <div className="mt-2 flex items-center gap-1 text-xs text-[var(--j10-dashboard-accent-text)] transition-colors">
             <span className="truncate">{destinationLabel}</span>
             <ChevronRight
               size={12}
@@ -264,11 +264,11 @@ export function DashboardEmptyState({
 }: DashboardEmptyStateProps) {
   return (
     <div
-      className={`flex items-center justify-between gap-3 rounded-xl border border-[#E2DEEA] bg-[#FFFFFF] px-4 py-3 text-xs shadow-[0_4px_16px_rgba(49,32,92,0.06)] ${className}`}
+      className={`flex items-center justify-between gap-3 rounded-xl border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-surface)] px-5 py-5 text-sm shadow-[var(--j10-dashboard-shadow)] ${className}`}
     >
       <div className="min-w-0 flex-1">
-        <p className="font-medium text-[#17151F]">{message}</p>
-        {subtext && <p className="text-[11px] text-[#6F687A] mt-0.5">{subtext}</p>}
+        <p className="font-semibold text-[var(--j10-dashboard-text)]">{message}</p>
+        {subtext && <p className="mt-1 text-xs text-[var(--j10-dashboard-text-secondary)]">{subtext}</p>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>
@@ -299,24 +299,24 @@ export function DashboardActionRow({
 }: DashboardActionRowProps) {
   return (
     <div
-      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-4 py-3 border-b border-[#E2DEEA] last:border-b-0 hover:bg-[#F3F1F8] transition-colors ${className}`}
+      className={`flex flex-col justify-between gap-3 border-b border-[var(--j10-dashboard-border)] px-5 py-4 transition-colors last:border-b-0 hover:bg-[var(--j10-dashboard-hover)] sm:flex-row sm:items-center ${className}`}
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-semibold text-[#17151F]">{title}</span>
+          <span className="text-sm font-semibold text-[var(--j10-dashboard-text)]">{title}</span>
           {statusBadge}
         </div>
         {context && (
-          <p className="text-[11px] text-[#6F687A] mt-0.5 truncate">{context}</p>
+          <p className="mt-1 truncate text-xs text-[var(--j10-dashboard-text-secondary)]">{context}</p>
         )}
       </div>
 
       <div className="flex items-center gap-3 shrink-0 justify-between sm:justify-end">
-        {time && <span className="text-[11px] text-[#918A9D]">{time}</span>}
+        {time && <span className="text-xs text-[var(--j10-dashboard-text-muted)]">{time}</span>}
         {actionHref ? (
           <Link
             href={actionHref}
-            className="inline-flex items-center gap-1 rounded-lg bg-[#FFFFFF] border border-[#E2DEEA] px-2.5 py-1 text-[11px] font-medium text-[#17151F] hover:border-[#6347E8] hover:bg-[#F0ECFF] hover:text-[#6347E8] transition-colors shadow-sm"
+            className="inline-flex items-center gap-1 rounded-lg border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-elevated)] px-3 py-1.5 text-xs font-semibold text-[var(--j10-dashboard-text)] transition-colors hover:border-[var(--j10-dashboard-accent)] hover:text-[var(--j10-dashboard-accent-text)]"
           >
             <span>{actionLabel}</span>
             <ChevronRight size={12} />
@@ -325,7 +325,7 @@ export function DashboardActionRow({
           <button
             type="button"
             onClick={onAction}
-            className="inline-flex items-center gap-1 rounded-lg bg-[#FFFFFF] border border-[#E2DEEA] px-2.5 py-1 text-[11px] font-medium text-[#17151F] hover:border-[#6347E8] hover:bg-[#F0ECFF] hover:text-[#6347E8] transition-colors shadow-sm"
+            className="inline-flex items-center gap-1 rounded-lg border border-[var(--j10-dashboard-border)] bg-[var(--j10-dashboard-elevated)] px-3 py-1.5 text-xs font-semibold text-[var(--j10-dashboard-text)] transition-colors hover:border-[var(--j10-dashboard-accent)] hover:text-[var(--j10-dashboard-accent-text)]"
           >
             <span>{actionLabel}</span>
             <ChevronRight size={12} />
