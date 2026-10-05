@@ -100,28 +100,23 @@ export default function LoginPage() {
 
   return (
     <main className="j10-login-shell">
-      <section className="j10-login-brand">
-        <Link href="/" className="j10-login-logo"><Image src="/brand/j10-logo.png" alt="J10 NEXUS" width={44} height={44} priority /><span>J10 NEXUS</span></Link>
-        <div className="j10-login-message"><p>YOUR AI BUSINESS OPERATOR</p><h2>Every lead answered.<br/>Every opportunity followed.</h2><span>Run conversations, bookings, payments, and follow-up from one calm command center.</span><div className="j10-login-proof"><b>24/7</b><small>Customer coverage</small><b>One</b><small>Connected workspace</small></div></div>
-        <Image className="j10-login-mascot" src="/brand/j10-expression-confident.png" alt="J10 AI operator" width={430} height={430} priority />
-      </section>
       <section className="j10-login-panel"><div className="w-full max-w-md">
         {/* Brand Header */}
         <div className="mb-8 text-center flex flex-col items-center">
-          <Link href="/" className="mb-4 inline-flex items-center gap-2.5 lg:hidden">
-            <span className="j10-gradient flex h-11 w-11 items-center justify-center rounded-2xl p-2 shadow-[0_8px_24px_rgba(47,107,255,0.3)]">
+          <Link href="/" className="j10-login-mark">
+            <span>
               <Image
                 src="/brand/j10-logo.png"
                 alt="J10 monogram"
                 width={30}
                 height={30}
-                className="h-full w-full object-contain"
+                className="h-full w-full object-contain brightness-0 invert"
                 priority
               />
             </span>
           </Link>
 
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#d7b35c]">
+          <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#d7b35c]">
             J10 NEXUS
           </p>
 
@@ -221,7 +216,7 @@ export default function LoginPage() {
               Don&apos;t have an account?{" "}
               <Link
                 href={signupUrl}
-                className="font-semibold text-cyan-300 hover:text-cyan-200 transition"
+                className="font-semibold text-[#d7b35c] hover:text-[#efd98e] transition"
               >
                 Create an account
               </Link>
