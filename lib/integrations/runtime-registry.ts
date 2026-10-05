@@ -25,6 +25,15 @@ import { SHOPIFY_RUNTIME_ADAPTER } from "./providers/shopify/adapter";
 import { STRIPE_RUNTIME_ADAPTER } from "./providers/stripe/adapter";
 import { OPENAI_RUNTIME_ADAPTER } from "./providers/openai/adapter";
 import { ANTHROPIC_RUNTIME_ADAPTER } from "./providers/anthropic/adapter";
+import { GEMINI_RUNTIME_ADAPTER } from "./providers/gemini/adapter";
+import { RUNWAY_RUNTIME_ADAPTER } from "./providers/runway/adapter";
+import { HIGGSFIELD_RUNTIME_ADAPTER } from "./providers/higgsfield/adapter";
+import { PIKA_RUNTIME_ADAPTER } from "./providers/pika/adapter";
+import { KLING_RUNTIME_ADAPTER } from "./providers/kling/adapter";
+import { ZAPIER_RUNTIME_ADAPTER } from "./providers/zapier/adapter";
+import { MAKE_RUNTIME_ADAPTER } from "./providers/make/adapter";
+import { N8N_RUNTIME_ADAPTER } from "./providers/n8n/adapter";
+import { GOOGLE_BUSINESS_RUNTIME_ADAPTER } from "./providers/google-business/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -49,6 +58,15 @@ const RUNTIME_ADAPTERS:
     STRIPE_RUNTIME_ADAPTER,
     OPENAI_RUNTIME_ADAPTER,
     ANTHROPIC_RUNTIME_ADAPTER,
+    GEMINI_RUNTIME_ADAPTER,
+    RUNWAY_RUNTIME_ADAPTER,
+    HIGGSFIELD_RUNTIME_ADAPTER,
+    PIKA_RUNTIME_ADAPTER,
+    KLING_RUNTIME_ADAPTER,
+    ZAPIER_RUNTIME_ADAPTER,
+    MAKE_RUNTIME_ADAPTER,
+    N8N_RUNTIME_ADAPTER,
+    GOOGLE_BUSINESS_RUNTIME_ADAPTER,
   ];
 
 function manifestError(

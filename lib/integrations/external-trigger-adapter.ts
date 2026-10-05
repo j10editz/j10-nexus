@@ -320,6 +320,55 @@ function adaptTelegramWebhook(event: IntegrationWebhookEvent): AdapterResult {
   };
 }
 
+function adaptTwilioWebhook(event: IntegrationWebhookEvent): AdapterResult {
+  const from = stringValue(event.payload.From || event.payload.from);
+  const to = stringValue(event.payload.To || event.payload.to);
+  const body = stringValue(event.payload.Body || event.payload.body);
+  const messageSid = stringValue(event.payload.MessageSid || event.payload.SmsSid || event.externalEventId);
+  const city = stringValue(event.payload.FromCity);
+  const state = stringValue(event.payload.FromState);
+
+  return {
+    capabilityId: "twilio.message.received",
+    providerEventType: event.eventType || "sms_received",
+    subject: subject("twilio_sms", messageSid, body ? body.slice(0, 50) : "SMS Message"),
+    actor: actor("twilio_sender", from, city && state ? `${city}, ${state}` : from),
+    data: {
+      messageSid,
+      from,
+      to,
+      body,
+      city,
+      state,
+      payload: event.payload,
+    },
+  };
+}
+
+function adaptInstagramWebhook(event: IntegrationWebhookEvent): AdapterResult {
+  const entry = firstRecord(event.payload.entry);
+  const messaging = firstRecord(entry?.messaging);
+  const message = isRecord(messaging?.message) ? messaging.message : {};
+  const sender = isRecord(messaging?.sender) ? messaging.sender : {};
+  const recipient = isRecord(messaging?.recipient) ? messaging.recipient : {};
+  const messageId = stringValue(message.mid || event.externalEventId);
+  const text = stringValue(message.text);
+
+  return {
+    capabilityId: "instagram.message.received",
+    providerEventType: event.eventType || "instagram_message",
+    subject: subject("instagram_message", messageId, text ? text.slice(0, 50) : "Direct Message"),
+    actor: actor("instagram_sender", sender.id, stringValue(sender.username || sender.id)),
+    data: {
+      messageId,
+      senderId: sender.id,
+      recipientId: recipient.id,
+      text,
+      rawPayload: event.payload,
+    },
+  };
+}
+
 function adaptProviderEvent(
   event: IntegrationWebhookEvent,
 ): AdapterResult {
@@ -338,6 +387,12 @@ function adaptProviderEvent(
 
     case "telegram":
       return adaptTelegramWebhook(event);
+
+    case "twilio":
+      return adaptTwilioWebhook(event);
+
+    case "instagram-business":
+      return adaptInstagramWebhook(event);
 
     default:
       throw new IntegrationWebhookError(

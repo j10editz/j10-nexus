@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { dispatchAutomationEvent } from "@/lib/automation/event-trigger-engine";
 
-export type LeadSource = "website_form" | "widget_form" | "webchat" | "manual" | "whatsapp" | "telegram";
+export type LeadSource = "website_form" | "widget_form" | "webchat" | "manual" | "whatsapp" | "telegram" | "twilio" | "instagram" | "shopify";
 export type LeadChannel = "whatsapp" | "whatsapp_group" | "sms" | "email" | "instagram" | "messenger" | "webchat" | "website" | "crm" | "telegram";
 export type LeadConsent = { status: "granted" | "denied" | "revoked" | "not_provided"; communicationChannel: LeadChannel; purpose: "operational" | "marketing"; disclosureVersion: string; capturedAt?: string; captureSource: string };
 export type LeadIntakeInput = { workspaceId: string; source: LeadSource; channel: LeadChannel; name: string; email?: string | null; phone?: string | null; message?: string | null; campaign?: string | null; attribution?: Record<string, unknown>; consents?: LeadConsent[]; sourceEventId?: string | null; idempotencyKey?: string | null; metadata?: Record<string, unknown> };
@@ -35,7 +35,13 @@ export function deriveLeadIdempotencyKey(input: LeadIntakeInput) {
 export async function recordCanonicalLeadIntake(supabase: SupabaseClient, input: LeadIntakeInput, origin: string) {
   const name = input.name.trim().slice(0, 160);
   const identity = normalizeLeadIdentity(input);
-  if (!name || (!identity.email && !identity.phone && input.source !== "telegram")) {
+  if (
+    !name ||
+    (!identity.email &&
+      !identity.phone &&
+      input.source !== "telegram" &&
+      input.source !== "instagram")
+  ) {
     throw new Error("A name and a valid email or phone are required.");
   }
   const idempotencyKey = deriveLeadIdempotencyKey(input);
