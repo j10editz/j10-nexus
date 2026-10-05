@@ -224,6 +224,10 @@ export default function LoginPage() {
           </div>
         </div>
       </div></section>
+      <div className="j10-login-runner" aria-hidden="true">
+        <Image src="/brand/j10-expression-excited.png" alt="" width={92} height={92} priority />
+        <span>Happy to see you!</span>
+      </div>
     </main>
   );
 }
