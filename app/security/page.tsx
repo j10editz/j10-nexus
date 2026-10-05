@@ -35,14 +35,14 @@ const controls = [
 
 export default function SecurityPage() {
   return (
-    <main className="j10-canvas min-h-screen text-white">
+    <main className="min-h-screen bg-[#05030a] text-white">
       <Navbar />
 
       <section className="relative mx-auto max-w-[1240px] px-5 py-16 sm:py-24 lg:px-8">
         {/* Header Grid */}
         <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/[0.08] px-3.5 py-1.5 text-xs font-semibold text-emerald-300">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#d9b85f]/25 bg-[#d9b85f]/[0.08] px-3.5 py-1.5 text-xs font-semibold text-[#efc76b]">
               <ShieldCheck size={14} />
               Trust &amp; Governance Architecture
             </div>
@@ -61,11 +61,11 @@ export default function SecurityPage() {
           </div>
 
           {/* Trust Boundaries Panel */}
-          <div className="j10-surface relative overflow-hidden rounded-[26px] border border-white/[0.1] p-6 sm:p-8">
-            <div className="pointer-events-none absolute -right-20 -top-16 h-60 w-60 rounded-full bg-cyan-400/[0.12] blur-3xl" />
+          <div className="relative overflow-hidden rounded-[26px] border border-[#d9b85f]/15 bg-[#0d0a13] p-6 sm:p-8">
+            <div className="pointer-events-none absolute -right-20 -top-16 h-60 w-60 rounded-full bg-[#7c3aed]/[0.2] blur-3xl" />
 
             <div className="relative">
-              <p className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#efc76b]">
                 J10 Tenant Security Boundaries
               </p>
 
@@ -76,7 +76,7 @@ export default function SecurityPage() {
                   { name: "Revenue & Ledger Operations", detail: "Atomic quota reservations & workspace-isolated idempotency" },
                 ].map((boundary, index) => (
                   <div key={boundary.name} className="flex items-start gap-4">
-                    <span className="j10-gradient flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white shadow-sm">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[linear-gradient(135deg,#d9b85f,#8e6721)] text-xs font-bold text-[#160f05] shadow-sm">
                       0{index + 1}
                     </span>
                     <div className="flex-1 border-b border-white/[0.08] pb-4">
@@ -97,9 +97,9 @@ export default function SecurityPage() {
             return (
               <article
                 key={control.title}
-                className="j10-surface j10-interactive rounded-2xl p-6 border border-white/[0.08]"
+                className="rounded-2xl border border-[#d9b85f]/15 bg-[#0d0a13] p-6 transition hover:border-[#d9b85f]/35"
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-cyan-300">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#d9b85f]/10 text-[#efc76b]">
                   <Icon size={20} />
                 </div>
                 <h2 className="mt-5 text-base font-bold text-white">{control.title}</h2>
@@ -110,9 +110,9 @@ export default function SecurityPage() {
         </div>
 
         {/* Responsible Disclosure */}
-        <section id="disclosure" className="j10-surface mt-8 rounded-2xl p-6 sm:p-8 border border-white/[0.08]">
+        <section id="disclosure" className="mt-8 rounded-2xl border border-[#d9b85f]/15 bg-[#0d0a13] p-6 sm:p-8">
           <div className="flex items-start gap-4">
-            <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-cyan-400/10 text-cyan-300">
+            <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#d9b85f]/10 text-[#efc76b]">
               <LockKeyhole size={20} />
             </div>
             <div>
@@ -121,7 +121,7 @@ export default function SecurityPage() {
                 If you believe you have identified a security vulnerability or trust issue, please email our engineering team directly at{" "}
                 <a
                   href="mailto:contact@j10-nexus.com?subject=Security%20Vulnerability%20Report"
-                  className="font-semibold text-cyan-300 hover:underline"
+                  className="font-semibold text-[#efc76b] hover:underline"
                 >
                   contact@j10-nexus.com
                 </a>

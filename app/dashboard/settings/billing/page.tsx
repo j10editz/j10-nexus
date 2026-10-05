@@ -584,8 +584,8 @@ export default function BillingPage() {
                 {subscription?.expectedTransitionDate && (
                   <p className="text-[11px] text-white/40 mt-0.5">
                     {subscription?.priceTransitionStatus === "transitioned"
-                      ? "Standard $149/mo pricing active"
-                      : `Transitions to $149/mo on ${new Date(subscription.expectedTransitionDate).toLocaleDateString()}`}
+                      ? "Standard $49/mo Growth pricing active"
+                      : `Transitions to $49/mo on ${new Date(subscription.expectedTransitionDate).toLocaleDateString()}`}
                   </p>
                 )}
               </div>
@@ -694,10 +694,10 @@ export default function BillingPage() {
                 </span>
               </div>
               <h2 className="mt-3 text-2xl font-bold tracking-tight text-white">
-                J10 Founder’s 3 — $99/month
+                J10 Founder’s 3 — $29/month
               </h2>
               <p className="mt-1 text-sm text-white/60 max-w-2xl">
-                <strong>$99/month for your first 12 paid months, then $149/month.</strong> Cancel anytime with zero setup fees or automatic overage penalties. Exactly 3 Founder business seats available.
+                <strong>$29/month for your first 12 paid months, then $49/month.</strong> Cancel anytime with zero setup fees or automatic overage penalties. Exactly 3 Founder business seats available.
               </p>
             </div>
 
@@ -728,7 +728,7 @@ export default function BillingPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="flex items-start gap-2.5 text-xs text-white/80">
                   <Check size={16} className="text-cyan-400 shrink-0 mt-0.5" />
-                  <span><strong>$99/mo for first 12 paid months</strong> (then $149/mo)</span>
+                  <span><strong>$29/mo for first 12 paid months</strong> (then $49/mo)</span>
                 </div>
                 <div className="flex items-start gap-2.5 text-xs text-white/80">
                   <Check size={16} className="text-cyan-400 shrink-0 mt-0.5" />
@@ -792,7 +792,7 @@ export default function BillingPage() {
                   Founder’s 3 Access Code
                 </h3>
                 <p className="mt-1 text-xs text-white/50">
-                  Enter your single-use invitation code to unlock the $99/mo Founder’s 3 checkout.
+                  Enter your single-use invitation code to unlock the $29/mo Founder’s 3 checkout.
                 </p>
 
                 {/* Invitation input */}
@@ -894,7 +894,7 @@ export default function BillingPage() {
                       </>
                     ) : (
                       <>
-                        <span>Enroll in Founder’s 3 ($99/mo)</span>
+                        <span>Enroll in Founder’s 3 ($29/mo)</span>
                         <ArrowRight size={14} />
                       </>
                     )}

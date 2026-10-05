@@ -11,13 +11,12 @@ export const metadata: Metadata = {
 
 export default function PricingPage() {
   return (
-    <main className="j10-canvas min-h-screen text-white">
+    <main className="min-h-screen bg-[#05030a] text-white">
       <Navbar />
 
       <section className="relative overflow-hidden pt-16 pb-24 sm:pt-24 sm:pb-32">
-        {/* Glow backdrop */}
-        <div className="pointer-events-none absolute left-1/2 top-0 h-96 w-[50rem] -translate-x-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(47,107,255,0.18),transparent_70%)] blur-3xl" />
-        <div className="pointer-events-none absolute right-[10%] top-[30%] h-80 w-80 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(168,85,247,0.15),transparent_65%)] blur-3xl" />
+        <div className="pointer-events-none absolute left-1/2 top-0 h-96 w-[50rem] -translate-x-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(105,43,195,.28),transparent_68%)] blur-3xl" />
+        <div className="pointer-events-none absolute right-[8%] top-[35%] h-72 w-72 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(217,184,95,.11),transparent_67%)] blur-3xl" />
 
         <Pricing />
       </section>

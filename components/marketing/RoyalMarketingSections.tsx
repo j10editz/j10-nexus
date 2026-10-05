@@ -29,7 +29,7 @@ const trustItems=[
   {title:"Verified webhooks",copy:"Provider events are authenticated before they can trigger business workflows.",icon:Workflow},
   {title:"Human control",copy:"Your team can review, take over and define where automation must stop.",icon:UserRoundCheck},
 ];
-const plans=PLANS.filter(plan=>["starter","growth","business"].includes(plan.id));
+const plans=PLANS.filter(plan=>["starter","growth","business","enterprise"].includes(plan.id));
 const faqs=[
   {q:"How does the 72-hour trial work?",a:"Your 72-hour trial begins after you complete and approve Outcome Onboarding."},
   {q:"How quickly can we get set up?",a:"Setup depends on your channels, provider approvals and chosen workflows. J10 guides you through every required step."},

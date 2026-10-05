@@ -307,7 +307,7 @@ export default function OnboardingPage() {
                   >
                     <div className="font-semibold">{plan === "enterprise" ? "Scale" : plan}</div>
                     <div className="text-[10px] text-slate-500 mt-0.5">
-                      {plan === "starter" ? "$49/mo" : plan === "growth" ? "$149/mo" : "$499/mo"}
+                      {plan === "starter" ? "$19/mo" : plan === "growth" ? "$49/mo" : "$99/mo"}
                     </div>
                   </button>
                 ))}

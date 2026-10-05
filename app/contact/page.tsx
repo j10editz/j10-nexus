@@ -14,16 +14,16 @@ export const metadata: Metadata = {
 
 export default function ContactPage() {
   return (
-    <main className="j10-canvas min-h-screen text-white">
+    <main className="min-h-screen bg-[#05030a] text-white">
       <Navbar />
 
       <section className="relative mx-auto max-w-[960px] px-5 py-16 sm:py-24 lg:px-8">
         <div className="text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#efc76b]">
             Contact J10 NEXUS
           </p>
           <h1 className="mt-4 text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
-            Talk with our engineering team.
+            Real help from the J10 team.
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-[#a9b1c0]">
             For product questions, workspace setup, billing support, enterprise capacity, or security disclosures, reach us directly by email.
@@ -32,9 +32,9 @@ export default function ContactPage() {
 
         <div className="mt-14 grid gap-6 sm:grid-cols-2">
           {/* General Inquiries */}
-          <div className="j10-surface rounded-2xl p-6 sm:p-7 border border-white/[0.08] flex flex-col justify-between">
+          <div className="flex flex-col justify-between rounded-2xl border border-[#d9b85f]/15 bg-[#0d0a13] p-6 sm:p-7">
             <div>
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-cyan-300">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#d9b85f]/10 text-[#efc76b]">
                 <Mail size={20} />
               </div>
               <h2 className="mt-4 text-lg font-bold text-white">Support &amp; Workspace Setup</h2>
@@ -44,14 +44,14 @@ export default function ContactPage() {
             </div>
             <a
               href={`mailto:${supportEmail}?subject=J10%20NEXUS%20Workspace%20Support`}
-              className="j10-gradient mt-6 inline-flex items-center justify-center gap-2 rounded-xl py-3 text-xs font-semibold text-white shadow-md transition hover:brightness-110"
+              className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-[linear-gradient(115deg,#4d169f,#8345e4)] py-3 text-xs font-semibold text-white shadow-md transition hover:brightness-110"
             >
               {supportEmail} <ArrowUpRight size={13} />
             </a>
           </div>
 
           {/* Scale Capacity */}
-          <div className="j10-surface rounded-2xl p-6 sm:p-7 border border-white/[0.08] flex flex-col justify-between">
+          <div className="flex flex-col justify-between rounded-2xl border border-[#d9b85f]/15 bg-[#0d0a13] p-6 sm:p-7">
             <div>
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 text-violet-300">
                 <Zap size={20} />
@@ -71,14 +71,14 @@ export default function ContactPage() {
         </div>
 
         {/* Security & Trust Notice */}
-        <div className="j10-surface mt-8 rounded-2xl p-6 border border-white/[0.08]">
+        <div className="mt-8 rounded-2xl border border-[#d9b85f]/15 bg-[#0d0a13] p-6">
           <div className="flex items-start gap-4">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
               <ShieldAlert size={18} />
             </div>
             <div className="text-xs leading-6 text-[#8d96a8]">
               <strong className="text-white">Security Disclosures:</strong> If you are reporting a security issue or vulnerability, please review our{" "}
-              <Link href="/security" className="text-cyan-300 hover:underline">
+              <Link href="/security" className="text-[#efc76b] hover:underline">
                 security architecture overview
               </Link>{" "}
               and email us with concise reproduction steps.

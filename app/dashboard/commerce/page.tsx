@@ -628,9 +628,9 @@ export default function CommerceDashboardPage() {
           <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-3">
               {[
-                { name: "Starter Tier", price: "$49 / mo", limit: "1,000 WhatsApp Msgs", agents: "2 AI Employees", desc: "For single founders launching automated customer capture." },
-                { name: "Growth Tier", price: "$149 / mo", limit: "10,000 WhatsApp Msgs", agents: "10 AI Employees", popular: true, desc: "Autonomous multi-agent sales & marketing operations." },
-                { name: "Enterprise Tier", price: "$499 / mo", limit: "100,000 WhatsApp Msgs", agents: "Unlimited AI Employees", desc: "Dedicated throughput with custom SLA and high scale." },
+                { name: "Starter Tier", price: "$19 / mo", limit: "1,000 automated messages", agents: "2 AI Employees", desc: "Essential automation for an emerging business." },
+                { name: "Growth Tier", price: "$49 / mo", limit: "10,000 automated messages", agents: "10 AI Employees", popular: true, desc: "Multi-agent sales and marketing operations." },
+                { name: "Business Tier", price: "$99 / mo", limit: "30,000 automated messages", agents: "25 AI Employees", desc: "Expanded capacity, workflows, and priority support." },
               ].map((tier, i) => (
                 <div key={i} className={`rounded-2xl border p-5 space-y-3 ${tier.popular ? "border-violet-500/50 bg-violet-500/[0.04]" : "border-white/[0.08] bg-[#111216]"}`}>
                   <div className="flex items-center justify-between">

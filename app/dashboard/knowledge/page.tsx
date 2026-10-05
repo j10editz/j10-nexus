@@ -56,7 +56,7 @@ const SAMPLE_TEMPLATES: Array<{
     category: "pricing_terms",
     tags: ["pricing", "plans", "billing"],
     content:
-      "J10 NEXUS offers three subscription plans:\n1. Starter ($29/mo): Includes 1 WhatsApp connection, 1,000 automated messages/mo, basic CRM, and standard AI replies.\n2. Growth ($99/mo): Up to 3 WhatsApp numbers, 10,000 automated messages/mo, full Flow builder, custom webhooks, and priority Gemini routing.\n3. Enterprise ($299/mo): Unlimited messaging, dedicated support, custom AI fine-tuning, SLA, and enterprise compliance guarantees.",
+      "J10 NEXUS offers four public plans:\n1. Starter ($19/mo): 1,000 automated messages and 2 AI Employees.\n2. Growth ($49/mo): 10,000 automated messages and 10 AI Employees.\n3. Business ($99/mo): 30,000 automated messages and 25 AI Employees.\n4. Enterprise (from $199/mo): Custom capacity, infrastructure, SLA, and AI workflows.",
   },
   {
     title: "Refund Policy & Cancellation Terms",

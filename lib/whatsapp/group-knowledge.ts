@@ -24,7 +24,7 @@ export const FALLBACK_WORKSPACE_SHARDS: KnowledgeGroundingSource[] = [
     title: "Commercial Pricing & Subscription Tiers",
     category: "pricing_terms",
     snippet:
-      "Starter plan is $29/mo (1 WhatsApp connection, 1,000 automated msgs/mo). Growth is $99/mo (up to 3 numbers, 10,000 msgs/mo). Enterprise is $299/mo with unlimited messaging and SLA.",
+      "Starter is $19/mo (1,000 automated messages). Growth is $49/mo (10,000 messages). Business is $99/mo (30,000 messages). Enterprise starts at $199/mo with a custom agreement.",
   },
   {
     id: "kb_shard_3",
@@ -103,9 +103,10 @@ export function generateGroundedGroupAnswer(options: {
   if (qLower.includes("price") || qLower.includes("cost") || qLower.includes("plan") || qLower.includes("tier")) {
     answer =
       "J10 NEXUS offers three transparent pricing plans:\n" +
-      "• *Starter ($29/mo)*: 1 WhatsApp number & 1,000 automated messages/mo\n" +
-      "• *Growth ($99/mo)*: 3 WhatsApp numbers & 10,000 automated messages/mo\n" +
-      "• *Enterprise ($299/mo)*: Unlimited messages, dedicated SLA & custom AI agents.";
+      "• *Starter ($19/mo)*: 1,000 automated messages/mo\n" +
+      "• *Growth ($49/mo)*: 10,000 automated messages/mo\n" +
+      "• *Business ($99/mo)*: 30,000 automated messages/mo\n" +
+      "• *Enterprise (from $199/mo)*: Custom capacity, infrastructure, SLA & AI workflows.";
   } else if (qLower.includes("trial") || qLower.includes("free trial")) {
     answer =
       "Your 72-hour free trial starts after you complete and approve Outcome Onboarding. No card is charged upfront, and subscriptions can be upgraded or canceled at any time.";
