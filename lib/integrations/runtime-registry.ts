@@ -66,6 +66,13 @@ import { LINKEDIN_RUNTIME_ADAPTER } from "./providers/linkedin/adapter";
 import { X_RUNTIME_ADAPTER } from "./providers/x/adapter";
 import { CALENDLY_RUNTIME_ADAPTER } from "./providers/calendly/adapter";
 import { ACUITY_SCHEDULING_RUNTIME_ADAPTER } from "./providers/acuity-scheduling/adapter";
+import { WOOCOMMERCE_RUNTIME_ADAPTER } from "./providers/woocommerce/adapter";
+import { PAYPAL_RUNTIME_ADAPTER } from "./providers/paypal/adapter";
+import { SQUARE_RUNTIME_ADAPTER } from "./providers/square/adapter";
+import { AMAZON_SELLER_RUNTIME_ADAPTER } from "./providers/amazon-seller/adapter";
+import { ETSY_RUNTIME_ADAPTER } from "./providers/etsy/adapter";
+import { EBAY_RUNTIME_ADAPTER } from "./providers/ebay/adapter";
+import { TIKTOK_SHOP_RUNTIME_ADAPTER } from "./providers/tiktok-shop/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -131,6 +138,13 @@ const RUNTIME_ADAPTERS:
     X_RUNTIME_ADAPTER,
     CALENDLY_RUNTIME_ADAPTER,
     ACUITY_SCHEDULING_RUNTIME_ADAPTER,
+    WOOCOMMERCE_RUNTIME_ADAPTER,
+    PAYPAL_RUNTIME_ADAPTER,
+    SQUARE_RUNTIME_ADAPTER,
+    AMAZON_SELLER_RUNTIME_ADAPTER,
+    ETSY_RUNTIME_ADAPTER,
+    EBAY_RUNTIME_ADAPTER,
+    TIKTOK_SHOP_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
