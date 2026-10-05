@@ -203,7 +203,7 @@ export default async function StatusPage() {
             Statuses reflect genuine, isolated readiness probes executed with
             strict timeout limits and zero external side effects. A component is
             marked <strong className="text-emerald-400">Operational</strong> only
-            when an active probe confirms reachability,{" "}
+            when an active probe confirms reachability (e.g. Database reachable through server connection),{" "}
             <strong className="text-sky-400">Configured</strong> when credentials
             exist without active verification,{" "}
             <strong className="text-amber-400">Degraded</strong> when a probe

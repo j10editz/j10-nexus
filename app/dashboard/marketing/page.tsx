@@ -350,12 +350,12 @@ export default function MarketingPage() {
             <div className="flex items-center gap-2">
               <span className="flex h-2 w-2 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.8)]" />
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-400">
-                J10 CAMPAIGNS
+                OMNI-CHANNEL GROWTH ENGINE
               </p>
             </div>
 
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              Campaigns
+              Marketing & Campaigns
             </h1>
 
             <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">

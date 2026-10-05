@@ -573,7 +573,7 @@ export default function UnifiedInboxPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base font-semibold text-white">
-                J10 Inbox
+                Unified Omnichannel Inbox
               </h1>
               {isSandboxDemo ? (
                 <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
