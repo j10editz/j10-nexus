@@ -200,16 +200,16 @@ export default function FinancePage() {
     <div className="j10-pay-page min-h-[calc(100dvh-72px)] px-4 py-6 text-white sm:px-6 lg:px-7">
       <div className="mx-auto max-w-[1600px]">
         {/* Top Header */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-6">
+        <div className="j10-pay-head flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-6">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-violet-400">
               J10 PAY
             </p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              Payments & Invoices
+              Payments, invoices & cash flow
             </h1>
             <p className="mt-1 text-sm text-white/50">
-              Collect deposits, send invoices, track payments, and protect cash flow.
+              See what was paid, what is pending, and what needs attention.
             </p>
           </div>
 
