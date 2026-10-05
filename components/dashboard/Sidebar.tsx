@@ -83,11 +83,11 @@ export default function Sidebar({
     const route = cleanRoute(item.href);
 
     if (route === "/dashboard/bot-setup") {
-      const receptionistSelected = searchParams.get("tab") === "simulator";
+      const selectedTab = searchParams.get("tab");
       return item.id === "ai-receptionist"
-        ? pathname === route && receptionistSelected
+        ? pathname === route && selectedTab === "simulator"
         : item.id === "ai-operator"
-          ? pathname === route && !receptionistSelected
+          ? pathname === route && selectedTab === "operator"
           : false;
     }
 
