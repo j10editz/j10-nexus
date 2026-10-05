@@ -23,6 +23,8 @@ import { TWILIO_RUNTIME_ADAPTER } from "./providers/twilio/adapter";
 import { HUBSPOT_RUNTIME_ADAPTER } from "./providers/hubspot/adapter";
 import { SHOPIFY_RUNTIME_ADAPTER } from "./providers/shopify/adapter";
 import { STRIPE_RUNTIME_ADAPTER } from "./providers/stripe/adapter";
+import { OPENAI_RUNTIME_ADAPTER } from "./providers/openai/adapter";
+import { ANTHROPIC_RUNTIME_ADAPTER } from "./providers/anthropic/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -45,6 +47,8 @@ const RUNTIME_ADAPTERS:
     HUBSPOT_RUNTIME_ADAPTER,
     SHOPIFY_RUNTIME_ADAPTER,
     STRIPE_RUNTIME_ADAPTER,
+    OPENAI_RUNTIME_ADAPTER,
+    ANTHROPIC_RUNTIME_ADAPTER,
   ];
 
 function manifestError(

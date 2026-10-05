@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import IntegrationBrandLogo from "@/components/integrations/IntegrationBrandLogo";
 import { ALL_42_INTEGRATIONS, type IntegrationDrawerData } from "@/lib/integrations/catalog-data";
 
 const CATEGORIES = [
@@ -147,13 +148,11 @@ export default function PublicIntegrationsCatalogPage() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/[0.09] bg-[#0b0a0d] p-2.5">
-                  <img
-                    src={`https://cdn.simpleicons.org/${item.slug}`}
-                    alt=""
-                    className="h-full w-full object-contain filter invert opacity-90 group-hover:opacity-100 group-hover:scale-105 transition"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLElement).style.display = "none";
-                    }}
+                  <IntegrationBrandLogo
+                    slug={item.slug}
+                    name={item.name}
+                    category={item.category}
+                    className="h-full w-full object-contain opacity-90 group-hover:opacity-100 group-hover:scale-105 transition"
                   />
                 </div>
                 <span
@@ -198,13 +197,11 @@ export default function PublicIntegrationsCatalogPage() {
             <div className="flex items-start justify-between border-b border-white/[0.08] pb-5">
               <div className="flex items-center gap-3.5">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#14121a] p-2.5">
-                  <img
-                    src={`https://cdn.simpleicons.org/${activeDrawer.slug}`}
-                    alt=""
-                    className="h-full w-full object-contain filter invert"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLElement).style.display = "none";
-                    }}
+                  <IntegrationBrandLogo
+                    slug={activeDrawer.slug}
+                    name={activeDrawer.name}
+                    category={activeDrawer.category}
+                    className="h-full w-full object-contain"
                   />
                 </div>
                 <div>

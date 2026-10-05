@@ -33,7 +33,7 @@ import {
 import { WhatsAppConnectionChoice } from "@/components/whatsapp/WhatsAppConnectionChoice";
 import { getOfficialTelegramBindingLink } from "@/lib/telegram/official-binding-link";
 import { ALL_42_INTEGRATIONS, type IntegrationDrawerData } from "@/lib/integrations/catalog-data";
-import IntegrationLogo from "@/components/integrations/IntegrationLogo";
+import IntegrationBrandLogo from "@/components/integrations/IntegrationBrandLogo";
 
 interface ConnectionItem {
   id: string;
@@ -68,62 +68,6 @@ interface TelegramBusinessSessionData {
 interface OfficialTelegramBindingData {
   shareLink: string;
 }
-
-const integrationCatalog: [string, string, string, string][] = [
-  // Row 1
-  ["WhatsApp Business", "whatsapp", "Messaging", "Available"],
-  ["Telegram", "telegram", "Messaging", "Available"],
-  ["Instagram", "instagram", "Messaging", "Next"],
-  ["Messenger", "messenger", "Messaging", "Next"],
-  ["Twilio", "twilio", "Voice & SMS", "Next"],
-  ["Telnyx", "telnyx", "Voice & SMS", "Roadmap"],
-  ["Gmail", "gmail", "Email", "Next"],
-
-  // Row 2
-  ["Microsoft Outlook", "microsoftoutlook", "Email", "Next"],
-  ["Google Calendar", "googlecalendar", "Scheduling", "Next"],
-  ["Outlook Calendar", "microsoftoutlook", "Scheduling", "Next"],
-  ["Calendly", "calendly", "Scheduling", "Next"],
-  ["Acuity Scheduling", "acuityscheduling", "Scheduling", "Roadmap"],
-  ["Stripe", "stripe", "Payments", "Available"],
-  ["Square", "square", "Payments", "Roadmap"],
-
-  // Row 3
-  ["PayPal", "paypal", "Payments", "Next"],
-  ["HubSpot", "hubspot", "CRM", "Next"],
-  ["Salesforce", "salesforce", "CRM", "Roadmap"],
-  ["Pipedrive", "pipedrive", "CRM", "Next"],
-  ["ClickUp", "clickup", "CRM", "Roadmap"],
-  ["Shopify", "shopify", "Commerce", "Next"],
-  ["WooCommerce", "woocommerce", "Commerce", "Next"],
-
-  // Row 4
-  ["QuickBooks", "quickbooks", "Accounting", "Next"],
-  ["Xero", "xero", "Accounting", "Roadmap"],
-  ["Meta Lead Ads", "meta", "Marketing & Leads", "Next"],
-  ["Google Ads", "googleads", "Marketing & Leads", "Next"],
-  ["WordPress", "wordpress", "Marketing & Leads", "Roadmap"],
-  ["Typeform", "typeform", "Marketing & Leads", "Next"],
-  ["Jotform", "jotform", "Marketing & Leads", "Roadmap"],
-
-  // Row 5
-  ["Google Business Profile", "google", "Reviews", "Next"],
-  ["Google Drive", "googledrive", "Files & Data", "Next"],
-  ["Google Sheets", "googlesheets", "Files & Data", "Next"],
-  ["Microsoft OneDrive", "microsoftonedrive", "Files & Data", "Next"],
-  ["Dropbox", "dropbox", "Files & Data", "Next"],
-  ["Slack", "slack", "Team", "Next"],
-  ["Microsoft Teams", "microsoftteams", "Team", "Next"],
-
-  // Row 6
-  ["Zapier", "zapier", "Automation", "Next"],
-  ["Make", "make", "Automation", "Next"],
-  ["n8n", "n8n", "Automation", "Roadmap"],
-  ["Webhooks & API", "webhooks", "Automation", "Available"],
-  ["Jobber", "jobber", "Field Services", "Roadmap"],
-  ["Housecall Pro", "housecallpro", "Field Services", "Roadmap"],
-  ["Mindbody", "mindbody", "Field Services", "Roadmap"],
-];
 
 export default function ConnectionsDashboardPage() {
   const [connections, setConnections] = useState<ConnectionItem[]>([]);
@@ -608,7 +552,7 @@ export default function ConnectionsDashboardPage() {
       <section className="j10-integration-catalog">
         <div className="j10-catalog-head"><div><span>INTEGRATION LIBRARY</span><strong>Choose exactly what your business uses</strong></div><small>{filteredCatalog.length} of {ALL_42_INTEGRATIONS.length} connections</small></div>
         <div className="j10-catalog-tools"><div>{["All", ...catalogCategories].map(item=><button key={item} type="button" className={catalogCategory===item?"active":""} onClick={()=>setCatalogCategory(item)}>{item}</button>)}</div><label><Search size={14}/><input value={catalogQuery} onChange={event=>setCatalogQuery(event.target.value)} placeholder="Search connections" aria-label="Search connections"/></label></div>
-        <div className="j10-connection-app-grid">{filteredCatalog.map((item) => <button key={item.id} type="button" onClick={() => openIntegration(item)}><div><IntegrationLogo name={item.name} domain={integrationDomain(item.slug)} size={38}/><b className={`j10-integration-status-${item.status.toLowerCase()}`}>{item.slug === "whatsapp" || item.slug === "telegram" ? "Connect" : item.status}</b></div><strong>{item.name}</strong><small>{item.description}</small><span>{item.category}</span></button>)}</div>
+        <div className="j10-connection-app-grid">{filteredCatalog.map((item) => <button key={item.id} type="button" onClick={() => openIntegration(item)}><div><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#14121a] p-1.5 border border-white/10"><IntegrationBrandLogo slug={item.slug} name={item.name} category={item.category} size={22}/></div><b className={`j10-integration-status-${item.status.toLowerCase()}`}>{item.slug === "whatsapp" || item.slug === "telegram" ? "Connect" : item.status}</b></div><strong>{item.name}</strong><small>{item.description}</small><span>{item.category}</span></button>)}</div>
         {filteredCatalog.length===0&&<div className="j10-catalog-empty">No connection matches this search.</div>}
       </section>
 
@@ -1405,13 +1349,11 @@ export default function ConnectionsDashboardPage() {
             <div className="flex items-start justify-between border-b border-white/[0.08] pb-5">
               <div className="flex items-center gap-3.5">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#14121a] p-2.5">
-                  <img
-                    src={`https://cdn.simpleicons.org/${activeDrawer.slug}`}
-                    alt=""
-                    className="h-full w-full object-contain filter invert"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLElement).style.display = "none";
-                    }}
+                  <IntegrationBrandLogo
+                    slug={activeDrawer.slug}
+                    name={activeDrawer.name}
+                    category={activeDrawer.category}
+                    className="h-full w-full object-contain"
                   />
                 </div>
                 <div>

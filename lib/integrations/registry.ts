@@ -1184,8 +1184,9 @@ export const INTEGRATION_REGISTRY: Readonly<
     accentColor: "#10A37F",
     authType: "secret_key",
     webhookSupport: "none",
+    supportsHealthChecks: true,
     triggers: ["Batch Completed"],
-    actions: ["Generate Response", "Analyze Media", "Generate Image"],
+    actions: ["Generate Response", "Analyze Media", "Generate Image", "Chat Completions", "Run Assistant"],
   }),
   anthropic: plannedProvider({
     id: "anthropic",
@@ -1195,8 +1196,9 @@ export const INTEGRATION_REGISTRY: Readonly<
     accentColor: "#D97757",
     authType: "secret_key",
     webhookSupport: "none",
+    supportsHealthChecks: true,
     triggers: ["Batch Completed"],
-    actions: ["Generate Message", "Analyze Document", "Use Tools"],
+    actions: ["Generate Message", "Analyze Document", "Use Tools", "Create Message", "Execute Tool"],
   }),
   gemini: plannedProvider({
     id: "gemini",
