@@ -28,6 +28,8 @@ import {
 
 import { WhatsAppConnectionChoice } from "@/components/whatsapp/WhatsAppConnectionChoice";
 import { getOfficialTelegramBindingLink } from "@/lib/telegram/official-binding-link";
+import { ALL_42_INTEGRATIONS, type IntegrationDrawerData } from "@/lib/integrations/catalog-data";
+import { X, ChevronRight, ArrowRight } from "lucide-react";
 
 interface ConnectionItem {
   id: string;
@@ -126,6 +128,8 @@ export default function ConnectionsDashboardPage() {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [connectTab, setConnectTab] = useState<"business" | "official" | "custom">("business");
+  const [activeDrawer, setActiveDrawer] = useState<IntegrationDrawerData | null>(null);
+  const [requestedAccess, setRequestedAccess] = useState<Record<string, boolean>>({});
 
   // Telegram Business Secretary Mode state
   const [businessConsentAccepted, setBusinessConsentAccepted] = useState(false);
@@ -592,10 +596,23 @@ export default function ConnectionsDashboardPage() {
               key={name}
               type="button"
               onClick={() => {
-                if (name === "WhatsApp Business" || name === "WhatsApp") setShowWhatsAppModal(true);
-                else if (name === "Telegram") { setShowConnectModal(true); setConnectTab("business"); }
-                else if (name === "Stripe") { window.location.href = "/dashboard/settings/billing"; }
-                else if (name === "Webhooks & API") { window.location.href = "/dashboard/settings/integrations/sandbox"; }
+                if (name === "WhatsApp Business" || name === "WhatsApp") {
+                  setShowWhatsAppModal(true);
+                } else if (name === "Telegram") {
+                  setShowConnectModal(true);
+                  setConnectTab("business");
+                } else if (name === "Stripe") {
+                  window.location.href = "/dashboard/settings/billing";
+                } else if (name === "Webhooks & API") {
+                  window.location.href = "/dashboard/settings/integrations/sandbox";
+                } else {
+                  const detail = ALL_42_INTEGRATIONS.find(
+                    (item) => item.slug === slug || item.name.toLowerCase() === name.toLowerCase()
+                  );
+                  if (detail) {
+                    setActiveDrawer(detail);
+                  }
+                }
               }}
             >
               <img
@@ -1396,6 +1413,152 @@ export default function ConnectionsDashboardPage() {
                 setShowWhatsAppModal(false);
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* 42-Connector Slide-over Specification Drawer */}
+      {activeDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-sm">
+          <div className="relative flex h-full w-full max-w-xl flex-col bg-[#0d0c11] border-l border-white/[0.1] p-6 sm:p-8 overflow-y-auto shadow-2xl">
+            {/* Drawer Header */}
+            <div className="flex items-start justify-between border-b border-white/[0.08] pb-5">
+              <div className="flex items-center gap-3.5">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#14121a] p-2.5">
+                  <img
+                    src={`https://cdn.simpleicons.org/${activeDrawer.slug}`}
+                    alt=""
+                    className="h-full w-full object-contain filter invert"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLElement).style.display = "none";
+                    }}
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-white">{activeDrawer.name}</h3>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                        activeDrawer.status === "Available"
+                          ? "border border-[#d7b35c]/30 bg-[#d7b35c]/10 text-[#d7b35c]"
+                          : activeDrawer.status === "Next"
+                          ? "border border-amber-500/30 bg-amber-500/10 text-amber-300"
+                          : "border border-purple-500/20 bg-purple-500/10 text-purple-300"
+                      }`}
+                    >
+                      {activeDrawer.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#d7b35c]/80 font-medium mt-0.5">{activeDrawer.category} Integration</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setActiveDrawer(null)}
+                className="rounded-lg border border-white/10 p-2 text-white/60 hover:bg-white/10 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Drawer Content */}
+            <div className="mt-6 space-y-6 flex-1 text-xs">
+              {/* Overview */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#d7b35c]">Overview</h4>
+                <p className="mt-2 text-white/80 text-sm leading-relaxed">{activeDrawer.howItWorks}</p>
+              </div>
+
+              {/* Authentication Protocol */}
+              <div className="rounded-xl border border-white/[0.08] bg-[#14121a] p-4">
+                <div className="flex items-center gap-2 text-white/80 font-semibold">
+                  <Lock size={15} className="text-[#d7b35c]" />
+                  <span>Authentication & Security Protocol</span>
+                </div>
+                <p className="mt-1.5 text-white/60 font-mono text-[11px]">{activeDrawer.authMethod}</p>
+              </div>
+
+              {/* Inbound Triggers */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#d7b35c]">Supported Inbound Triggers</h4>
+                <ul className="mt-2.5 space-y-2">
+                  {activeDrawer.triggers.map((trigger, i) => (
+                    <li key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2 text-white/80">
+                      <Zap size={14} className="text-emerald-400 shrink-0" />
+                      <span>{trigger}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Outbound Actions */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#d7b35c]">Automated J10 Actions</h4>
+                <ul className="mt-2.5 space-y-2">
+                  {activeDrawer.actions.map((act, i) => (
+                    <li key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2 text-white/80">
+                      <CheckCircle2 size={14} className="text-cyan-400 shrink-0" />
+                      <span>{act}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Plain English Scopes */}
+              <div>
+                <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#d7b35c]">Required Permissions (Plain English)</h4>
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  {activeDrawer.scopes.map((scope, i) => (
+                    <span key={i} className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-mono text-white/70">
+                      {scope}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Drawer Footer Actions */}
+            <div className="mt-8 pt-6 border-t border-white/[0.08]">
+              {activeDrawer.status === "Available" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveDrawer(null);
+                    if (activeDrawer.slug === "whatsapp") setShowWhatsAppModal(true);
+                    else if (activeDrawer.slug === "telegram") { setShowConnectModal(true); setConnectTab("business"); }
+                    else if (activeDrawer.slug === "stripe") { window.location.href = "/dashboard/settings/billing"; }
+                    else if (activeDrawer.slug === "webhooks") { window.location.href = "/dashboard/settings/integrations/sandbox"; }
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#e2c16c] to-[#a97a27] py-3.5 text-xs font-bold text-[#160f05] shadow-lg shadow-amber-900/30 transition hover:brightness-110"
+                >
+                  <span>Connect Now</span>
+                  <ArrowRight size={15} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setRequestedAccess((prev) => ({
+                      ...prev,
+                      [activeDrawer.id]: !prev[activeDrawer.id],
+                    }))
+                  }
+                  className={`flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-xs font-bold transition ${
+                    requestedAccess[activeDrawer.id]
+                      ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                      : "border border-[#d7b35c]/30 bg-[#d7b35c]/10 text-[#d7b35c] hover:bg-[#d7b35c]/20"
+                  }`}
+                >
+                  <Sparkles size={15} />
+                  <span>
+                    {requestedAccess[activeDrawer.id]
+                      ? "Priority Beta Access Requested ✓"
+                      : `Notify Me When ${activeDrawer.name} Launches`}
+                  </span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
