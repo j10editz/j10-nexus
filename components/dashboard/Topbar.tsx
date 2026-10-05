@@ -28,6 +28,7 @@ import {
   readyDashboardNavigationItems,
 } from "@/lib/dashboard/navigation";
 import WorkspaceSwitcher from "@/components/dashboard/WorkspaceSwitcher";
+import { createClient } from "@/lib/supabase";
 
 type TopbarProps = {
   onOpenNavigation: () => void;
@@ -53,6 +54,7 @@ export default function Topbar({
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   const [attentionCount, setAttentionCount] = useState(0);
 
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
@@ -325,9 +327,10 @@ export default function Topbar({
   async function handleSignOut() {
     setProfileOpen(false);
     try {
-      await fetch("/api/auth/signout", { method: "POST" });
+      await createClient().auth.signOut();
     } catch {}
-    router.push("/login");
+    router.replace("/login");
+    router.refresh();
   }
 
   return (
@@ -439,7 +442,7 @@ export default function Topbar({
           {/* Primary Global Ask J10 AI Launcher (Restrained Gradient) */}
           <button
             type="button"
-            onClick={() => navigate("/dashboard#j10-ai")}
+            onClick={() => setAskOpen((current) => !current)}
             className="hidden h-10 items-center gap-2 rounded-xl border border-[#7652aa]/35 bg-[#211530] px-3.5 text-xs font-semibold text-white/85 transition hover:border-[#a77bdd]/55 hover:bg-[#2a1a3e] active:scale-[0.99] md:flex"
           >
             <Image
@@ -451,6 +454,16 @@ export default function Topbar({
             />
             <span>Ask J10 AI</span>
           </button>
+
+          {askOpen && (
+            <section className="j10-topbar-assistant" role="dialog" aria-label="Ask J10 AI">
+              <button className="j10-assistant-close" onClick={() => setAskOpen(false)} aria-label="Close"><X size={16}/></button>
+              <div className="j10-assistant-energy"><Image src="/brand/j10-expression-excited.png" alt="J10 assistant" width={92} height={92}/></div>
+              <p>J10 AI</p><h2>Hi, how can I help you?</h2>
+              <span>I can find a lead, check today&apos;s bookings, review connections, or help you build a workflow.</span>
+              <div><button onClick={() => navigate("/dashboard/ai-operator")}>Open AI Operator</button><button onClick={() => navigate("/dashboard/connections")}>Check connections</button></div>
+            </section>
+          )}
 
           <Link
             href="/dashboard/notifications"
@@ -614,7 +627,7 @@ export default function Topbar({
                   </Link>
 
                   <Link
-                    href="/dashboard/settings/integrations"
+                    href="/dashboard/connections"
                     onClick={() => setProfileOpen(false)}
                     className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-slate-300 transition hover:bg-white/[0.05] hover:text-white"
                   >
