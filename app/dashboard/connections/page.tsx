@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
   AlertTriangle,
   Bot,
+  ArrowRight,
   CheckCircle2,
+  ChevronRight,
   Copy,
   Download,
   ExternalLink,
@@ -15,6 +17,7 @@ import {
   MessageSquare,
   Plus,
   RefreshCw,
+  Search,
   Send,
   Shield,
   ShieldAlert,
@@ -24,12 +27,13 @@ import {
   Trash2,
   Users,
   Zap,
+  X,
 } from "lucide-react";
 
 import { WhatsAppConnectionChoice } from "@/components/whatsapp/WhatsAppConnectionChoice";
 import { getOfficialTelegramBindingLink } from "@/lib/telegram/official-binding-link";
 import { ALL_42_INTEGRATIONS, type IntegrationDrawerData } from "@/lib/integrations/catalog-data";
-import { X, ChevronRight, ArrowRight } from "lucide-react";
+import IntegrationLogo from "@/components/integrations/IntegrationLogo";
 
 interface ConnectionItem {
   id: string;
@@ -125,6 +129,8 @@ export default function ConnectionsDashboardPage() {
   const [connections, setConnections] = useState<ConnectionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterPlatform, setFilterPlatform] = useState("all");
+  const [catalogCategory, setCatalogCategory] = useState("All");
+  const [catalogQuery, setCatalogQuery] = useState("");
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [connectTab, setConnectTab] = useState<"business" | "official" | "custom">("business");
@@ -529,6 +535,17 @@ export default function ConnectionsDashboardPage() {
     if (filterPlatform === "all") return true;
     return c.provider.includes(filterPlatform);
   });
+  const catalogCategories = useMemo(() => Array.from(new Set(ALL_42_INTEGRATIONS.map(item => item.category))), []);
+  const filteredCatalog = useMemo(() => ALL_42_INTEGRATIONS.filter((item) =>
+    (catalogCategory === "All" || item.category === catalogCategory) &&
+    `${item.name} ${item.category} ${item.description}`.toLowerCase().includes(catalogQuery.toLowerCase())
+  ), [catalogCategory, catalogQuery]);
+
+  function openIntegration(item: IntegrationDrawerData) {
+    if (item.slug === "whatsapp") { setShowWhatsAppModal(true); return; }
+    if (item.slug === "telegram") { setShowConnectModal(true); setConnectTab("business"); return; }
+    setActiveDrawer(item);
+  }
 
   return (
     <div className="j10-connections-page min-h-[calc(100dvh-72px)] px-6 py-6 text-white sm:px-8">
@@ -589,47 +606,10 @@ export default function ConnectionsDashboardPage() {
       </div>
 
       <section className="j10-integration-catalog">
-        <div className="j10-catalog-head"><div><span>INTEGRATION LIBRARY</span><strong>Everything your business connects to</strong></div><small>Connect apps once. J10 keeps customer activity together.</small></div>
-        <div className="j10-logo-grid">
-          {integrationCatalog.map(([name, slug, category, statusLabel]) => (
-            <button
-              key={name}
-              type="button"
-              onClick={() => {
-                if (name === "WhatsApp Business" || name === "WhatsApp") {
-                  setShowWhatsAppModal(true);
-                } else if (name === "Telegram") {
-                  setShowConnectModal(true);
-                  setConnectTab("business");
-                } else if (name === "Stripe") {
-                  window.location.href = "/dashboard/settings/billing";
-                } else if (name === "Webhooks & API") {
-                  window.location.href = "/dashboard/settings/integrations/sandbox";
-                } else {
-                  const detail = ALL_42_INTEGRATIONS.find(
-                    (item) => item.slug === slug || item.name.toLowerCase() === name.toLowerCase()
-                  );
-                  if (detail) {
-                    setActiveDrawer(detail);
-                  }
-                }
-              }}
-            >
-              <img
-                src={`https://cdn.simpleicons.org/${slug}`}
-                alt=""
-                onError={(e) => {
-                  (e.currentTarget as HTMLElement).style.display = "none";
-                }}
-              />
-              <span>
-                <strong>{name}</strong>
-                <small>{category}</small>
-              </span>
-              <b className={`status-${statusLabel.toLowerCase()}`}>{statusLabel}</b>
-            </button>
-          ))}
-        </div>
+        <div className="j10-catalog-head"><div><span>INTEGRATION LIBRARY</span><strong>Choose exactly what your business uses</strong></div><small>{filteredCatalog.length} of {ALL_42_INTEGRATIONS.length} connections</small></div>
+        <div className="j10-catalog-tools"><div>{["All", ...catalogCategories].map(item=><button key={item} type="button" className={catalogCategory===item?"active":""} onClick={()=>setCatalogCategory(item)}>{item}</button>)}</div><label><Search size={14}/><input value={catalogQuery} onChange={event=>setCatalogQuery(event.target.value)} placeholder="Search connections" aria-label="Search connections"/></label></div>
+        <div className="j10-connection-app-grid">{filteredCatalog.map((item) => <button key={item.id} type="button" onClick={() => openIntegration(item)}><div><IntegrationLogo name={item.name} domain={integrationDomain(item.slug)} size={38}/><b className={`j10-integration-status-${item.status.toLowerCase()}`}>{item.slug === "whatsapp" || item.slug === "telegram" ? "Connect" : item.status}</b></div><strong>{item.name}</strong><small>{item.description}</small><span>{item.category}</span></button>)}</div>
+        {filteredCatalog.length===0&&<div className="j10-catalog-empty">No connection matches this search.</div>}
       </section>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
@@ -1564,4 +1544,21 @@ export default function ConnectionsDashboardPage() {
       )}
     </div>
   );
+}
+
+function integrationDomain(slug: string): string {
+  const domains: Record<string, string> = {
+    whatsapp: "whatsapp.com", telegram: "telegram.org", instagram: "instagram.com", messenger: "messenger.com",
+    twilio: "twilio.com", telnyx: "telnyx.com", gmail: "gmail.com", microsoftoutlook: "outlook.com",
+    googlecalendar: "calendar.google.com", calendly: "calendly.com", acuityscheduling: "acuityscheduling.com",
+    stripe: "stripe.com", square: "squareup.com", paypal: "paypal.com", hubspot: "hubspot.com",
+    salesforce: "salesforce.com", pipedrive: "pipedrive.com", clickup: "clickup.com", shopify: "shopify.com",
+    woocommerce: "woocommerce.com", quickbooks: "quickbooks.intuit.com", xero: "xero.com", meta: "facebook.com",
+    googleads: "ads.google.com", wordpress: "wordpress.com", typeform: "typeform.com", jotform: "jotform.com",
+    google: "business.google.com", googledrive: "drive.google.com", googlesheets: "sheets.google.com",
+    microsoftonedrive: "onedrive.live.com", dropbox: "dropbox.com", slack: "slack.com",
+    microsoftteams: "teams.microsoft.com", zapier: "zapier.com", make: "make.com", n8n: "n8n.io",
+    webhooks: "j10-nexus.com", jobber: "getjobber.com", housecallpro: "housecallpro.com", mindbody: "mindbodyonline.com",
+  };
+  return domains[slug] || `${slug}.com`;
 }
