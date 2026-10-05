@@ -35,6 +35,7 @@ import { getOfficialTelegramBindingLink } from "@/lib/telegram/official-binding-
 import { ALL_42_INTEGRATIONS, type IntegrationDrawerData } from "@/lib/integrations/catalog-data";
 import IntegrationBrandLogo from "@/components/integrations/IntegrationBrandLogo";
 import ConnectionSetupModal from "@/components/integrations/ConnectionSetupModal";
+import DeadLetterQueueDrawer from "@/components/integrations/DeadLetterQueueDrawer";
 
 interface ConnectionItem {
   id: string;
@@ -78,6 +79,7 @@ export default function ConnectionsDashboardPage() {
   const [catalogQuery, setCatalogQuery] = useState("");
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [showDlqDrawer, setShowDlqDrawer] = useState(false);
   const [connectTab, setConnectTab] = useState<"business" | "official" | "custom">("business");
   const [activeDrawer, setActiveDrawer] = useState<IntegrationDrawerData | null>(null);
   const [setupModalIntegration, setSetupModalIntegration] = useState<IntegrationDrawerData | null>(null);
@@ -458,7 +460,7 @@ export default function ConnectionsDashboardPage() {
       if (res.ok && data.success) {
         setDisconnectDoneMessage(
           data.instruction ||
-            "To complete disconnection on Telegram: Open Telegram Settings → Telegram Business → Chatbots, and remove the bot."
+          "To complete disconnection on Telegram: Open Telegram Settings → Telegram Business → Chatbots, and remove the bot."
         );
         void loadConnections();
       } else {
@@ -514,6 +516,15 @@ export default function ConnectionsDashboardPage() {
         <div className="flex items-center gap-3">
           <button
             type="button"
+            onClick={() => setShowDlqDrawer(true)}
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/20"
+          >
+            <ShieldAlert size={14} className="text-[#e2c16c]" />
+            <span>DLQ Ingress Inspector</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => void loadConnections()}
             className="flex h-9 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-xs font-medium text-white/70 transition hover:bg-white/[0.08] hover:text-white"
           >
@@ -553,9 +564,9 @@ export default function ConnectionsDashboardPage() {
 
       <section className="j10-integration-catalog">
         <div className="j10-catalog-head"><div><span>INTEGRATION LIBRARY</span><strong>Choose exactly what your business uses</strong></div><small>{filteredCatalog.length} of {ALL_42_INTEGRATIONS.length} connections</small></div>
-        <div className="j10-catalog-tools"><div>{["All", ...catalogCategories].map(item=><button key={item} type="button" className={catalogCategory===item?"active":""} onClick={()=>setCatalogCategory(item)}>{item}</button>)}</div><label><Search size={14}/><input value={catalogQuery} onChange={event=>setCatalogQuery(event.target.value)} placeholder="Search connections" aria-label="Search connections"/></label></div>
-        <div className="j10-connection-app-grid">{filteredCatalog.map((item) => <button key={item.id} type="button" onClick={() => openIntegration(item)}><div><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#14121a] p-1.5 border border-white/10"><IntegrationBrandLogo slug={item.slug} name={item.name} category={item.category} size={22}/></div><b className={`j10-integration-status-${item.status.toLowerCase()}`}>{item.slug === "whatsapp" || item.slug === "telegram" ? "Connect" : item.status}</b></div><strong>{item.name}</strong><small>{item.description}</small><span>{item.category}</span></button>)}</div>
-        {filteredCatalog.length===0&&<div className="j10-catalog-empty">No connection matches this search.</div>}
+        <div className="j10-catalog-tools"><div>{["All", ...catalogCategories].map(item => <button key={item} type="button" className={catalogCategory === item ? "active" : ""} onClick={() => setCatalogCategory(item)}>{item}</button>)}</div><label><Search size={14} /><input value={catalogQuery} onChange={event => setCatalogQuery(event.target.value)} placeholder="Search connections" aria-label="Search connections" /></label></div>
+        <div className="j10-connection-app-grid">{filteredCatalog.map((item) => <button key={item.id} type="button" onClick={() => openIntegration(item)}><div><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#14121a] p-1.5 border border-white/10"><IntegrationBrandLogo slug={item.slug} name={item.name} category={item.category} size={22} /></div><b className={`j10-integration-status-${item.status.toLowerCase()}`}>{item.slug === "whatsapp" || item.slug === "telegram" ? "Connect" : item.status}</b></div><strong>{item.name}</strong><small>{item.description}</small><span>{item.category}</span></button>)}</div>
+        {filteredCatalog.length === 0 && <div className="j10-catalog-empty">No connection matches this search.</div>}
       </section>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
@@ -611,13 +622,12 @@ export default function ConnectionsDashboardPage() {
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
                         <div
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
-                            conn.provider === "whatsapp"
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${conn.provider === "whatsapp"
                               ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                               : conn.provider === "telegram"
-                              ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                              : "bg-purple-500/10 text-purple-400 border-purple-500/20"
-                          }`}
+                                ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                : "bg-purple-500/10 text-purple-400 border-purple-500/20"
+                            }`}
                         >
                           {conn.provider === "telegram" ? (
                             <Send size={16} />
@@ -658,13 +668,12 @@ export default function ConnectionsDashboardPage() {
                           </div>
                           {conn.credentialState && (
                             <div className="flex items-center gap-1.5">
-                              <span className={`h-1.5 w-1.5 rounded-full ${
-                                conn.credentialState === "connected"
+                              <span className={`h-1.5 w-1.5 rounded-full ${conn.credentialState === "connected"
                                   ? "bg-emerald-400"
                                   : conn.credentialState === "expiring_soon"
                                     ? "bg-amber-400"
                                     : "bg-rose-400"
-                              }`} />
+                                }`} />
                               <span className="text-[10px] text-white/50">
                                 Credential: {conn.credentialState.replaceAll("_", " ")}
                                 {conn.credentialExpiresAt
@@ -710,54 +719,51 @@ export default function ConnectionsDashboardPage() {
                       <div className="flex items-center gap-2">
                         <span className="relative flex h-2 w-2">
                           <span
-                            className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${
-                              conn.status === "active"
+                            className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${conn.status === "active"
                                 ? "bg-emerald-400"
                                 : conn.status === "connecting" || conn.status === "pending"
-                                ? "bg-blue-400"
-                                : conn.status === "action_required" || conn.status === "degraded" || conn.status === "local_disabled"
-                                ? "bg-amber-400"
-                                : conn.status === "not_connected"
-                                ? "bg-zinc-500"
-                                : "bg-rose-400"
-                            }`}
+                                  ? "bg-blue-400"
+                                  : conn.status === "action_required" || conn.status === "degraded" || conn.status === "local_disabled"
+                                    ? "bg-amber-400"
+                                    : conn.status === "not_connected"
+                                      ? "bg-zinc-500"
+                                      : "bg-rose-400"
+                              }`}
                           />
                           <span
-                            className={`relative inline-flex h-2 w-2 rounded-full ${
-                              conn.status === "active"
+                            className={`relative inline-flex h-2 w-2 rounded-full ${conn.status === "active"
                                 ? "bg-emerald-500"
                                 : conn.status === "connecting" || conn.status === "pending"
-                                ? "bg-blue-500"
-                                : conn.status === "action_required" || conn.status === "degraded" || conn.status === "local_disabled"
-                                ? "bg-amber-500"
-                                : conn.status === "not_connected"
-                                ? "bg-zinc-500"
-                                : "bg-rose-500"
-                            }`}
+                                  ? "bg-blue-500"
+                                  : conn.status === "action_required" || conn.status === "degraded" || conn.status === "local_disabled"
+                                    ? "bg-amber-500"
+                                    : conn.status === "not_connected"
+                                      ? "bg-zinc-500"
+                                      : "bg-rose-500"
+                              }`}
                           />
                         </span>
                         <span
-                          className={`font-semibold capitalize text-[11px] ${
-                            conn.status === "active"
+                          className={`font-semibold capitalize text-[11px] ${conn.status === "active"
                               ? "text-emerald-400"
                               : conn.status === "connecting" || conn.status === "pending"
-                              ? "text-blue-400"
-                              : conn.status === "action_required" || conn.status === "degraded" || conn.status === "local_disabled"
-                              ? "text-amber-400"
-                              : conn.status === "not_connected"
-                              ? "text-zinc-400"
-                              : "text-rose-400"
-                          }`}
+                                ? "text-blue-400"
+                                : conn.status === "action_required" || conn.status === "degraded" || conn.status === "local_disabled"
+                                  ? "text-amber-400"
+                                  : conn.status === "not_connected"
+                                    ? "text-zinc-400"
+                                    : "text-rose-400"
+                            }`}
                         >
                           {conn.status === "local_disabled"
                             ? "Disabled Locally (Remove in Telegram)"
                             : conn.status === "not_connected"
-                            ? "Not connected"
-                            : conn.status === "action_required"
-                            ? "Action required"
-                            : conn.status === "connecting"
-                            ? "Connecting"
-                            : conn.status}
+                              ? "Not connected"
+                              : conn.status === "action_required"
+                                ? "Action required"
+                                : conn.status === "connecting"
+                                  ? "Connecting"
+                                  : conn.status}
                         </span>
 
                         {conn.status === "active" && (
@@ -963,33 +969,30 @@ export default function ConnectionsDashboardPage() {
               <button
                 type="button"
                 onClick={() => setConnectTab("business")}
-                className={`rounded-lg py-2 text-xs font-semibold transition ${
-                  connectTab === "business"
+                className={`rounded-lg py-2 text-xs font-semibold transition ${connectTab === "business"
                     ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/30"
                     : "text-white/50 hover:text-white"
-                }`}
+                  }`}
               >
                 Telegram Business ⭐
               </button>
               <button
                 type="button"
                 onClick={() => setConnectTab("official")}
-                className={`rounded-lg py-2 text-xs font-semibold transition ${
-                  connectTab === "official"
+                className={`rounded-lg py-2 text-xs font-semibold transition ${connectTab === "official"
                     ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
                     : "text-white/50 hover:text-white"
-                }`}
+                  }`}
               >
                 Shared Bot DM
               </button>
               <button
                 type="button"
                 onClick={() => setConnectTab("custom")}
-                className={`rounded-lg py-2 text-xs font-semibold transition ${
-                  connectTab === "custom"
+                className={`rounded-lg py-2 text-xs font-semibold transition ${connectTab === "custom"
                     ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
                     : "text-white/50 hover:text-white"
-                }`}
+                  }`}
               >
                 Custom Bot (Advanced)
               </button>
@@ -1134,7 +1137,7 @@ export default function ConnectionsDashboardPage() {
                   {connecting ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
                   Generate secure Telegram link
                 </button>
-                : <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 text-xs">
+                  : <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 text-xs">
                     <p className="font-semibold text-emerald-200">Your single-use Telegram link is ready.</p>
                     <p className="text-white/70">Open Telegram, press <b>Start</b>, then return here. This link is held only in this browser session.</p>
                     <a
@@ -1191,11 +1194,10 @@ export default function ConnectionsDashboardPage() {
 
             {statusMessage && (
               <div
-                className={`mt-4 rounded-lg p-3 text-xs ${
-                  statusMessage.includes("success") || statusMessage.includes("connected")
+                className={`mt-4 rounded-lg p-3 text-xs ${statusMessage.includes("success") || statusMessage.includes("connected")
                     ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
                     : "border border-rose-500/30 bg-rose-500/10 text-rose-300"
-                }`}
+                  }`}
               >
                 {statusMessage}
               </div>
@@ -1368,13 +1370,12 @@ export default function ConnectionsDashboardPage() {
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-bold text-white">{activeDrawer.name}</h3>
                     <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                        activeDrawer.status === "Available"
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${activeDrawer.status === "Available"
                           ? "border border-[#d7b35c]/30 bg-[#d7b35c]/10 text-[#d7b35c]"
                           : activeDrawer.status === "Next"
-                          ? "border border-amber-500/30 bg-amber-500/10 text-amber-300"
-                          : "border border-purple-500/20 bg-purple-500/10 text-purple-300"
-                      }`}
+                            ? "border border-amber-500/30 bg-amber-500/10 text-amber-300"
+                            : "border border-purple-500/20 bg-purple-500/10 text-purple-300"
+                        }`}
                     >
                       {activeDrawer.status}
                     </span>
@@ -1476,11 +1477,10 @@ export default function ConnectionsDashboardPage() {
                       [activeDrawer.id]: !prev[activeDrawer.id],
                     }))
                   }
-                  className={`flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-xs font-bold transition ${
-                    requestedAccess[activeDrawer.id]
+                  className={`flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-xs font-bold transition ${requestedAccess[activeDrawer.id]
                       ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
                       : "border border-[#d7b35c]/30 bg-[#d7b35c]/10 text-[#d7b35c] hover:bg-[#d7b35c]/20"
-                  }`}
+                    }`}
                 >
                   <Sparkles size={15} />
                   <span>
@@ -1506,6 +1506,15 @@ export default function ConnectionsDashboardPage() {
           }}
         />
       )}
+
+      {/* Dead-Letter Queue & Ingress Inspector Drawer */}
+      <DeadLetterQueueDrawer
+        isOpen={showDlqDrawer}
+        onClose={() => setShowDlqDrawer(false)}
+        onReplayComplete={() => {
+          loadConnections();
+        }}
+      />
     </div>
   );
 }
