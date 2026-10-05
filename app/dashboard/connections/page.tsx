@@ -34,6 +34,7 @@ import { WhatsAppConnectionChoice } from "@/components/whatsapp/WhatsAppConnecti
 import { getOfficialTelegramBindingLink } from "@/lib/telegram/official-binding-link";
 import { ALL_42_INTEGRATIONS, type IntegrationDrawerData } from "@/lib/integrations/catalog-data";
 import IntegrationBrandLogo from "@/components/integrations/IntegrationBrandLogo";
+import ConnectionSetupModal from "@/components/integrations/ConnectionSetupModal";
 
 interface ConnectionItem {
   id: string;
@@ -79,6 +80,7 @@ export default function ConnectionsDashboardPage() {
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [connectTab, setConnectTab] = useState<"business" | "official" | "custom">("business");
   const [activeDrawer, setActiveDrawer] = useState<IntegrationDrawerData | null>(null);
+  const [setupModalIntegration, setSetupModalIntegration] = useState<IntegrationDrawerData | null>(null);
   const [requestedAccess, setRequestedAccess] = useState<Record<string, boolean>>({});
 
   // Telegram Business Secretary Mode state
@@ -1446,11 +1448,13 @@ export default function ConnectionsDashboardPage() {
                 <button
                   type="button"
                   onClick={() => {
+                    const drawer = activeDrawer;
                     setActiveDrawer(null);
-                    if (activeDrawer.slug === "whatsapp") setShowWhatsAppModal(true);
-                    else if (activeDrawer.slug === "telegram") { setShowConnectModal(true); setConnectTab("business"); }
-                    else if (activeDrawer.slug === "stripe") { window.location.href = "/dashboard/settings/billing"; }
-                    else if (activeDrawer.slug === "webhooks") { window.location.href = "/dashboard/settings/integrations/sandbox"; }
+                    if (drawer.slug === "whatsapp") setShowWhatsAppModal(true);
+                    else if (drawer.slug === "telegram") { setShowConnectModal(true); setConnectTab("business"); }
+                    else if (drawer.slug === "stripe") { window.location.href = "/dashboard/settings/billing"; }
+                    else if (drawer.slug === "webhooks") { window.location.href = "/dashboard/settings/integrations/sandbox"; }
+                    else { setSetupModalIntegration(drawer); }
                   }}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#e2c16c] to-[#a97a27] py-3.5 text-xs font-bold text-[#160f05] shadow-lg shadow-amber-900/30 transition hover:brightness-110"
                 >
@@ -1483,6 +1487,18 @@ export default function ConnectionsDashboardPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Universal Connection Setup Wizard Modal */}
+      {setupModalIntegration && (
+        <ConnectionSetupModal
+          integration={setupModalIntegration}
+          isOpen={Boolean(setupModalIntegration)}
+          onClose={() => setSetupModalIntegration(null)}
+          onSuccess={() => {
+            loadConnections();
+          }}
+        />
       )}
     </div>
   );
