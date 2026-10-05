@@ -301,7 +301,7 @@ export default function KnowledgePage() {
   }
 
   return (
-    <div className="min-h-full bg-[#09090B] text-white">
+    <div className="j10-refined-workspace j10-knowledge-workspace min-h-full bg-[#09090B] text-white">
       <div className="mx-auto max-w-[1500px] px-6 py-8 lg:px-8">
         {/* HEADER */}
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
@@ -309,17 +309,16 @@ export default function KnowledgePage() {
             <div className="flex items-center gap-2">
               <span className="flex h-2 w-2 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.8)]" />
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-400">
-                COMPANY BRAIN & GROUNDING
+                J10 KNOWLEDGE
               </p>
             </div>
 
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              Knowledge Hub
+              Company knowledge
             </h1>
 
             <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-              The centralized source of truth for your business. Ground WhatsApp customer replies,
-              sales agents, and automation workflows strictly in your verified facts.
+              Give every J10 service one reliable source for your offers, policies, and answers.
             </p>
           </div>
 
