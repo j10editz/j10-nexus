@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Plus,
   RefreshCw,
+  Search,
   Send,
   Shield,
   ShieldAlert,
@@ -24,12 +25,13 @@ import {
   Trash2,
   Users,
   Zap,
+  X,
 } from "lucide-react";
 
 import { WhatsAppConnectionChoice } from "@/components/whatsapp/WhatsAppConnectionChoice";
 import { getOfficialTelegramBindingLink } from "@/lib/telegram/official-binding-link";
 import IntegrationLogo from "@/components/integrations/IntegrationLogo";
-import { INTEGRATION_STATUS_LABEL, J10_INTEGRATIONS } from "@/lib/integrations/catalog";
+import { INTEGRATION_CATEGORIES, INTEGRATION_STATUS_LABEL, J10_INTEGRATIONS, type IntegrationDefinition } from "@/lib/integrations/catalog";
 
 interface ConnectionItem {
   id: string;
@@ -69,6 +71,9 @@ export default function ConnectionsDashboardPage() {
   const [connections, setConnections] = useState<ConnectionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterPlatform, setFilterPlatform] = useState("all");
+  const [catalogCategory, setCatalogCategory] = useState("All");
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [selectedIntegration, setSelectedIntegration] = useState<IntegrationDefinition | null>(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [connectTab, setConnectTab] = useState<"business" | "official" | "custom">("business");
@@ -471,6 +476,16 @@ export default function ConnectionsDashboardPage() {
     if (filterPlatform === "all") return true;
     return c.provider.includes(filterPlatform);
   });
+  const filteredCatalog = useMemo(() => J10_INTEGRATIONS.filter((item) =>
+    (catalogCategory === "All" || item.category === catalogCategory) &&
+    `${item.name} ${item.category} ${item.description}`.toLowerCase().includes(catalogQuery.toLowerCase())
+  ), [catalogCategory, catalogQuery]);
+
+  function openIntegration(item: IntegrationDefinition) {
+    if (item.id === "whatsapp") { setShowWhatsAppModal(true); return; }
+    if (item.id === "telegram") { setShowConnectModal(true); setConnectTab("business"); return; }
+    setSelectedIntegration(item);
+  }
 
   return (
     <div className="j10-connections-page min-h-[calc(100dvh-72px)] px-6 py-6 text-white sm:px-8">
@@ -531,8 +546,10 @@ export default function ConnectionsDashboardPage() {
       </div>
 
       <section className="j10-integration-catalog">
-        <div className="j10-catalog-head"><div><span>INTEGRATION LIBRARY</span><strong>Everything your business connects to</strong></div><small>Connect apps once. J10 keeps customer activity together.</small></div>
-        <div className="j10-logo-grid">{J10_INTEGRATIONS.map((item) => <button key={item.id} type="button" onClick={() => { if(item.id === "whatsapp") setShowWhatsAppModal(true); if(item.id === "telegram") { setShowConnectModal(true); setConnectTab("business"); } }}><IntegrationLogo name={item.name} domain={item.domain} size={25}/><span><strong>{item.name}</strong><small>{item.category}</small></span><b className={`j10-integration-status-${item.status}`}>{item.id === "whatsapp" || item.id === "telegram" ? "Connect" : INTEGRATION_STATUS_LABEL[item.status]}</b></button>)}</div>
+        <div className="j10-catalog-head"><div><span>INTEGRATION LIBRARY</span><strong>Choose exactly what your business uses</strong></div><small>{filteredCatalog.length} of {J10_INTEGRATIONS.length} connections</small></div>
+        <div className="j10-catalog-tools"><div>{["All", ...INTEGRATION_CATEGORIES].map(item=><button key={item} type="button" className={catalogCategory===item?"active":""} onClick={()=>setCatalogCategory(item)}>{item}</button>)}</div><label><Search size={14}/><input value={catalogQuery} onChange={event=>setCatalogQuery(event.target.value)} placeholder="Search connections" aria-label="Search connections"/></label></div>
+        <div className="j10-connection-app-grid">{filteredCatalog.map((item) => <button key={item.id} type="button" onClick={() => openIntegration(item)}><div><IntegrationLogo name={item.name} domain={item.domain} size={38}/><b className={`j10-integration-status-${item.status}`}>{item.id === "whatsapp" || item.id === "telegram" ? "Connect" : INTEGRATION_STATUS_LABEL[item.status]}</b></div><strong>{item.name}</strong><small>{item.description}</small><span>{item.category}</span></button>)}</div>
+        {filteredCatalog.length===0&&<div className="j10-catalog-empty">No connection matches this search.</div>}
       </section>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
@@ -897,6 +914,26 @@ export default function ConnectionsDashboardPage() {
           </div>
         </div>
       </div>
+
+      {selectedIntegration && (
+        <div className="j10-connection-drawer-layer" role="presentation" onMouseDown={(event)=>{if(event.target===event.currentTarget)setSelectedIntegration(null)}}>
+          <aside className="j10-connection-drawer" role="dialog" aria-modal="true" aria-labelledby="connection-drawer-title">
+            <button type="button" className="j10-connection-drawer-close" onClick={()=>setSelectedIntegration(null)} aria-label="Close connection details"><X size={18}/></button>
+            <div className="j10-connection-drawer-brand"><IntegrationLogo name={selectedIntegration.name} domain={selectedIntegration.domain} size={56}/><span className={`j10-connection-drawer-status status-${selectedIntegration.status}`}>{INTEGRATION_STATUS_LABEL[selectedIntegration.status]}</span></div>
+            <p className="j10-connection-drawer-kicker">{selectedIntegration.category}</p>
+            <h2 id="connection-drawer-title">Connect {selectedIntegration.name}</h2>
+            <p className="j10-connection-drawer-copy">{selectedIntegration.description}. J10 keeps the customer record, activity, and next action connected to the same workspace.</p>
+            <div className="j10-connection-drawer-flow"><span>{selectedIntegration.name}</span><i>→</i><span>J10 NEXUS</span><i>→</i><span>Customer activity</span></div>
+            <div className="j10-connection-drawer-list">
+              <strong>What this connection handles</strong>
+              {connectionBenefits(selectedIntegration.category).map(item=><p key={item}><CheckCircle2 size={16}/>{item}</p>)}
+            </div>
+            <div className="j10-connection-drawer-security"><ShieldCheck size={17}/><span>Credentials stay protected server-side and access remains scoped to this workspace.</span></div>
+            {selectedIntegration.id === "stripe" ? <Link href="/dashboard/finance" className="j10-connection-drawer-primary">Open J10 Pay</Link> : selectedIntegration.id === "webhooks" ? <Link href="/dashboard/automation" className="j10-connection-drawer-primary">Open Automations</Link> : <a href={`mailto:contact@j10-nexus.com?subject=${encodeURIComponent(`J10 ${selectedIntegration.name} connection request`)}`} className="j10-connection-drawer-primary">Request this connection</a>}
+            <button type="button" className="j10-connection-drawer-secondary" onClick={()=>setSelectedIntegration(null)}>Back to connections</button>
+          </aside>
+        </div>
+      )}
 
       {/* Connection Modal (Secretary Mode + Shared Bot + Custom Bot) */}
       {showConnectModal && (
@@ -1321,4 +1358,24 @@ export default function ConnectionsDashboardPage() {
       )}
     </div>
   );
+}
+
+function connectionBenefits(category: string): string[] {
+  const benefits: Record<string, string[]> = {
+    "Messaging": ["Receive customer conversations", "Route qualified leads into J10 Inbox", "Keep human takeover available"],
+    "Voice & SMS": ["Capture calls and text messages", "Trigger missed-call follow-up", "Store customer activity in one timeline"],
+    "Email": ["Receive customer email", "Draft grounded replies", "Assign conversations to the right teammate"],
+    "Scheduling": ["Read approved availability", "Create and update appointments", "Send booking and reminder events"],
+    "Payments": ["Create supported payment requests", "Track payment status", "Continue the customer workflow after payment"],
+    "CRM": ["Synchronize contacts and leads", "Update deal stages", "Prevent duplicate customer records"],
+    "Commerce": ["Read customers and orders", "Follow up on incomplete purchases", "Connect support to order history"],
+    "Accounting": ["Synchronize customers and invoices", "Track payment state", "Keep finance activity visible to the team"],
+    "Marketing & Leads": ["Capture new lead submissions", "Preserve campaign source", "Start qualification and follow-up"],
+    "Reviews": ["Request reviews after completed service", "Alert the team to new feedback", "Prepare an approved response"],
+    "Files & Data": ["Import approved business information", "Export operational records", "Ground J10 with controlled sources"],
+    "Team": ["Send alerts and handoffs", "Request human approval", "Keep decisions tied to customer activity"],
+    "Automation": ["Receive and send workflow events", "Connect unsupported business tools", "Track each automated action"],
+    "Field Services": ["Synchronize customers and jobs", "Coordinate appointment activity", "Trigger follow-up after service"],
+  };
+  return benefits[category] || ["Synchronize approved records", "Trigger J10 workflows", "Keep activity visible to your team"];
 }
