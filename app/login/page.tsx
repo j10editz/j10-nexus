@@ -99,11 +99,16 @@ export default function LoginPage() {
   const signupUrl = nextUrl && nextUrl !== "/dashboard" ? `/signup?next=${encodeURIComponent(nextUrl)}` : "/signup";
 
   return (
-    <main className="j10-canvas flex min-h-screen items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md">
+    <main className="j10-login-shell">
+      <section className="j10-login-brand">
+        <Link href="/" className="j10-login-logo"><Image src="/brand/j10-logo.png" alt="J10 NEXUS" width={44} height={44} priority /><span>J10 NEXUS</span></Link>
+        <div className="j10-login-message"><p>YOUR AI BUSINESS OPERATOR</p><h2>Every lead answered.<br/>Every opportunity followed.</h2><span>Run conversations, bookings, payments, and follow-up from one calm command center.</span><div className="j10-login-proof"><b>24/7</b><small>Customer coverage</small><b>One</b><small>Connected workspace</small></div></div>
+        <Image className="j10-login-mascot" src="/brand/j10-expression-confident.png" alt="J10 AI operator" width={430} height={430} priority />
+      </section>
+      <section className="j10-login-panel"><div className="w-full max-w-md">
         {/* Brand Header */}
         <div className="mb-8 text-center flex flex-col items-center">
-          <Link href="/" className="mb-4 inline-flex items-center gap-2.5">
+          <Link href="/" className="mb-4 inline-flex items-center gap-2.5 lg:hidden">
             <span className="j10-gradient flex h-11 w-11 items-center justify-center rounded-2xl p-2 shadow-[0_8px_24px_rgba(47,107,255,0.3)]">
               <Image
                 src="/brand/j10-logo.png"
@@ -116,7 +121,7 @@ export default function LoginPage() {
             </span>
           </Link>
 
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#d7b35c]">
             J10 NEXUS
           </p>
 
@@ -125,12 +130,12 @@ export default function LoginPage() {
           </h1>
 
           <p className="mt-2 text-xs text-[#8d96a8]">
-            Sign in to access your workspace operating center.
+            Sign in to continue to your workspace.
           </p>
         </div>
 
         {/* Card */}
-        <div className="j10-surface rounded-[26px] p-6 sm:p-8 border border-white/[0.1] shadow-2xl">
+        <div className="j10-login-card">
           <div className="space-y-5">
             {/* Truthful Social Auth Buttons (Google / Apple rendered ONLY when enabled) */}
             <SocialAuthButtons
@@ -203,7 +208,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="j10-gradient w-full rounded-xl py-3.5 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(47,107,255,0.3)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                className="j10-login-submit"
               >
                 {loading ? "Signing In..." : "Sign In to Workspace"}
               </button>
@@ -223,7 +228,7 @@ export default function LoginPage() {
             </p>
           </div>
         </div>
-      </div>
+      </div></section>
     </main>
   );
 }
