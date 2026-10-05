@@ -73,6 +73,13 @@ import { AMAZON_SELLER_RUNTIME_ADAPTER } from "./providers/amazon-seller/adapter
 import { ETSY_RUNTIME_ADAPTER } from "./providers/etsy/adapter";
 import { EBAY_RUNTIME_ADAPTER } from "./providers/ebay/adapter";
 import { TIKTOK_SHOP_RUNTIME_ADAPTER } from "./providers/tiktok-shop/adapter";
+import { OUTLOOK_CALENDAR_RUNTIME_ADAPTER } from "./providers/outlook-calendar/adapter";
+import { WORDPRESS_RUNTIME_ADAPTER } from "./providers/wordpress/adapter";
+import { TYPEFORM_RUNTIME_ADAPTER } from "./providers/typeform/adapter";
+import { JOTFORM_RUNTIME_ADAPTER } from "./providers/jotform/adapter";
+import { MESSENGER_RUNTIME_ADAPTER } from "./providers/messenger/adapter";
+import { GITHUB_RUNTIME_ADAPTER } from "./providers/github/adapter";
+import { HUGGING_FACE_RUNTIME_ADAPTER } from "./providers/hugging-face/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -145,6 +152,13 @@ const RUNTIME_ADAPTERS:
     ETSY_RUNTIME_ADAPTER,
     EBAY_RUNTIME_ADAPTER,
     TIKTOK_SHOP_RUNTIME_ADAPTER,
+    OUTLOOK_CALENDAR_RUNTIME_ADAPTER,
+    WORDPRESS_RUNTIME_ADAPTER,
+    TYPEFORM_RUNTIME_ADAPTER,
+    JOTFORM_RUNTIME_ADAPTER,
+    MESSENGER_RUNTIME_ADAPTER,
+    GITHUB_RUNTIME_ADAPTER,
+    HUGGING_FACE_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
