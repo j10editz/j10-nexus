@@ -22,15 +22,17 @@ export async function dispatchTwilioInboundMessage(
   supabase: SupabaseClient,
   args: {
     workspaceId: string;
+    integrationId?: string;
     fromPhone: string;
     toPhone: string;
     body: string;
     messageSid: string;
+    senderName?: string;
     origin?: string;
     metadata?: Record<string, unknown>;
   }
 ): Promise<OmnichannelDispatchResult> {
-  const { workspaceId, fromPhone, toPhone, body, messageSid, origin = "https://j10-nexus.com" } = args;
+  const { workspaceId, integrationId, fromPhone, toPhone, body, messageSid, senderName, origin = "https://j10-nexus.com" } = args;
 
   const digits = fromPhone.replace(/\D/g, "");
   const normalizedPhone = digits.length >= 7 ? `+${digits}` : fromPhone;
@@ -42,7 +44,7 @@ export async function dispatchTwilioInboundMessage(
       workspaceId,
       source: "twilio",
       channel: "sms",
-      name: normalizedPhone,
+      name: senderName || normalizedPhone,
       email: null,
       phone: normalizedPhone,
       message: body.trim(),
@@ -61,6 +63,7 @@ export async function dispatchTwilioInboundMessage(
         twilio_message_sid: messageSid,
         twilio_to: toPhone,
         twilio_from: fromPhone,
+        integration_id: integrationId,
         ...(args.metadata || {}),
       },
     },
@@ -85,6 +88,7 @@ export async function dispatchInstagramInboundMessage(
   supabase: SupabaseClient,
   args: {
     workspaceId: string;
+    integrationId?: string;
     senderId: string;
     recipientId: string;
     text: string;
@@ -94,7 +98,7 @@ export async function dispatchInstagramInboundMessage(
     metadata?: Record<string, unknown>;
   }
 ): Promise<OmnichannelDispatchResult> {
-  const { workspaceId, senderId, recipientId, text, messageMid, senderUsername, origin = "https://j10-nexus.com" } = args;
+  const { workspaceId, integrationId, senderId, recipientId, text, messageMid, senderUsername, origin = "https://j10-nexus.com" } = args;
 
   const senderDisplayName = senderUsername ? `@${senderUsername.replace(/^@/, "")}` : `Instagram User (${senderId.slice(-4)})`;
   const idempotencyKey = `ig_${workspaceId}_${senderId}_${messageMid}`;
@@ -125,6 +129,7 @@ export async function dispatchInstagramInboundMessage(
         instagram_recipient_id: recipientId,
         instagram_username: senderUsername || null,
         instagram_message_id: messageMid,
+        integration_id: integrationId,
         ...(args.metadata || {}),
       },
     },
@@ -149,8 +154,10 @@ export async function dispatchShopifyOrderEvent(
   supabase: SupabaseClient,
   args: {
     workspaceId: string;
+    integrationId?: string;
     topic: string;
-    orderId: string | number;
+    orderId?: string | number | null;
+    checkoutId?: string | null;
     customerEmail?: string | null;
     customerPhone?: string | null;
     customerName?: string | null;
@@ -162,8 +169,10 @@ export async function dispatchShopifyOrderEvent(
 ): Promise<OmnichannelDispatchResult> {
   const {
     workspaceId,
+    integrationId,
     topic,
     orderId,
+    checkoutId,
     customerEmail,
     customerPhone,
     customerName,
@@ -172,10 +181,11 @@ export async function dispatchShopifyOrderEvent(
     origin = "https://j10-nexus.com",
   } = args;
 
+  const entityId = orderId ? String(orderId) : checkoutId || `evt_${Date.now()}`;
   const normalizedPhone = customerPhone ? `+${customerPhone.replace(/\D/g, "")}` : null;
-  const displayName = customerName || customerEmail || (normalizedPhone ? `Customer ${normalizedPhone}` : `Shopify Customer #${orderId}`);
-  const orderMessage = `Shopify ${topic}: Order #${orderId} for ${currency} ${totalPrice || "0.00"}`;
-  const idempotencyKey = `shopify_${workspaceId}_${topic}_${orderId}`;
+  const displayName = customerName || customerEmail || (normalizedPhone ? `Customer ${normalizedPhone}` : `Shopify Customer #${entityId}`);
+  const orderMessage = `Shopify ${topic}: Order #${entityId} for ${currency} ${totalPrice || "0.00"}`;
+  const idempotencyKey = `shopify_${workspaceId}_${topic}_${entityId}`;
 
   const intakeResult = await recordCanonicalLeadIntake(
     supabase,
