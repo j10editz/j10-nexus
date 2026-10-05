@@ -60,6 +60,10 @@ import { TRELLO_RUNTIME_ADAPTER } from "./providers/trello/adapter";
 import { ASANA_RUNTIME_ADAPTER } from "./providers/asana/adapter";
 import { MONDAY_RUNTIME_ADAPTER } from "./providers/monday/adapter";
 import { CLICKUP_RUNTIME_ADAPTER } from "./providers/clickup/adapter";
+import { YOUTUBE_RUNTIME_ADAPTER } from "./providers/youtube/adapter";
+import { TIKTOK_RUNTIME_ADAPTER } from "./providers/tiktok/adapter";
+import { LINKEDIN_RUNTIME_ADAPTER } from "./providers/linkedin/adapter";
+import { X_RUNTIME_ADAPTER } from "./providers/x/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -119,6 +123,10 @@ const RUNTIME_ADAPTERS:
     ASANA_RUNTIME_ADAPTER,
     MONDAY_RUNTIME_ADAPTER,
     CLICKUP_RUNTIME_ADAPTER,
+    YOUTUBE_RUNTIME_ADAPTER,
+    TIKTOK_RUNTIME_ADAPTER,
+    LINKEDIN_RUNTIME_ADAPTER,
+    X_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
