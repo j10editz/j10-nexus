@@ -654,13 +654,13 @@ export async function releaseWorkspaceQuota(
 }
 
 /**
- * Activates a 14-day trial for eligible workspaces.
+ * Activates a 72-hour (3-day) trial for eligible workspaces.
  */
 export async function activateWorkspaceTrial(
   supabase: SupabaseClient,
   workspaceId: string,
   planId = "growth",
-  durationDays = 14
+  durationDays = 3
 ): Promise<{ success: boolean; subscription: WorkspaceSubscription; error?: string }> {
   const { data, error } = await supabase.rpc("activate_workspace_trial", {
     p_workspace_id: workspaceId,
@@ -750,6 +750,7 @@ export async function getWorkspaceEntitlements(
     sub &&
     sub.provenance !== "none" &&
     (sub.status === "active" ||
+      (sub.status === "canceled_at_period_end" && (!sub.currentPeriodEnd || new Date(sub.currentPeriodEnd).getTime() > now)) ||
       (sub.status === "trialing" && trialActive) ||
       (sub.status === "past_due" && gracePeriodDaysRemaining > 0))
   );

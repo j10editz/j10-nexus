@@ -132,6 +132,18 @@ export default function Topbar({
         const data = await res.json();
         if (cancelled) return;
 
+        const roleLabels: Record<string, string> = {
+          owner: "Owner",
+          admin: "Admin",
+          manager: "Manager",
+          agent: "Agent",
+          viewer: "Viewer",
+        };
+
+        const resolvedRole = data.activeWorkspaceRole
+          ? roleLabels[data.activeWorkspaceRole] || data.activeWorkspaceRole
+          : data.workspaceRole || "Owner";
+
         if (data.success && data.profile) {
           setProfileData({
             displayName:
@@ -140,8 +152,8 @@ export default function Topbar({
               data.profile.email?.split("@")[0] ||
               "User",
             jobTitle: data.profile.job_title || "",
-            workspaceRole: data.workspaceRole || "Owner",
-            workspaceName: data.workspaceName || "Active Workspace",
+            workspaceRole: resolvedRole,
+            workspaceName: data.activeWorkspaceName || data.workspaceName || "Active Workspace",
             platformRole: data.platformRole || null,
             email: data.profile.email || "",
             avatarUrl: data.profile.avatar_url || null,
@@ -254,7 +266,7 @@ export default function Topbar({
     event.preventDefault();
     const clean = query.trim().toLowerCase();
     if (clean.startsWith("ai") || clean.includes("operator")) {
-      navigate("/dashboard/ai-operator"); // navigate("/dashboard#j10-ai")
+      navigate("/dashboard/ai-operator");
       return;
     }
     const firstResult = results[0];
@@ -288,7 +300,7 @@ export default function Topbar({
   return (
     <header className="sticky top-0 z-30 flex h-[56px] shrink-0 items-center border-b border-purple-900/20 bg-[#0D0C14]/90 px-4 backdrop-blur-xl sm:px-6">
       <div className="flex w-full items-center justify-between gap-3">
-        {/* Mobile Left: Menu Toggle + Page Title / J10 Mark (<= 56px, clean) */}
+        {/* Mobile Left: Menu Toggle + Page Title / J10 Mark */}
         <div className="flex items-center gap-2.5 lg:hidden">
           <button
             type="button"
@@ -401,7 +413,7 @@ export default function Topbar({
           )}
         </form>
 
-        {/* Right Side: Notifications + Workspace Switcher (Desktop) + User Avatar */}
+        {/* Right Side: Notifications + Workspace Switcher + User Avatar */}
         <div className="flex items-center gap-2">
           {/* Notifications */}
           <Link
@@ -421,7 +433,7 @@ export default function Topbar({
             )}
           </Link>
 
-          {/* Multi-Tenant Workspace Switcher — Hidden on Mobile Header */}
+          {/* Multi-Tenant Workspace Switcher */}
           <div className="hidden md:block">
             <WorkspaceSwitcher />
           </div>
@@ -491,6 +503,16 @@ export default function Topbar({
                         {profileData.email || "No email"}
                       </p>
                     </div>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px]">
+                    <span className="rounded bg-purple-950/60 border border-purple-500/30 px-1.5 py-0.2 text-purple-300 font-medium">
+                      {isDemo ? "Demo" : profileData.workspaceRole || "Owner"}
+                    </span>
+                    {!isDemo && profileData.platformRole === "platform_founder" && (
+                      <span className="rounded bg-amber-500/20 border border-amber-500/30 px-1.5 py-0.2 text-amber-300 font-medium">
+                        Platform Founder
+                      </span>
+                    )}
                   </div>
                 </div>
 

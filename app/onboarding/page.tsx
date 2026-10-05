@@ -317,7 +317,7 @@ export default function OnboardingPage() {
             {trialIntent && (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-400/[0.08] border border-emerald-400/20 px-3 py-2 text-[11px] text-emerald-300">
                 <ShieldCheck size={14} className="shrink-0" />
-                <span>A 72-hour trial is available after business outcome onboarding and owner approval.</span>
+                <span>Your 72-hour free trial starts after you complete and approve Outcome Onboarding.</span>
               </div>
             )}
 

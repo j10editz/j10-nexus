@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  AlertCircle,
   Bot,
   CheckCircle2,
   Copy,
@@ -15,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { Employee } from "@/components/types/employee";
+import { useTrial } from "@/components/trial/TrialContext";
 
 export type WorkforceTask = {
   id: string;
@@ -113,6 +115,7 @@ export default function WorkforceTaskDispatcher({
   const [executionResult, setExecutionResult] = useState<WorkforceTask | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [copied, setCopied] = useState(false);
+  const trial = useTrial();
 
   if (!open) return null;
 
@@ -129,6 +132,11 @@ export default function WorkforceTaskDispatcher({
   }
 
   async function handleExecuteTask() {
+    if (trial.isExpired) {
+      setErrorMessage("Your 72-hour trial has expired. Workspace data is read-only; upgrade your plan to execute AI tasks.");
+      return;
+    }
+
     if (!title.trim() || !instructions.trim()) {
       setErrorMessage("Please provide both a task title and detailed instructions.");
       return;
@@ -361,6 +369,17 @@ export default function WorkforceTaskDispatcher({
               </div>
             </div>
           )}
+          {trial.isExpired && (
+            <div className="mb-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200 flex items-center justify-between gap-3">
+              <span>AI task execution is paused because your 72-hour trial has ended.</span>
+              <a
+                href="/pricing"
+                className="shrink-0 font-semibold underline text-white hover:text-rose-100"
+              >
+                Upgrade Plan
+              </a>
+            </div>
+          )}
         </div>
 
         {/* FOOTER ACTIONS */}
@@ -382,10 +401,17 @@ export default function WorkforceTaskDispatcher({
             <button
               type="button"
               onClick={handleExecuteTask}
-              disabled={isExecuting}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-violet-600/25 transition hover:brightness-110 disabled:opacity-50"
+              disabled={isExecuting || trial.isExpired}
+              data-testid="ai-execute-button"
+              title={trial.isExpired ? "72-hour trial has expired. Upgrade to resume AI execution." : undefined}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-2.5 text-xs font-semibold text-white shadow-lg shadow-violet-600/25 transition hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isExecuting ? (
+              {trial.isExpired ? (
+                <>
+                  <AlertCircle size={14} className="text-rose-300" />
+                  Trial Expired — Upgrade to Run AI
+                </>
+              ) : isExecuting ? (
                 <>
                   <LoaderCircle size={14} className="animate-spin" />
                   Executing Task...

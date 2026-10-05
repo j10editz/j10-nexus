@@ -77,7 +77,7 @@ export default function LaunchHome() {
           className="absolute left-[33.5%] top-[3.2%] w-[5.5%] h-[5%] cursor-pointer hover:bg-white/[0.06] rounded transition-colors"
         />
         <Link
-          href="#integrations"
+          href="/integrations"
           aria-label="Integrations"
           className="absolute left-[40%] top-[3.2%] w-[6.5%] h-[5%] cursor-pointer hover:bg-white/[0.06] rounded transition-colors"
         />
