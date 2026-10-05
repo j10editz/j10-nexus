@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import AiOperatorPage from "@/app/dashboard/ai-operator/page";
 import {
   AlertCircle,
   Bot,
@@ -83,6 +85,8 @@ function cleanSaasMessage(value: string) {
 }
 
 export default function BotSetupPage() {
+  const searchParams = useSearchParams();
+  const showOperator = searchParams.get("tab") === "operator";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -318,6 +322,10 @@ export default function BotSetupPage() {
     } finally {
       setSimulating(false);
     }
+  }
+
+  if (showOperator) {
+    return <AiOperatorPage />;
   }
 
   if (loading) {
