@@ -563,9 +563,9 @@ export default function UnifiedInboxPage() {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-72px)] flex-col bg-[#09090B] text-white">
+    <div className="j10-inbox-shell flex h-[calc(100dvh-72px)] flex-col text-white">
       {/* Top Command Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] bg-[#0E0F12] px-6 py-3.5">
+      <div className="j10-inbox-summary flex flex-wrap items-center justify-between gap-4 px-6 py-3.5">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10 text-blue-400">
             <InboxIcon size={18} />
@@ -573,7 +573,7 @@ export default function UnifiedInboxPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base font-semibold text-white">
-                Unified Omnichannel Inbox
+                J10 Inbox
               </h1>
               {isSandboxDemo ? (
                 <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
@@ -590,7 +590,7 @@ export default function UnifiedInboxPage() {
               )}
             </div>
             <p className="text-xs text-white/50">
-              Live Telegram 24/7 Bot and Web Inbound synchronized in real-time. Omnichannel Command Center.
+              Every customer conversation in one organized workspace.
             </p>
           </div>
         </div>
@@ -641,26 +641,26 @@ export default function UnifiedInboxPage() {
       )}
 
       {/* Main 3-Column Split Desk */}
-      <div className="grid flex-1 min-h-0 grid-cols-1 overflow-hidden lg:grid-cols-12">
+      <div className="j10-inbox-grid grid flex-1 min-h-0 grid-cols-1 overflow-hidden lg:grid-cols-12">
         {/* ========================================================================= */}
         {/* COLUMN 1: Threads Navigator (3.5 cols)                                   */}
         {/* ========================================================================= */}
-        <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-white/[0.08] bg-[#0C0D10] lg:col-span-4 xl:col-span-3">
+        <div className="j10-inbox-threads flex h-full min-h-0 flex-col overflow-hidden lg:col-span-4 xl:col-span-3">
           {/* Channel Selector Tabs */}
           <div className="border-b border-white/[0.08] p-3">
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
               {(
                 [
-                  { id: "all", label: "All Channels" },
-                  { id: "telegram", label: "Telegram (Live)" },
-                  { id: "webchat", label: "WebChat (Live)" },
-                  { id: "crm", label: "CRM (Live)" },
-                  { id: "whatsapp", label: "WhatsApp (Planned)" },
-                  { id: "whatsapp_group", label: "Groups (Live)" },
-                  { id: "instagram", label: "Instagram (Planned)" },
-                  { id: "messenger", label: "Messenger (Planned)" },
-                  { id: "email", label: "Email (Planned)" },
-                  { id: "sms", label: "SMS (Planned)" },
+                  { id: "all", label: "All" },
+                  { id: "whatsapp", label: "WhatsApp" },
+                  { id: "telegram", label: "Telegram" },
+                  { id: "instagram", label: "Instagram" },
+                  { id: "messenger", label: "Messenger" },
+                  { id: "webchat", label: "Web Chat" },
+                  { id: "email", label: "Email" },
+                  { id: "sms", label: "SMS" },
+                  { id: "whatsapp_group", label: "Groups" },
+                  { id: "crm", label: "CRM" },
                 ] as const
               ).map((tab) => {
                 const count = channelCounts[tab.id] ?? 0;
@@ -857,7 +857,7 @@ export default function UnifiedInboxPage() {
         {/* ========================================================================= */}
         {/* COLUMN 2: Active Chat Conversation (5.5 cols)                            */}
         {/* ========================================================================= */}
-        <div className="flex h-full min-h-0 flex-col overflow-hidden border-r border-white/[0.08] bg-[#09090B] lg:col-span-5 xl:col-span-6">
+        <div className="j10-inbox-conversation flex h-full min-h-0 flex-col overflow-hidden lg:col-span-5 xl:col-span-6">
           {activeThread ? (
             <>
               {/* Active Thread Header */}
@@ -1160,14 +1160,14 @@ export default function UnifiedInboxPage() {
         {/* ========================================================================= */}
         {/* COLUMN 3: Deal Stage & Instant Stripe Drawer (3 cols)                    */}
         {/* ========================================================================= */}
-        <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-[#0C0D10] p-4 lg:col-span-3 xl:col-span-3">
+        <div className="j10-inbox-details flex h-full min-h-0 flex-col overflow-y-auto p-4 lg:col-span-3 xl:col-span-3">
           {activeThread ? (
             <div className="space-y-5">
               {/* Detalles del contacto Header (Matches Setter CRM reference) */}
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                 <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
                   <span className="text-xs font-semibold text-white">
-                    Detalles del contacto
+                    Customer details
                   </span>
                   <span
                     className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
@@ -1197,7 +1197,7 @@ export default function UnifiedInboxPage() {
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-xs font-medium text-white/80">
                       <Bot size={14} className="text-blue-400" />
-                      AGENTE IA
+                      J10 Operator
                     </span>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
@@ -1214,14 +1214,14 @@ export default function UnifiedInboxPage() {
                     onClick={handleToggleAiBot}
                     className="mt-2 w-full rounded-md border border-white/[0.08] bg-white/[0.04] py-1 text-xs font-medium text-white/70 transition hover:bg-white/[0.08] hover:text-white"
                   >
-                    {aiBotEnabled ? "Apagar bot" : "Activar bot"}
+                    {aiBotEnabled ? "Pause operator" : "Activate operator"}
                   </button>
                 </div>
 
                 {/* ETIQUETAS */}
                 <div className="mt-4 border-t border-white/[0.06] pt-3">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
-                    ETIQUETAS
+                    TAGS
                   </span>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {contactTags.map((tag) => (
@@ -1245,7 +1245,7 @@ export default function UnifiedInboxPage() {
                       type="text"
                       value={newTagInput}
                       onChange={(e) => setNewTagInput(e.target.value)}
-                      placeholder="Nueva etiqueta..."
+                      placeholder="Add a tag..."
                       className="w-full rounded border border-white/[0.08] bg-black/40 px-2 py-1 text-[11px] text-white focus:outline-none"
                     />
                     <button
@@ -1258,7 +1258,7 @@ export default function UnifiedInboxPage() {
                       }}
                       className="rounded border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[11px] text-white/70 hover:bg-white/[0.08]"
                     >
-                      Agregar
+                      Add
                     </button>
                   </div>
                 </div>
@@ -1266,13 +1266,13 @@ export default function UnifiedInboxPage() {
                 {/* NOTAS */}
                 <div className="mt-4 border-t border-white/[0.06] pt-3">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
-                    NOTAS
+                    NOTES
                   </span>
                   <textarea
                     rows={2}
                     value={contactNotes}
                     onChange={(e) => setContactNotes(e.target.value)}
-                    placeholder="Agregar notas sobre este contacto..."
+                    placeholder="Add a note about this customer..."
                     className="mt-1.5 w-full rounded border border-white/[0.08] bg-black/40 p-2 text-xs text-white placeholder:text-white/30 focus:outline-none"
                   />
                 </div>
