@@ -53,6 +53,9 @@ import { ONEDRIVE_RUNTIME_ADAPTER } from "./providers/onedrive/adapter";
 import { DROPBOX_RUNTIME_ADAPTER } from "./providers/dropbox/adapter";
 import { NOTION_RUNTIME_ADAPTER } from "./providers/notion/adapter";
 import { AIRTABLE_RUNTIME_ADAPTER } from "./providers/airtable/adapter";
+import { ZOOM_RUNTIME_ADAPTER } from "./providers/zoom/adapter";
+import { TELNYX_RUNTIME_ADAPTER } from "./providers/telnyx/adapter";
+import { DISCORD_RUNTIME_ADAPTER } from "./providers/discord/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -105,6 +108,9 @@ const RUNTIME_ADAPTERS:
     DROPBOX_RUNTIME_ADAPTER,
     NOTION_RUNTIME_ADAPTER,
     AIRTABLE_RUNTIME_ADAPTER,
+    ZOOM_RUNTIME_ADAPTER,
+    TELNYX_RUNTIME_ADAPTER,
+    DISCORD_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
