@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   AlertTriangle,
   Bot,
@@ -470,20 +471,20 @@ export default function ConnectionsDashboardPage() {
   });
 
   return (
-    <div className="min-h-[calc(100dvh-72px)] bg-[#09090B] px-6 py-8 text-white sm:px-10">
+    <div className="j10-connections-page min-h-[calc(100dvh-72px)] px-6 py-6 text-white sm:px-8">
       {/* Top Header */}
       <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-6 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-              Connections Center
+              J10 Connections
             </h1>
             <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-blue-400">
-              Secretary Mode Certified
+              Secure workspace
             </span>
           </div>
           <p className="mt-1 text-sm text-white/50">
-            Manage your Telegram Business accounts, customer channels, and AI Receptionist permissions.
+            Connect every customer channel and control how J10 answers from one place.
           </p>
         </div>
 
@@ -503,7 +504,7 @@ export default function ConnectionsDashboardPage() {
             className="flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-600/25 transition hover:from-emerald-500 hover:to-teal-500"
           >
             <Smartphone size={15} />
-            + Connect WhatsApp
+            Connect WhatsApp
           </button>
 
           <button
@@ -515,13 +516,19 @@ export default function ConnectionsDashboardPage() {
             className="flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-4 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:from-blue-500 hover:to-indigo-500"
           >
             <Plus size={15} />
-            + Connect Telegram
+            Connect Telegram
           </button>
         </div>
       </div>
 
       {/* Filter Toolbar */}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
+      <div className="j10-connection-summary">
+        <Image src="/brand/j10-expression-focused.png" alt="J10 Connections assistant" width={52} height={52} />
+        <div><span>CONNECTION HEALTH</span><strong>{filteredConnections.filter((item) => item.status === "active").length} channels are active</strong><small>J10 is ready to receive, route, and respond to customer messages.</small></div>
+        <Link href="/dashboard/inbox">Open unified inbox</Link>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <label className="text-xs font-semibold text-white/60">Platform Filter:</label>
           <select
@@ -541,7 +548,7 @@ export default function ConnectionsDashboardPage() {
       </div>
 
       {/* Clean Zernio-Style Connection Table */}
-      <div className="mt-6 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0E0F12]">
+      <div className="j10-connections-table mt-3 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0E0F12]">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="border-b border-white/[0.08] bg-white/[0.02] text-[11px] font-semibold uppercase tracking-wider text-white/40">
@@ -833,7 +840,7 @@ export default function ConnectionsDashboardPage() {
       </div>
 
       {/* Feature Architecture Cards */}
-      <div className="mt-8 grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="j10-connection-security mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div className="rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-950/30 to-black/60 p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400">
