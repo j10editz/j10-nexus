@@ -38,6 +38,13 @@ import { SLACK_RUNTIME_ADAPTER } from "./providers/slack/adapter";
 import { MICROSOFT_TEAMS_RUNTIME_ADAPTER } from "./providers/microsoft-teams/adapter";
 import { GOOGLE_SHEETS_RUNTIME_ADAPTER } from "./providers/google-sheets/adapter";
 import { GOOGLE_DRIVE_RUNTIME_ADAPTER } from "./providers/google-drive/adapter";
+import { SALESFORCE_RUNTIME_ADAPTER } from "./providers/salesforce/adapter";
+import { PIPEDRIVE_RUNTIME_ADAPTER } from "./providers/pipedrive/adapter";
+import { QUICKBOOKS_RUNTIME_ADAPTER } from "./providers/quickbooks/adapter";
+import { XERO_RUNTIME_ADAPTER } from "./providers/xero/adapter";
+import { JOBBER_RUNTIME_ADAPTER } from "./providers/jobber/adapter";
+import { HOUSECALL_PRO_RUNTIME_ADAPTER } from "./providers/housecall-pro/adapter";
+import { MINDBODY_RUNTIME_ADAPTER } from "./providers/mindbody/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -75,6 +82,13 @@ const RUNTIME_ADAPTERS:
     MICROSOFT_TEAMS_RUNTIME_ADAPTER,
     GOOGLE_SHEETS_RUNTIME_ADAPTER,
     GOOGLE_DRIVE_RUNTIME_ADAPTER,
+    SALESFORCE_RUNTIME_ADAPTER,
+    PIPEDRIVE_RUNTIME_ADAPTER,
+    QUICKBOOKS_RUNTIME_ADAPTER,
+    XERO_RUNTIME_ADAPTER,
+    JOBBER_RUNTIME_ADAPTER,
+    HOUSECALL_PRO_RUNTIME_ADAPTER,
+    MINDBODY_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
