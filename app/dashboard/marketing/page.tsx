@@ -342,7 +342,7 @@ export default function MarketingPage() {
   }
 
   return (
-    <div className="min-h-full bg-[#09090B] text-white">
+    <div className="j10-refined-workspace j10-campaign-workspace min-h-full bg-[#09090B] text-white">
       <div className="mx-auto max-w-[1500px] px-4 py-8 sm:px-6 lg:px-8">
         {/* TOP HEADER */}
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end border-b border-white/[0.08] pb-6">
@@ -350,17 +350,16 @@ export default function MarketingPage() {
             <div className="flex items-center gap-2">
               <span className="flex h-2 w-2 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.8)]" />
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-400">
-                OMNI-CHANNEL GROWTH ENGINE
+                J10 CAMPAIGNS
               </p>
             </div>
 
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              Marketing & Campaigns
+              Campaigns
             </h1>
 
             <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-              Launch high-conversion broadcasts, synthesize zero-emoji copywriting with GPT-4o, and track
-              verified CRM audience engagement across WhatsApp, Email, and SMS.
+              Create, send, and measure customer campaigns from one focused workspace.
             </p>
           </div>
 
