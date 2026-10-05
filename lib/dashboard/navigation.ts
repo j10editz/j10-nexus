@@ -90,7 +90,7 @@ export const dashboardNavigationSections: DashboardNavigationSection[] = [
         description: "Knowledge, rules, approvals, and agent activity.",
         icon: "monogram",
         status: "ready",
-        href: "/dashboard/ai-operator",
+        href: "/dashboard/bot-setup?tab=operator",
       },
       {
         id: "pay",
