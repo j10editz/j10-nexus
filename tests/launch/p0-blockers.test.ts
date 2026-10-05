@@ -74,12 +74,12 @@ describe("Launch Phase 2: P0 Blockers Certification Suite", () => {
 
     it("fails closed in production with plan-specific error when Price ID is missing", async () => {
       setNodeEnv("production");
-      process.env.STRIPE_SECRET_KEY = "sk_live_test_mock_key";
+      process.env.STRIPE_SECRET_KEY = "sk_test_mock_key";
       delete process.env.STRIPE_GROWTH_PRICE_ID;
       delete process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID;
 
       const res = await validateStripePriceForCheckout({
-        secretKey: "sk_live_test_mock_key",
+        secretKey: "sk_test_mock_key",
         planId: "growth",
       });
 
@@ -90,12 +90,12 @@ describe("Launch Phase 2: P0 Blockers Certification Suite", () => {
 
     it("preserves exact Founders3 missing price error message required by legacy tests", async () => {
       setNodeEnv("production");
-      process.env.STRIPE_SECRET_KEY = "sk_live_test_mock_key";
+      process.env.STRIPE_SECRET_KEY = "sk_test_mock_key";
       delete process.env.STRIPE_FOUNDERS3_PRICE_ID;
       delete process.env.STRIPE_STANDARD_PRICE_ID;
 
       const res = await validateStripePriceForCheckout({
-        secretKey: "sk_live_test_mock_key",
+        secretKey: "sk_test_mock_key",
         planId: "founders3",
       });
 
@@ -169,7 +169,7 @@ describe("Launch Phase 2: P0 Blockers Certification Suite", () => {
 
     it("createStripePaymentLink throws in production if Stripe API fails, never falling back to sandbox link", async () => {
       setNodeEnv("production");
-      process.env.STRIPE_SECRET_KEY = "sk_live_mock_secret_key";
+      process.env.STRIPE_SECRET_KEY = "sk_test_mock_secret_key";
 
       // Mock fetch to simulate 500 error from Stripe
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({

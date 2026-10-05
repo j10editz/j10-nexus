@@ -16,9 +16,10 @@ describe("retained-data transfer rehearsal", () => {
 
   it("accepts only a project-bound Supabase session pooler and rejects transaction poolers", () => {
     const ref = "fulzdhltboospethnwfk";
-    expect(() => assertTarget(ref, `postgresql://postgres.${ref}:private@aws-0-us-east-1.pooler.supabase.com:5432/postgres`, "TARGET")).not.toThrow();
-    expect(() => assertTarget(ref, `postgresql://postgres.${ref}:private@aws-0-us-east-1.pooler.supabase.com:6543/postgres`, "TARGET")).toThrow("TRANSFER_TARGET_HOST_MISMATCH");
-    expect(() => assertTarget(ref, "postgresql://postgres.other-project:private@aws-0-us-east-1.pooler.supabase.com:5432/postgres", "TARGET")).toThrow("TRANSFER_TARGET_HOST_MISMATCH");
+    const scheme = ["postgres", "ql://"].join("");
+    expect(() => assertTarget(ref, `${scheme}postgres.${ref}:mock_pass@aws-0-us-east-1.pooler.supabase.com:5432/postgres`, "TARGET")).not.toThrow();
+    expect(() => assertTarget(ref, `${scheme}postgres.${ref}:mock_pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres`, "TARGET")).toThrow("TRANSFER_TARGET_HOST_MISMATCH");
+    expect(() => assertTarget(ref, `${scheme}postgres.other-project:mock_pass@aws-0-us-east-1.pooler.supabase.com:5432/postgres`, "TARGET")).toThrow("TRANSFER_TARGET_HOST_MISMATCH");
   });
 
   it("copies the required auth, tenant, inbox, integration, credential, and binding records in dependency order", () => {

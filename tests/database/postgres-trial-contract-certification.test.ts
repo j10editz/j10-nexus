@@ -14,6 +14,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 describe.runIf(databaseUrl && apiUrl && serviceRoleKey)("72-hour trial contract (disposable local Supabase)", () => {
   let sql: Sql;
+  let service: ReturnType<typeof createClient>;
   let expiredOwner: string;
   let paidOwner: string;
   let isolatedOwner: string;
@@ -25,11 +26,10 @@ describe.runIf(databaseUrl && apiUrl && serviceRoleKey)("72-hour trial contract 
   let originalFetch: typeof fetch;
   let externalRequestCount = 0;
 
-  const service = createClient(apiUrl!, serviceRoleKey!, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
   beforeAll(async () => {
+    service = createClient(apiUrl!, serviceRoleKey!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
     originalFetch = globalThis.fetch;
     const localOrigin = new URL(apiUrl!).origin;
     globalThis.fetch = async (input, init) => {

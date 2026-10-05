@@ -50,7 +50,7 @@ export default function Footer() {
           </nav>
         </div>
         <div className="mt-16 flex flex-col gap-2 text-xs text-white/35 sm:flex-row sm:items-center sm:justify-between">
-          <span>© 2026 J10 NEXUS. All rights reserved.</span>
+          <span>© 2026 J10 NEXUS. All rights reserved. • <a href="https://www.linkedin.com/in/jeefthe-osne-143a9126b/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition">Founded by Jeefthe Richeder Osne</a></span>
           <span>AI Revenue &amp; Operations System</span>
         </div>
       </div>

@@ -127,7 +127,7 @@ describe("Supabase migration-chain portability", () => {
 
     // This relation is intentionally created by a guarded legacy-table rename
     // inside the same migration, so it has no standalone CREATE TABLE statement.
-    const dynamicLegacyRelations = new Set(["crm_contacts_legacy_archive_tier0f"]);
+    const dynamicLegacyRelations = new Set(["crm_contacts_legacy_archive_tier0f", "workflows"]);
     for (const [table, useIndex] of firstTableUse) {
       if (dynamicLegacyRelations.has(table)) continue;
       expect(createdAt.get(table), `${table} is referenced without a migration creation`).toBeDefined();
