@@ -56,6 +56,10 @@ import { AIRTABLE_RUNTIME_ADAPTER } from "./providers/airtable/adapter";
 import { ZOOM_RUNTIME_ADAPTER } from "./providers/zoom/adapter";
 import { TELNYX_RUNTIME_ADAPTER } from "./providers/telnyx/adapter";
 import { DISCORD_RUNTIME_ADAPTER } from "./providers/discord/adapter";
+import { TRELLO_RUNTIME_ADAPTER } from "./providers/trello/adapter";
+import { ASANA_RUNTIME_ADAPTER } from "./providers/asana/adapter";
+import { MONDAY_RUNTIME_ADAPTER } from "./providers/monday/adapter";
+import { CLICKUP_RUNTIME_ADAPTER } from "./providers/clickup/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -111,6 +115,10 @@ const RUNTIME_ADAPTERS:
     ZOOM_RUNTIME_ADAPTER,
     TELNYX_RUNTIME_ADAPTER,
     DISCORD_RUNTIME_ADAPTER,
+    TRELLO_RUNTIME_ADAPTER,
+    ASANA_RUNTIME_ADAPTER,
+    MONDAY_RUNTIME_ADAPTER,
+    CLICKUP_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
