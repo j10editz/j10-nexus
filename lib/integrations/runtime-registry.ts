@@ -18,6 +18,9 @@ import { GMAIL_RUNTIME_ADAPTER } from "./providers/gmail/adapter";
 import { GOOGLE_CALENDAR_RUNTIME_ADAPTER } from "./providers/google-calendar/adapter";
 import { OUTLOOK_MAIL_RUNTIME_ADAPTER } from "./providers/outlook-mail/adapter";
 import { WHATSAPP_RUNTIME_ADAPTER } from "./providers/whatsapp/adapter";
+import { INSTAGRAM_RUNTIME_ADAPTER } from "./providers/instagram/adapter";
+import { TWILIO_RUNTIME_ADAPTER } from "./providers/twilio/adapter";
+import { HUBSPOT_RUNTIME_ADAPTER } from "./providers/hubspot/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -35,6 +38,9 @@ const RUNTIME_ADAPTERS:
     GOOGLE_CALENDAR_RUNTIME_ADAPTER,
     OUTLOOK_MAIL_RUNTIME_ADAPTER,
     WHATSAPP_RUNTIME_ADAPTER,
+    INSTAGRAM_RUNTIME_ADAPTER,
+    TWILIO_RUNTIME_ADAPTER,
+    HUBSPOT_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
@@ -333,6 +339,10 @@ function createRuntimeMap(
 
 const RUNTIME_ADAPTER_MAP =
   createRuntimeMap(RUNTIME_ADAPTERS);
+
+export function listIntegrationRuntimeAdapters(): readonly IntegrationConnectorRuntimeAdapter[] {
+  return RUNTIME_ADAPTERS;
+}
 
 export function getIntegrationRuntimeAdapter(
   providerId: IntegrationProviderId,

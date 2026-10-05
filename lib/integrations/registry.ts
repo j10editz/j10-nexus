@@ -31,7 +31,9 @@ type PlannedProviderInput = {
   category: IntegrationCategory;
   accentColor: string;
   authType?: IntegrationAuthType;
+  requiredScopes?: readonly string[];
   webhookSupport?: IntegrationWebhookSupport;
+  supportsHealthChecks?: boolean;
   triggers: readonly string[];
   actions: readonly string[];
 };
@@ -59,13 +61,13 @@ function plannedProvider(
     accentColor: input.accentColor,
     auth: {
       type: authType,
-      requiredScopes: [],
+      requiredScopes: input.requiredScopes ?? [],
       supportsRefreshTokens: authType === "oauth2",
       setupFields: [],
     },
     environments: ["development", "production"],
     webhookSupport: input.webhookSupport ?? "incoming",
-    supportsHealthChecks: false,
+    supportsHealthChecks: input.supportsHealthChecks ?? false,
     capabilities: [
       ...input.triggers.map((name) =>
         capability(
@@ -693,6 +695,7 @@ export const INTEGRATION_REGISTRY: Readonly<
     accentColor: "#F22F46",
     authType: "access_token",
     webhookSupport: "bidirectional",
+    supportsHealthChecks: true,
     triggers: ["SMS Received", "Call Completed"],
     actions: ["Send SMS", "Start Phone Call", "Send Verification"],
   }),
@@ -832,6 +835,13 @@ export const INTEGRATION_REGISTRY: Readonly<
     category: "crm",
     accentColor: "#FF7A59",
     webhookSupport: "bidirectional",
+    supportsHealthChecks: true,
+    requiredScopes: [
+      "crm.objects.contacts.read",
+      "crm.objects.contacts.write",
+      "crm.objects.deals.read",
+      "crm.objects.deals.write",
+    ],
     triggers: ["Contact Created", "Deal Stage Changed"],
     actions: ["Create Contact", "Update Deal", "Add Note"],
   }),
@@ -949,6 +959,13 @@ export const INTEGRATION_REGISTRY: Readonly<
     category: "social-media",
     accentColor: "#E1306C",
     webhookSupport: "bidirectional",
+    supportsHealthChecks: true,
+    requiredScopes: [
+      "instagram_basic",
+      "instagram_manage_messages",
+      "pages_show_list",
+      "pages_read_engagement",
+    ],
     triggers: ["Comment Received", "Message Received"],
     actions: ["Publish Media", "Reply to Comment", "Send Reply"],
   }),

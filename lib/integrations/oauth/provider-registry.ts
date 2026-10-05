@@ -89,6 +89,22 @@ const OUTLOOK_MAIL_OAUTH_SCOPES =
     "offline_access",
   ] as const);
 
+const INSTAGRAM_BUSINESS_OAUTH_SCOPES =
+  Object.freeze([
+    "instagram_basic",
+    "instagram_manage_messages",
+    "pages_show_list",
+    "pages_read_engagement",
+  ] as const);
+
+const HUBSPOT_OAUTH_SCOPES =
+  Object.freeze([
+    "crm.objects.contacts.read",
+    "crm.objects.contacts.write",
+    "crm.objects.deals.read",
+    "crm.objects.deals.write",
+  ] as const);
+
 export const GOOGLE_OAUTH_PROVIDER_IDS =
   Object.freeze([
     "gmail",
@@ -186,6 +202,32 @@ export const INTEGRATION_OAUTH_PROVIDER_REGISTRY:
         scopes: OUTLOOK_MAIL_OAUTH_SCOPES,
         clientAuthenticationMethod: "client_secret_post",
         authorizationParameters: Object.freeze({ prompt: "select_account" }),
+      }),
+
+    "instagram-business":
+      Object.freeze({
+        providerId: "instagram-business",
+        authorizationEndpoint: "https://www.facebook.com/v21.0/dialog/oauth",
+        tokenEndpoint: "https://graph.facebook.com/v21.0/oauth/access_token",
+        clientIdEnvironmentVariable: "META_OAUTH_CLIENT_ID",
+        clientSecretEnvironmentVariable: "META_OAUTH_CLIENT_SECRET",
+        scopes: INSTAGRAM_BUSINESS_OAUTH_SCOPES,
+        clientAuthenticationMethod: "client_secret_post",
+        authorizationParameters: Object.freeze({
+          auth_type: "rerequest",
+          display: "page",
+        }),
+      }),
+
+    hubspot:
+      Object.freeze({
+        providerId: "hubspot",
+        authorizationEndpoint: "https://app.hubspot.com/oauth/authorize",
+        tokenEndpoint: "https://api.hubapi.com/oauth/v1/token",
+        clientIdEnvironmentVariable: "HUBSPOT_CLIENT_ID",
+        clientSecretEnvironmentVariable: "HUBSPOT_CLIENT_SECRET",
+        scopes: HUBSPOT_OAUTH_SCOPES,
+        clientAuthenticationMethod: "client_secret_post",
       }),
   });
 
