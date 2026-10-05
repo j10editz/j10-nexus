@@ -49,6 +49,10 @@ import { MAILCHIMP_RUNTIME_ADAPTER } from "./providers/mailchimp/adapter";
 import { META_BUSINESS_RUNTIME_ADAPTER } from "./providers/meta-business/adapter";
 import { META_LEAD_ADS_RUNTIME_ADAPTER } from "./providers/meta-lead-ads/adapter";
 import { GOOGLE_ADS_RUNTIME_ADAPTER } from "./providers/google-ads/adapter";
+import { ONEDRIVE_RUNTIME_ADAPTER } from "./providers/onedrive/adapter";
+import { DROPBOX_RUNTIME_ADAPTER } from "./providers/dropbox/adapter";
+import { NOTION_RUNTIME_ADAPTER } from "./providers/notion/adapter";
+import { AIRTABLE_RUNTIME_ADAPTER } from "./providers/airtable/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -97,6 +101,10 @@ const RUNTIME_ADAPTERS:
     META_BUSINESS_RUNTIME_ADAPTER,
     META_LEAD_ADS_RUNTIME_ADAPTER,
     GOOGLE_ADS_RUNTIME_ADAPTER,
+    ONEDRIVE_RUNTIME_ADAPTER,
+    DROPBOX_RUNTIME_ADAPTER,
+    NOTION_RUNTIME_ADAPTER,
+    AIRTABLE_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
