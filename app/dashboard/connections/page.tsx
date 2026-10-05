@@ -531,27 +531,6 @@ export default function ConnectionsDashboardPage() {
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             Sync Status
           </button>
-
-          <button
-            type="button"
-            onClick={() => setShowWhatsAppModal(true)}
-            className="flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-4 text-xs font-semibold text-white shadow-lg shadow-emerald-600/25 transition hover:from-emerald-500 hover:to-teal-500"
-          >
-            <Smartphone size={15} />
-            Connect WhatsApp
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setShowConnectModal(true);
-              setConnectTab("business");
-            }}
-            className="flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-4 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:from-blue-500 hover:to-indigo-500"
-          >
-            <Plus size={15} />
-            Connect Telegram
-          </button>
         </div>
       </div>
 
@@ -768,7 +747,7 @@ export default function ConnectionsDashboardPage() {
 
                         {conn.status === "active" && (
                           <span className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[9px] text-emerald-300">
-                            ⚡ &lt; 25ms
+                            &lt; 25ms
                           </span>
                         )}
                       </div>
@@ -974,7 +953,7 @@ export default function ConnectionsDashboardPage() {
                     : "text-white/50 hover:text-white"
                   }`}
               >
-                Telegram Business ⭐
+                Telegram Business
               </button>
               <button
                 type="button"
@@ -1415,8 +1394,8 @@ export default function ConnectionsDashboardPage() {
                 <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#d7b35c]">Supported Inbound Triggers</h4>
                 <ul className="mt-2.5 space-y-2">
                   {activeDrawer.triggers.map((trigger, i) => (
-                    <li key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2 text-white/80">
-                      <Zap size={14} className="text-emerald-400 shrink-0" />
+                    <li key={i} className="flex items-center gap-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2 text-white/80">
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/40 shrink-0" />
                       <span>{trigger}</span>
                     </li>
                   ))}
@@ -1428,8 +1407,8 @@ export default function ConnectionsDashboardPage() {
                 <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#d7b35c]">Automated J10 Actions</h4>
                 <ul className="mt-2.5 space-y-2">
                   {activeDrawer.actions.map((act, i) => (
-                    <li key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2 text-white/80">
-                      <CheckCircle2 size={14} className="text-cyan-400 shrink-0" />
+                    <li key={i} className="flex items-center gap-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2 text-white/80">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#d7b35c]/60 shrink-0" />
                       <span>{act}</span>
                     </li>
                   ))}

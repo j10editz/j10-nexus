@@ -196,7 +196,7 @@ export async function POST(req: Request) {
     });
 
     // Formatting with HTML to avoid literal ** markdown glitches
-    const messageText = `🎉 <b>VIP Client Group Access Unlocked!</b>\n\n` +
+    const messageText = `<b>VIP Client Group Access Unlocked</b>\n\n` +
       `Welcome to the private J10 NEXUS Mastermind Community.\n\n` +
       `🔗 <b>Single-Use Join Link:</b>\n` +
       `${inviteLink}\n\n` +

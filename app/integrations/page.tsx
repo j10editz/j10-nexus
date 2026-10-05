@@ -254,8 +254,8 @@ export default function PublicIntegrationsCatalogPage() {
                 <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#d7b35c]">Supported Inbound Triggers</h4>
                 <ul className="mt-2.5 space-y-2">
                   {activeDrawer.triggers.map((trigger, i) => (
-                    <li key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2 text-white/80">
-                      <Zap size={14} className="text-emerald-400 shrink-0" />
+                    <li key={i} className="flex items-center gap-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2 text-white/80">
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/40 shrink-0" />
                       <span>{trigger}</span>
                     </li>
                   ))}
@@ -267,8 +267,8 @@ export default function PublicIntegrationsCatalogPage() {
                 <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#d7b35c]">Automated J10 Actions</h4>
                 <ul className="mt-2.5 space-y-2">
                   {activeDrawer.actions.map((act, i) => (
-                    <li key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2 text-white/80">
-                      <CheckCircle2 size={14} className="text-cyan-400 shrink-0" />
+                    <li key={i} className="flex items-center gap-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2 text-white/80">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#d7b35c]/60 shrink-0" />
                       <span>{act}</span>
                     </li>
                   ))}

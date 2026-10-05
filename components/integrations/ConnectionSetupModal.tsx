@@ -393,7 +393,7 @@ export default function ConnectionSetupModal({
                     <p className="text-[11px] opacity-80">{testResult.message}</p>
                     {testResult.latencyMs && (
                       <div className="pt-1 font-mono text-[10px] text-emerald-400">
-                        ⚡ Handshake Ping Latency: {testResult.latencyMs}ms
+                        Handshake Ping Latency: {testResult.latencyMs}ms
                       </div>
                     )}
                   </div>
@@ -505,7 +505,7 @@ export default function ConnectionSetupModal({
                       <span className="text-[11px] text-white/70 font-medium">Pipeline Dispatched</span>
                     </div>
                     <span className="font-mono text-[10px] text-emerald-400">
-                      ⚡ Ingress Latency: {simResult.latencyMs}ms
+                      Ingress Latency: {simResult.latencyMs}ms
                     </span>
                   </div>
 
