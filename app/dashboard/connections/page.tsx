@@ -759,6 +759,12 @@ export default function ConnectionsDashboardPage() {
                             ? "Connecting"
                             : conn.status}
                         </span>
+
+                        {conn.status === "active" && (
+                          <span className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[9px] text-emerald-300">
+                            ⚡ &lt; 25ms
+                          </span>
+                        )}
                       </div>
                     </td>
 
