@@ -45,6 +45,10 @@ import { XERO_RUNTIME_ADAPTER } from "./providers/xero/adapter";
 import { JOBBER_RUNTIME_ADAPTER } from "./providers/jobber/adapter";
 import { HOUSECALL_PRO_RUNTIME_ADAPTER } from "./providers/housecall-pro/adapter";
 import { MINDBODY_RUNTIME_ADAPTER } from "./providers/mindbody/adapter";
+import { MAILCHIMP_RUNTIME_ADAPTER } from "./providers/mailchimp/adapter";
+import { META_BUSINESS_RUNTIME_ADAPTER } from "./providers/meta-business/adapter";
+import { META_LEAD_ADS_RUNTIME_ADAPTER } from "./providers/meta-lead-ads/adapter";
+import { GOOGLE_ADS_RUNTIME_ADAPTER } from "./providers/google-ads/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -89,6 +93,10 @@ const RUNTIME_ADAPTERS:
     JOBBER_RUNTIME_ADAPTER,
     HOUSECALL_PRO_RUNTIME_ADAPTER,
     MINDBODY_RUNTIME_ADAPTER,
+    MAILCHIMP_RUNTIME_ADAPTER,
+    META_BUSINESS_RUNTIME_ADAPTER,
+    META_LEAD_ADS_RUNTIME_ADAPTER,
+    GOOGLE_ADS_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
