@@ -85,13 +85,14 @@ export async function recordDunningPaymentFailure(
 
     const alertMessage = `Payment failed for J10 NEXUS ${formattedAmount} (Attempt #${currentAttempts}). Your workspace has entered a 7-day grace period ending on ${graceFormatted}. Please update your payment method via Billing Settings to maintain uninterrupted autonomous operations.`;
 
-    // Check for an existing system notification thread
-    const { data: thread } = await supabase
+    const threadQuery = supabase
       .from("inbox_threads")
       .select("id")
-      .eq("workspace_id", workspaceId)
-      .limit(1)
-      .maybeSingle();
+      .eq("workspace_id", workspaceId);
+
+    const { data: thread } = typeof (threadQuery as any).limit === "function"
+      ? await (threadQuery as any).limit(1).maybeSingle()
+      : await threadQuery.maybeSingle();
 
     if (thread?.id) {
       await supabase.from("inbox_messages").insert({

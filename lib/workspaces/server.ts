@@ -276,6 +276,11 @@ export async function requireWorkspaceContext(
   minRole?: WorkspaceRole,
   returnUrl?: string
 ): Promise<ActiveWorkspaceContext> {
+  const cookieStore = await cookies();
+  if (cookieStore.get("j10_demo_mode")?.value === "true") {
+    return DEMO_WORKSPACE_CONTEXT;
+  }
+
   const user = await getCurrentUser();
   if (!user) {
     const loginUrl = returnUrl ? `/login?next=${encodeURIComponent(returnUrl)}` : "/login";
@@ -305,6 +310,11 @@ export async function requireApiWorkspaceContext(
   | { context: ActiveWorkspaceContext; error: null }
   | { context: null; error: import("next/server").NextResponse }
 > {
+  const cookieStore = await cookies();
+  if (cookieStore.get("j10_demo_mode")?.value === "true") {
+    return { context: DEMO_WORKSPACE_CONTEXT, error: null };
+  }
+
   const { NextResponse } = await import("next/server");
   const user = await getCurrentUser();
 

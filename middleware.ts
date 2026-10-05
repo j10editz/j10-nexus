@@ -32,8 +32,16 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // Protect /dashboard routes: redirect unauthenticated visitors to /login
+  // Protect /dashboard routes: redirect unauthenticated visitors to /login (allow demo preview)
   if (pathname.startsWith("/dashboard")) {
+    const isDemo =
+      request.nextUrl.searchParams.get("demo") === "true" ||
+      request.cookies.get("j10_demo_mode")?.value === "true";
+    if (isDemo) {
+      supabaseResponse.cookies.set("j10_demo_mode", "true", { path: "/" });
+      return supabaseResponse;
+    }
+
     const {
       data: { user },
     } = await supabase.auth.getUser();

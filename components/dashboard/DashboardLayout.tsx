@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import { TrialDashboardBanner } from "@/components/trial/TrialDashboardBanner";
+import { TrialProvider } from "@/components/trial/TrialContext";
 
 export default function DashboardLayout({
   children,
@@ -13,8 +14,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] =
-    useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -22,37 +22,33 @@ export default function DashboardLayout({
 
   const immersiveFlow =
     pathname === "/dashboard/automation/flow" ||
-    pathname.startsWith(
-      "/dashboard/automation/flow/"
-    );
+    pathname.startsWith("/dashboard/automation/flow/");
 
   if (immersiveFlow) {
     return (
-      <div className="min-h-dvh bg-[#07070A] text-white">
+      <div className="min-h-dvh bg-[#08080C] text-white">
         {children}
       </div>
     );
   }
 
   return (
-    <div className="j10-canvas min-h-dvh text-white">
-      <Sidebar
-        mobileOpen={mobileOpen}
-        onClose={() => setMobileOpen(false)}
-      />
-
-      <div className="min-h-dvh min-w-0 lg:pl-[260px]">
-        <Topbar
-          onOpenNavigation={() =>
-            setMobileOpen(true)
-          }
+    <TrialProvider>
+      <div className="min-h-dvh bg-[#08080C] text-white">
+        <Sidebar
+          mobileOpen={mobileOpen}
+          onClose={() => setMobileOpen(false)}
         />
 
-        <main className="min-h-[calc(100dvh-72px)] min-w-0 overflow-x-hidden bg-transparent">
-          <TrialDashboardBanner />
-          {children}
-        </main>
+        <div className="min-h-dvh min-w-0 lg:pl-[228px]">
+          <Topbar onOpenNavigation={() => setMobileOpen(true)} />
+
+          <main className="min-h-[calc(100dvh-56px)] min-w-0 overflow-x-hidden bg-[#08080C]">
+            <TrialDashboardBanner />
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </TrialProvider>
   );
 }

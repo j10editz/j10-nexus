@@ -287,11 +287,11 @@ export default function WorkspaceSwitcher() {
           onClick={() => setMenuOpen(!menuOpen)}
           aria-expanded={menuOpen}
           aria-label="Open workspace selector"
-          className="flex h-10 items-center gap-2.5 rounded-xl border border-white/[0.08] bg-[#111216] px-2.5 text-left transition hover:bg-white/[0.06] sm:px-3"
+          className="flex h-10 items-center gap-2.5 rounded-xl border border-purple-500/20 bg-[#14121E] px-2.5 text-left transition hover:border-purple-400/50 hover:bg-[#181628] sm:px-3 shadow-sm"
         >
           <div
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white shadow-sm"
-            style={{ backgroundColor: activeWorkspace.accentColor }}
+            style={{ backgroundColor: activeWorkspace.accentColor || "#7c3aed" }}
           >
             {activeWorkspace.name.slice(0, 2).toUpperCase()}
           </div>
@@ -304,10 +304,10 @@ export default function WorkspaceSwitcher() {
               <span
                 className={`rounded px-1.5 py-0.2 text-[9px] font-medium border ${
                   isDemo
-                    ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-300"
+                    ? "border-purple-500/30 bg-purple-500/10 text-purple-300"
                     : activeWorkspace.type === "agency_master"
-                    ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
-                    : "border-slate-700 bg-slate-800 text-slate-300"
+                    ? "border-purple-500/30 bg-purple-500/10 text-purple-400"
+                    : "border-purple-900/40 bg-purple-950/40 text-purple-300"
                 }`}
               >
                 {isDemo
@@ -322,7 +322,7 @@ export default function WorkspaceSwitcher() {
             </p>
           </div>
 
-          <ChevronDown size={13} className="text-slate-400" />
+          <ChevronDown size={13} className="text-purple-300/70" />
         </button>
       )}
 
@@ -336,7 +336,7 @@ export default function WorkspaceSwitcher() {
 
       {/* Dropdown Menu */}
       {menuOpen && (
-        <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-72 rounded-2xl border border-white/[0.1] bg-[#111216] p-2.5 shadow-2xl shadow-black/80">
+        <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-72 rounded-2xl border border-purple-500/25 bg-[#12111A] p-2.5 shadow-2xl shadow-black/80">
           {workspaces.length === 0 ? (
             <div className="rounded-xl border border-white/[0.06] bg-black/40 p-4 text-center">
               <Building2 className="mx-auto h-5 w-5 text-slate-400 mb-1.5" />
