@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import AiOperatorPage from "@/app/dashboard/ai-operator/page";
 import {
@@ -93,6 +94,7 @@ export default function BotSetupPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [brandName, setBrandName] = useState("");
   const [isJ10Official, setIsJ10Official] = useState(false);
+  const [configTab, setConfigTab] = useState<"identity" | "services" | "booking" | "faqs">("identity");
 
   // Form State
   const [form, setForm] = useState<BotConfigForm>({
@@ -340,13 +342,13 @@ export default function BotSetupPage() {
   }
 
   return (
-    <div className="j10-receptionist-page mx-auto max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">
+    <div className="j10-receptionist-page mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6 lg:p-7">
       {/* Top Banner & Action Header */}
       <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-6 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              <Bot size={18} />
+            <span className="j10-receptionist-mascot">
+              <Image src="/brand/j10-expression-focused.png" alt="J10 Receptionist" width={58} height={58} />
             </span>
             <h1 className="text-2xl font-bold tracking-tight text-white">
               AI Receptionist
@@ -408,12 +410,18 @@ export default function BotSetupPage() {
         </div>
       )}
 
+      <nav className="j10-receptionist-tabs" aria-label="Receptionist configuration">
+        {([['identity','Business'],['services','Services'],['booking','Booking'],['faqs','FAQs']] as const).map(([id,label]) => (
+          <button key={id} type="button" className={configTab === id ? "active" : ""} onClick={() => setConfigTab(id)}>{label}</button>
+        ))}
+      </nav>
+
       {/* Main Grid: Form Left (7 cols), Simulator Right (5 cols) */}
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
         {/* Left Column: Configuration Forms */}
         <div className="space-y-6 lg:col-span-7">
           {/* Card 1: Business Identity & Overview */}
-          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 backdrop-blur-md">
+          {configTab === "identity" && <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 backdrop-blur-md">
             <h2 className="text-base font-semibold text-white flex items-center gap-2">
               <Bot size={18} className="text-blue-400" />
               Business Identity
@@ -496,10 +504,10 @@ export default function BotSetupPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </div>}
 
           {/* Card 2: Services & Pricing Table */}
-          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 backdrop-blur-md">
+          {configTab === "services" && <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 backdrop-blur-md">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold text-white flex items-center gap-2">
@@ -597,10 +605,10 @@ export default function BotSetupPage() {
                 />
               </div>
             </div>
-          </div>
+          </div>}
 
           {/* Card 3: Booking & Workflow Integration */}
-          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 backdrop-blur-md">
+          {configTab === "booking" && <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 backdrop-blur-md">
             <h2 className="text-base font-semibold text-white flex items-center gap-2">
               <Calendar size={18} className="text-emerald-400" />
               Booking & Escalation
@@ -654,10 +662,10 @@ export default function BotSetupPage() {
                 />
               </div>
             </div>
-          </div>
+          </div>}
 
           {/* Card 4: FAQs & Policies */}
-          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 backdrop-blur-md">
+          {configTab === "faqs" && <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 backdrop-blur-md">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold text-white flex items-center gap-2">
@@ -718,7 +726,7 @@ export default function BotSetupPage() {
                 ))
               )}
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Right Column: "Test My Bot" Live Simulator (5 cols) */}
