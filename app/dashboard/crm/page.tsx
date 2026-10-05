@@ -113,7 +113,7 @@ export default function CRMPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ContactStatus | "All">("All");
   const [typeFilter, setTypeFilter] = useState<ContactType | "All">("All");
-  const [viewMode, setViewMode] = useState<ViewMode>("kanban");
+  const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<CRMContact | null>(null);
   const [intelligenceRefreshKey, setIntelligenceRefreshKey] = useState(0);
@@ -250,26 +250,26 @@ export default function CRMPage() {
   }
 
   return (
-    <div className="min-h-full bg-[#09090B] text-white">
-      <div className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8">
+    <div className="j10-lead-center min-h-full text-white">
+      <div className="mx-auto max-w-[1720px] px-4 py-7 sm:px-6 lg:px-8">
         {/* HEADER */}
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <div className="flex items-center gap-2">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-violet-400">
-                CUSTOMER INTELLIGENCE & DEAL PIPELINE
+                J10 LEAD CENTER
               </p>
               <span className="rounded-full border border-violet-500/20 bg-violet-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-violet-300">
-                Autonomous
+                Live pipeline
               </span>
             </div>
 
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              CRM & Sales Pipeline
+              Lead Center
             </h1>
 
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-              Manage leads, deal stages, pipeline velocity, and 1-click WhatsApp follow-ups across J10 NEXUS.
+              Track every inquiry, prioritize follow-ups, and move qualified leads toward revenue.
             </p>
           </div>
 
@@ -320,22 +320,22 @@ export default function CRMPage() {
               className="flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-zinc-200"
             >
               <Plus size={16} />
-              Add Contact
+              Add lead
             </button>
           </div>
         </div>
 
         {/* STATS */}
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="j10-lead-stats mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
-            label="Total Pipeline Contacts"
+            label="Open leads"
             value={String(summary.total)}
             icon={Users}
             subtitle={`${summary.leads} leads • ${summary.prospects} prospects`}
           />
 
           <StatCard
-            label="Active Opportunities"
+            label="Needs follow-up"
             value={String(summary.leads + summary.prospects)}
             icon={Contact}
             subtitle={`${summary.qualified} qualified • ${summary.new} new`}
