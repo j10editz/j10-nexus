@@ -374,7 +374,7 @@ export default function NotificationsPage() {
   );
 
   return (
-    <div className="min-h-[calc(100dvh-72px)] bg-[#09090B] px-4 py-7 text-white sm:px-6 lg:px-8">
+    <div className="j10-notifications-page min-h-[calc(100dvh-72px)] bg-[#09090B] px-4 py-7 text-white sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1450px]">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
