@@ -641,7 +641,7 @@ export default function Topbar({
                     className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-slate-300 transition hover:bg-white/[0.05] hover:text-white"
                   >
                     <CreditCard size={15} className="text-slate-400" />
-                    <span>Billing &amp; Plan</span>
+                    <span>J10 Pay</span>
                   </Link>
 
                   <div className="my-1 border-t border-white/[0.08]" />
