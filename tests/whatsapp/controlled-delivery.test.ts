@@ -57,25 +57,19 @@ describe("Controlled WhatsApp delivery", () => {
     );
   });
 
-  it("enables the full provider capability set during setup and correction", () => {
+  it("consolidates integration setup into the canonical Connections hub", () => {
     const page = source(
-      "app/dashboard/settings/integrations/page.tsx",
+      "app/dashboard/settings/integrations/page.tsx"
+    );
+    const connectionsPage = source(
+      "app/dashboard/connections/page.tsx"
     );
 
     expect(page).toContain(
-      "publicConfigurationChanged",
+      'redirect("/dashboard/connections")'
     );
-    expect(page).toContain(
-      'method: "PUT"',
-    );
-    expect(page).toContain(
-      "integration.capabilities.map",
-    );
-    expect(page).toContain(
-      "inputMode={",
-    );
-    expect(page).toContain(
-      '? "numeric"',
+    expect(connectionsPage).toContain(
+      "WhatsApp"
     );
   });
 
@@ -146,9 +140,6 @@ describe("Controlled WhatsApp delivery", () => {
     const route = source(
       "app/api/integrations/[id]/credentials/route.ts",
     );
-    const page = source(
-      "app/dashboard/settings/integrations/page.tsx",
-    );
 
     expect(route).toContain(
       "getIntegrationCredentials",
@@ -158,12 +149,6 @@ describe("Controlled WhatsApp delivery", () => {
     );
     expect(route).toContain(
       "...values",
-    );
-    expect(page).toContain(
-      "isCredentialSetupRequired",
-    );
-    expect(page).toContain(
-      ": undefined",
     );
   });
 

@@ -63,15 +63,60 @@ interface OfficialTelegramBindingData {
   shareLink: string;
 }
 
-const integrationCatalog = [
-  ["WhatsApp", "whatsapp", "Messaging"], ["Instagram", "instagram", "Messaging"],
-  ["Messenger", "messenger", "Messaging"], ["Telegram", "telegram", "Messaging"],
-  ["Gmail", "gmail", "Email"], ["Google Calendar", "googlecalendar", "Scheduling"],
-  ["Stripe", "stripe", "Payments"], ["Square", "square", "Payments"],
-  ["Shopify", "shopify", "Commerce"], ["QuickBooks", "quickbooks", "Accounting"],
-  ["Google Drive", "googledrive", "Files"], ["Google Sheets", "googlesheets", "Data"],
-  ["Slack", "slack", "Team"], ["Microsoft Teams", "microsoftteams", "Team"],
-  ["Zapier", "zapier", "Automation"], ["Twilio", "twilio", "Voice & SMS"],
+const integrationCatalog: [string, string, string, string][] = [
+  // Row 1
+  ["WhatsApp Business", "whatsapp", "Messaging", "Available"],
+  ["Telegram", "telegram", "Messaging", "Available"],
+  ["Instagram", "instagram", "Messaging", "Next"],
+  ["Messenger", "messenger", "Messaging", "Next"],
+  ["Twilio", "twilio", "Voice & SMS", "Next"],
+  ["Telnyx", "telnyx", "Voice & SMS", "Roadmap"],
+  ["Gmail", "gmail", "Email", "Next"],
+
+  // Row 2
+  ["Microsoft Outlook", "microsoftoutlook", "Email", "Next"],
+  ["Google Calendar", "googlecalendar", "Scheduling", "Next"],
+  ["Outlook Calendar", "microsoftoutlook", "Scheduling", "Next"],
+  ["Calendly", "calendly", "Scheduling", "Next"],
+  ["Acuity Scheduling", "acuityscheduling", "Scheduling", "Roadmap"],
+  ["Stripe", "stripe", "Payments", "Available"],
+  ["Square", "square", "Payments", "Roadmap"],
+
+  // Row 3
+  ["PayPal", "paypal", "Payments", "Next"],
+  ["HubSpot", "hubspot", "CRM", "Next"],
+  ["Salesforce", "salesforce", "CRM", "Roadmap"],
+  ["Pipedrive", "pipedrive", "CRM", "Next"],
+  ["ClickUp", "clickup", "CRM", "Roadmap"],
+  ["Shopify", "shopify", "Commerce", "Next"],
+  ["WooCommerce", "woocommerce", "Commerce", "Next"],
+
+  // Row 4
+  ["QuickBooks", "quickbooks", "Accounting", "Next"],
+  ["Xero", "xero", "Accounting", "Roadmap"],
+  ["Meta Lead Ads", "meta", "Marketing & Leads", "Next"],
+  ["Google Ads", "googleads", "Marketing & Leads", "Next"],
+  ["WordPress", "wordpress", "Marketing & Leads", "Roadmap"],
+  ["Typeform", "typeform", "Marketing & Leads", "Next"],
+  ["Jotform", "jotform", "Marketing & Leads", "Roadmap"],
+
+  // Row 5
+  ["Google Business Profile", "google", "Reviews", "Next"],
+  ["Google Drive", "googledrive", "Files & Data", "Next"],
+  ["Google Sheets", "googlesheets", "Files & Data", "Next"],
+  ["Microsoft OneDrive", "microsoftonedrive", "Files & Data", "Next"],
+  ["Dropbox", "dropbox", "Files & Data", "Next"],
+  ["Slack", "slack", "Team", "Next"],
+  ["Microsoft Teams", "microsoftteams", "Team", "Next"],
+
+  // Row 6
+  ["Zapier", "zapier", "Automation", "Next"],
+  ["Make", "make", "Automation", "Next"],
+  ["n8n", "n8n", "Automation", "Roadmap"],
+  ["Webhooks & API", "webhooks", "Automation", "Available"],
+  ["Jobber", "jobber", "Field Services", "Roadmap"],
+  ["Housecall Pro", "housecallpro", "Field Services", "Roadmap"],
+  ["Mindbody", "mindbody", "Field Services", "Roadmap"],
 ];
 
 export default function ConnectionsDashboardPage() {
@@ -541,7 +586,33 @@ export default function ConnectionsDashboardPage() {
 
       <section className="j10-integration-catalog">
         <div className="j10-catalog-head"><div><span>INTEGRATION LIBRARY</span><strong>Everything your business connects to</strong></div><small>Connect apps once. J10 keeps customer activity together.</small></div>
-        <div className="j10-logo-grid">{integrationCatalog.map(([name,slug,category]) => <button key={name} type="button" onClick={() => { if(name === "WhatsApp") setShowWhatsAppModal(true); if(name === "Telegram") { setShowConnectModal(true); setConnectTab("business"); } }}><img src={`https://cdn.simpleicons.org/${slug}`} alt=""/><span><strong>{name}</strong><small>{category}</small></span><b>{name === "WhatsApp" || name === "Telegram" ? "Connect" : "Soon"}</b></button>)}</div>
+        <div className="j10-logo-grid">
+          {integrationCatalog.map(([name, slug, category, statusLabel]) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => {
+                if (name === "WhatsApp Business" || name === "WhatsApp") setShowWhatsAppModal(true);
+                else if (name === "Telegram") { setShowConnectModal(true); setConnectTab("business"); }
+                else if (name === "Stripe") { window.location.href = "/dashboard/settings/billing"; }
+                else if (name === "Webhooks & API") { window.location.href = "/dashboard/settings/integrations/sandbox"; }
+              }}
+            >
+              <img
+                src={`https://cdn.simpleicons.org/${slug}`}
+                alt=""
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = "none";
+                }}
+              />
+              <span>
+                <strong>{name}</strong>
+                <small>{category}</small>
+              </span>
+              <b className={`status-${statusLabel.toLowerCase()}`}>{statusLabel}</b>
+            </button>
+          ))}
+        </div>
       </section>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
