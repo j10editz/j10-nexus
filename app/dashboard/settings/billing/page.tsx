@@ -345,7 +345,7 @@ export default function BillingPage() {
   const channelsUsed = subscription?.channelsUsed || 1;
 
   return (
-    <div className="min-h-[calc(100dvh-72px)] bg-[#09090B] px-4 py-8 text-white sm:px-6 lg:px-8">
+    <div className="j10-billing-page min-h-[calc(100dvh-72px)] bg-[#09090B] px-4 py-8 text-white sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1280px]">
         {/* Navigation & Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-6">
@@ -359,14 +359,14 @@ export default function BillingPage() {
               </Link>
               <span className="text-white/20">/</span>
               <span className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">
-                Billing & Entitlements
+                J10 PLAN
               </span>
             </div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
-              Subscription & Plan Entitlements
+              Plan & usage
             </h1>
             <p className="mt-1 text-sm text-white/50">
-              Manage your workspace subscription, verified quota meters, Stripe Customer Portal, and Founder’s 3 pilot slots.
+              Manage your subscription, usage, seats, and payment method.
             </p>
           </div>
 
