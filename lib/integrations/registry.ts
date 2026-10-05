@@ -416,6 +416,19 @@ export const INTEGRATION_REGISTRY: Readonly<
         "Changes the available inventory for a product.",
         true,
       ),
+      capability(
+        "shopify.inventory.lookup",
+        "Lookup Inventory",
+        "action",
+        "Queries real-time product inventory levels and variant availability.",
+      ),
+      capability(
+        "shopify.cart.abandonment_recover",
+        "Recover Abandoned Cart",
+        "action",
+        "Sends automated recovery discount offers and SMS/email follow-up for abandoned checkouts.",
+        true,
+      ),
     ],
   },
 
@@ -491,6 +504,12 @@ export const INTEGRATION_REGISTRY: Readonly<
         "action",
         "Cancels a Stripe subscription.",
         true,
+      ),
+      capability(
+        "stripe.subscription.sync",
+        "Sync Subscription & Billing",
+        "action",
+        "Synchronizes real-time Stripe customer subscriptions, invoices, and entitlement tier.",
       ),
     ],
   },

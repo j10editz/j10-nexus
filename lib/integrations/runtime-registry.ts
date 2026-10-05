@@ -21,6 +21,8 @@ import { WHATSAPP_RUNTIME_ADAPTER } from "./providers/whatsapp/adapter";
 import { INSTAGRAM_RUNTIME_ADAPTER } from "./providers/instagram/adapter";
 import { TWILIO_RUNTIME_ADAPTER } from "./providers/twilio/adapter";
 import { HUBSPOT_RUNTIME_ADAPTER } from "./providers/hubspot/adapter";
+import { SHOPIFY_RUNTIME_ADAPTER } from "./providers/shopify/adapter";
+import { STRIPE_RUNTIME_ADAPTER } from "./providers/stripe/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -41,6 +43,8 @@ const RUNTIME_ADAPTERS:
     INSTAGRAM_RUNTIME_ADAPTER,
     TWILIO_RUNTIME_ADAPTER,
     HUBSPOT_RUNTIME_ADAPTER,
+    SHOPIFY_RUNTIME_ADAPTER,
+    STRIPE_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
