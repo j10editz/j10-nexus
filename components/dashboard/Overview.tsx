@@ -93,10 +93,10 @@ const quickActions = [
     status: "ready" as const,
   },
   {
-    title: "Integrations",
+    title: "Connections",
     description: "Connect the channels your team uses",
     icon: Zap,
-    href: "/dashboard/settings/integrations",
+    href: "/dashboard/connections",
     status: "ready" as const,
   },
 ];
@@ -346,7 +346,7 @@ export default function Overview({
                   },
                   {
                     label: "Connect Channels",
-                    href: "/dashboard/settings/integrations",
+                    href: "/dashboard/connections",
                     icon: MessageSquare,
                   },
                 ].map((action) => {

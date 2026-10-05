@@ -573,7 +573,7 @@ export const moduleDestinations: Record<string, string> = {
   finance: "/dashboard/finance",
   analytics: "/dashboard/analytics",
   "security-governance": "/dashboard/settings",
-  integrations: "/dashboard/settings/integrations",
+  integrations: "/dashboard/connections",
   marketing: "/dashboard/marketing",
   "ai-studio": "/dashboard/website",
   website: "/dashboard/website",

@@ -142,7 +142,7 @@ function getActivityPresentation(item: ActivityItem): {
         icon: Plug,
         iconClassName: "text-cyan-300",
         iconBackground: "bg-cyan-500/10",
-        href: "/dashboard/settings/integrations",
+        href: "/dashboard/connections",
       };
 
     case "whatsapp":

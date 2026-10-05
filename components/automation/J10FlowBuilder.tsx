@@ -1379,7 +1379,7 @@ function ActionInspector({ node, connections, onNodeChange }: { node: J10FlowAct
             </select>
           </Field>
           {matchingConnections.length === 0 && (
-            <Link href="/dashboard/settings/integrations" className="mt-2 block text-[10px] text-amber-300 underline">Configure this provider in Integrations</Link>
+            <Link href="/dashboard/connections" className="mt-2 block text-[10px] text-amber-300 underline">Configure this provider in Connections</Link>
           )}
           <Field label="Execution mode">
             <select value={integration.mode ?? "simulate"} onChange={(event) => updateIntegration({ mode: event.target.value as "simulate" | "sandbox" | "live" })} className={inputClass}>

@@ -3,7 +3,7 @@ import Image from "next/image";
 import { requireUser } from "@/lib/auth";
 const groups = [
   { label:"Workspace", items:[["General","Business details, locale and brand","/dashboard/settings"],["Team & access","Members, roles and permissions","/dashboard/settings"]] },
-  { label:"Platform", items:[["Connections","Channels and business integrations","/dashboard/settings/integrations"],["Billing","Plan, invoices and usage","/dashboard/settings/billing"]] },
+  { label:"Platform", items:[["Connections","Channels and business integrations","/dashboard/connections"],["Billing","Plan, invoices and usage","/dashboard/settings/billing"]] },
   { label:"Intelligence", items:[["AI preferences","Voice, behavior and approvals","/dashboard/ai-employees"],["Automation history","Runs, failures and activity","/dashboard/automation"]] },
 ];
 export default async function SettingsPage(){const user=await requireUser();return <div className="j10-settings-page">

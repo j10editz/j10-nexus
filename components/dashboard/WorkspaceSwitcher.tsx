@@ -56,6 +56,8 @@ export default function WorkspaceSwitcher() {
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [notice, setNotice] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [modalError, setModalError] = useState("");
 
   // Handle click outside to close dropdown
   useEffect(() => {
@@ -189,15 +191,32 @@ export default function WorkspaceSwitcher() {
 
   async function handleCreateClientWorkspace(e: React.FormEvent) {
     e.preventDefault();
-    if (!clientName.trim() || !contactEmail.trim()) return;
+    if (isSubmitting) return;
+
+    const trimmedName = clientName.trim();
+    const trimmedEmail = contactEmail.trim();
+
+    if (trimmedName.length < 2) {
+      setModalError("Workspace name must be at least 2 characters.");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setModalError("Please provide a valid work or administrator email address.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setModalError("");
 
     try {
       const res = await fetch("/api/workspaces", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: clientName.trim(),
-          brandName: brandName.trim() || clientName.trim(),
+          name: trimmedName,
+          brandName: brandName.trim() || trimmedName,
           plan,
           workspaceType: "client",
         }),
@@ -214,12 +233,12 @@ export default function WorkspaceSwitcher() {
         slug: w.slug,
         type: "client",
         plan: w.plan || plan,
-        monthlySubscriptionPrice: 0,
+        monthlySubscriptionPrice: PLAN_PRICING[w.plan as WorkspacePlan] || 149,
         status: "active",
         brandName: w.brand_name || w.name,
-        accentColor: w.accent_color || "#00D9FF",
+        accentColor: w.accent_color || "#7c3aed",
         clientContactName: contactName.trim() || "Account Lead",
-        clientContactEmail: contactEmail.trim(),
+        clientContactEmail: trimmedEmail,
         createdAt: w.created_at || new Date().toISOString(),
       };
       setWorkspaces((prev) => [...prev, newWs]);
@@ -230,11 +249,12 @@ export default function WorkspaceSwitcher() {
       setBrandName("");
       setContactName("");
       setContactEmail("");
-      setNotice(`New client provisioned: ${newWs.name}`);
+      setNotice(`New client workspace provisioned: ${newWs.name}`);
       setTimeout(() => setNotice(""), 4500);
     } catch (err: any) {
-      setNotice(`Provisioning failed: ${err.message || "Server error."}`);
-      setTimeout(() => setNotice(""), 5000);
+      setModalError(err.message || "Server error while provisioning workspace.");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -430,23 +450,26 @@ export default function WorkspaceSwitcher() {
 
       {/* Onboard Client Modal */}
       {addModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-          <div className="relative w-full max-w-md rounded-2xl border border-white/[0.1] bg-[#111216] p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
+          <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/[0.12] bg-[#0c0d12] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.85)]">
             <button
               type="button"
-              onClick={() => setAddModalOpen(false)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-white"
+              onClick={() => {
+                setAddModalOpen(false);
+                setModalError("");
+              }}
+              className="absolute right-4 top-4 text-slate-400 hover:text-white transition"
             >
               <X size={18} />
             </button>
 
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-400">
-                <Building2 size={18} />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[linear-gradient(135deg,rgba(124,58,237,0.25),rgba(212,175,55,0.2))] text-[#efc76b] border border-[#efc76b]/20">
+                <Building2 size={20} />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-white">
-                  Onboard Workspace
+                <h3 className="text-base font-bold text-white tracking-tight">
+                  Onboard Client Workspace
                 </h3>
                 <p className="text-xs text-slate-400">
                   Provision an isolated J10 tenant workspace.
@@ -454,23 +477,27 @@ export default function WorkspaceSwitcher() {
               </div>
             </div>
 
-            <form onSubmit={handleCreateClientWorkspace} className="mt-5 space-y-3.5">
+            <form onSubmit={handleCreateClientWorkspace} className="mt-5 space-y-4">
               <div>
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
                   Business / Workspace Name
                 </label>
                 <input
                   type="text"
                   required
                   value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
+                  onChange={(e) => {
+                    setClientName(e.target.value);
+                    if (modalError) setModalError("");
+                  }}
                   placeholder="e.g. Apex Home & Commercial Services"
-                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-cyan-500/50 focus:outline-none"
+                  disabled={isSubmitting}
+                  className="mt-1.5 w-full rounded-xl border border-white/[0.1] bg-white/[0.03] px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 focus:border-[#7c3aed] focus:bg-white/[0.05] focus:outline-none transition disabled:opacity-50"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
                   Brand Title
                 </label>
                 <input
@@ -478,12 +505,13 @@ export default function WorkspaceSwitcher() {
                   value={brandName}
                   onChange={(e) => setBrandName(e.target.value)}
                   placeholder="e.g. Apex Autonomous Reception Desk"
-                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-cyan-500/50 focus:outline-none"
+                  disabled={isSubmitting}
+                  className="mt-1.5 w-full rounded-xl border border-white/[0.1] bg-white/[0.03] px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 focus:border-[#7c3aed] focus:bg-white/[0.05] focus:outline-none transition disabled:opacity-50"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
                   Subscription Plan
                 </label>
                 <div className="mt-1.5 grid grid-cols-3 gap-2">
@@ -493,15 +521,16 @@ export default function WorkspaceSwitcher() {
                       <button
                         key={p}
                         type="button"
+                        disabled={isSubmitting}
                         onClick={() => setPlan(p)}
                         className={`rounded-xl border p-2.5 text-center transition ${
                           isSelected
-                            ? "border-cyan-500 bg-cyan-500/20 text-white"
-                            : "border-white/[0.08] bg-black/30 text-slate-400 hover:border-white/20"
+                            ? "border-[#7c3aed] bg-[#7c3aed]/25 text-white shadow-[0_0_15px_rgba(124,58,237,0.3)]"
+                            : "border-white/[0.08] bg-black/40 text-slate-400 hover:border-white/20"
                         }`}
                       >
-                        <p className="text-xs font-semibold capitalize">{p}</p>
-                        <p className="mt-0.5 text-xs font-bold text-emerald-400">
+                        <p className="text-xs font-bold capitalize">{p}</p>
+                        <p className="mt-0.5 text-xs font-extrabold text-[#efc76b]">
                           ${PLAN_PRICING[p]}/mo
                         </p>
                       </button>
@@ -511,32 +540,47 @@ export default function WorkspaceSwitcher() {
               </div>
 
               <div>
-                <label className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                  Contact Email
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                  Administrator Contact Email
                 </label>
                 <input
                   type="email"
                   required
                   value={contactEmail}
-                  onChange={(e) => setContactEmail(e.target.value)}
+                  onChange={(e) => {
+                    setContactEmail(e.target.value);
+                    if (modalError) setModalError("");
+                  }}
                   placeholder="admin@business.com"
-                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-black/40 px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:border-cyan-500/50 focus:outline-none"
+                  disabled={isSubmitting}
+                  className="mt-1.5 w-full rounded-xl border border-white/[0.1] bg-white/[0.03] px-3.5 py-2.5 text-xs text-white placeholder:text-slate-500 focus:border-[#7c3aed] focus:bg-white/[0.05] focus:outline-none transition disabled:opacity-50"
                 />
               </div>
 
-              <div className="mt-5 flex gap-2 pt-2">
+              {modalError && (
+                <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-3.5 py-2.5 text-xs text-red-300 leading-relaxed">
+                  {modalError}
+                </div>
+              )}
+
+              <div className="mt-5 flex gap-2.5 pt-2">
                 <button
                   type="button"
-                  onClick={() => setAddModalOpen(false)}
-                  className="w-1/2 rounded-lg border border-white/[0.08] py-2 text-xs font-medium text-slate-400 hover:bg-white/[0.05] hover:text-white"
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setAddModalOpen(false);
+                    setModalError("");
+                  }}
+                  className="w-1/2 rounded-xl border border-white/[0.1] py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/[0.05] hover:text-white transition disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-600 py-2 text-xs font-medium text-white shadow-sm hover:brightness-105"
+                  disabled={isSubmitting}
+                  className="w-1/2 rounded-xl border border-[#a676ff] bg-[linear-gradient(115deg,#4111bb,#7d41f6)] py-2.5 text-xs font-bold text-white shadow-[0_4px_16px_rgba(100,49,187,0.35)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Provision Workspace
+                  {isSubmitting ? "Provisioning..." : "Provision Workspace"}
                 </button>
               </div>
             </form>

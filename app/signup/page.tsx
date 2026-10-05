@@ -17,6 +17,7 @@ export default function SignupPage() {
   const [nextUrl, setNextUrl] = useState<string>("/dashboard");
 
   const [loading, setLoading] = useState(false);
+  const [consentAccepted, setConsentAccepted] = useState(false);
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -66,6 +67,12 @@ export default function SignupPage() {
     setMessage("");
     setErrorMessage("");
 
+    if (!consentAccepted) {
+      setErrorMessage("Please review and accept the Terms of Service and Privacy Policy to proceed.");
+      setLoading(false);
+      return;
+    }
+
     if (password.length < 8) {
       setErrorMessage("Password must be at least 8 characters long.");
       setLoading(false);
@@ -86,6 +93,12 @@ export default function SignupPage() {
         password,
         options: {
           emailRedirectTo,
+          data: {
+            terms_accepted: true,
+            terms_version: "2026-09-10",
+            privacy_version: "2026-09-10",
+            terms_accepted_at: new Date().toISOString(),
+          },
         },
       });
 
@@ -194,6 +207,40 @@ export default function SignupPage() {
                   disabled={loading}
                   className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white outline-none transition placeholder:text-[#5f697d] focus:border-cyan-400 focus:bg-white/[0.05] disabled:opacity-50"
                 />
+              </div>
+
+              <div className="flex items-start gap-2.5 pt-1">
+                <input
+                  id="signup-consent"
+                  type="checkbox"
+                  checked={consentAccepted}
+                  onChange={(event) => setConsentAccepted(event.target.checked)}
+                  required
+                  disabled={loading}
+                  className="mt-0.5 h-4 w-4 rounded border-white/20 bg-white/[0.05] text-[#7d41f6] focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                />
+                <label
+                  htmlFor="signup-consent"
+                  className="text-xs leading-5 text-[#8d96a8] cursor-pointer select-none"
+                >
+                  I agree to the{" "}
+                  <Link
+                    href="/terms"
+                    target="_blank"
+                    className="font-medium text-[#d7b35c] hover:underline"
+                  >
+                    Terms of Service
+                  </Link>{" "}
+                  and{" "}
+                  <Link
+                    href="/privacy"
+                    target="_blank"
+                    className="font-medium text-[#d7b35c] hover:underline"
+                  >
+                    Privacy Policy
+                  </Link>
+                  .
+                </label>
               </div>
 
               {errorMessage && (
