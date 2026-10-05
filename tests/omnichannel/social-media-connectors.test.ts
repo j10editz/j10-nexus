@@ -184,7 +184,7 @@ describe("Batch 14: Social Media Runtime Connectors", () => {
       );
       const result = await TIKTOK_RUNTIME_ADAPTER.executeAction!(invocation);
       expect(result.success).toBe(true);
-      expect(result.metadata.data.publish_id).toBe("pub_tt_456");
+      expect((result.metadata as any).data.publish_id).toBe("pub_tt_456");
     });
 
     it("performs health check", async () => {
@@ -307,7 +307,7 @@ describe("Batch 14: Social Media Runtime Connectors", () => {
       );
       const result = await X_RUNTIME_ADAPTER.executeAction!(invocation);
       expect(result.success).toBe(true);
-      expect(result.metadata.data.id).toBe("tweet_1234567890");
+      expect((result.metadata as any).data.id).toBe("tweet_1234567890");
     });
 
     it("performs health check", async () => {

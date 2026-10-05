@@ -64,6 +64,8 @@ import { YOUTUBE_RUNTIME_ADAPTER } from "./providers/youtube/adapter";
 import { TIKTOK_RUNTIME_ADAPTER } from "./providers/tiktok/adapter";
 import { LINKEDIN_RUNTIME_ADAPTER } from "./providers/linkedin/adapter";
 import { X_RUNTIME_ADAPTER } from "./providers/x/adapter";
+import { CALENDLY_RUNTIME_ADAPTER } from "./providers/calendly/adapter";
+import { ACUITY_SCHEDULING_RUNTIME_ADAPTER } from "./providers/acuity-scheduling/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -127,6 +129,8 @@ const RUNTIME_ADAPTERS:
     TIKTOK_RUNTIME_ADAPTER,
     LINKEDIN_RUNTIME_ADAPTER,
     X_RUNTIME_ADAPTER,
+    CALENDLY_RUNTIME_ADAPTER,
+    ACUITY_SCHEDULING_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
