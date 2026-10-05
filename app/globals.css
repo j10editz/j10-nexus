@@ -589,6 +589,52 @@ body {
 .j10-booking-health p { margin: 6px 0; color: #aaa4af; font-size: 10px; }
 .j10-product-panel > a { display: block; margin-top: 22px; color: #b99bd9; font-size: 10px; }
 @media (max-width: 760px) { .j10-product-page { padding: 24px 18px; } .j10-booking-summary { grid-template-columns: 1fr 1fr; } .j10-booking-layout { grid-template-columns: 1fr; } }
+
+/* J10 Lead Center + Booking */
+.j10-lead-center { background: radial-gradient(circle at 72% 0%, rgba(89,45,145,.12), transparent 34%), #07070b; }
+.j10-lead-center > div > div:first-child h1 { font-size: 2rem; letter-spacing: -.04em; }
+.j10-lead-center .j10-lead-stats > div { border-color: rgba(212,175,92,.16); background: linear-gradient(145deg, rgba(19,17,25,.96), rgba(10,10,14,.96)); box-shadow: inset 0 1px rgba(255,255,255,.025); }
+.j10-booking-workspace { min-height:100%; padding:28px 32px 40px; color:#f7f4fb; background:radial-gradient(circle at 78% 0%,rgba(92,44,150,.15),transparent 34%),#07070b; }
+.j10-booking-head { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; }
+.j10-booking-head p { margin:0 0 8px; color:#d8b458; font-size:11px; font-weight:800; letter-spacing:.18em; }
+.j10-booking-head h1 { margin:0; font-size:32px; letter-spacing:-.045em; }
+.j10-booking-head span { display:block; margin-top:8px; color:#8e8898; font-size:14px; }
+.j10-booking-head-actions { display:flex; gap:9px; }
+.j10-booking-head-actions button { display:flex; align-items:center; gap:8px; height:42px; border:1px solid #6f42b5; border-radius:10px; padding:0 16px; color:#fff; background:linear-gradient(135deg,#7138e8,#5114cf); font-size:13px; font-weight:700; }
+.j10-booking-head-actions button.secondary { border-color:rgba(216,180,88,.25); color:#d9c48e; background:rgba(216,180,88,.06); }
+.j10-booking-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:24px 0 14px; }
+.j10-booking-kpis > div { min-height:92px; border:1px solid rgba(216,180,88,.13); border-radius:12px; padding:15px 17px; background:linear-gradient(145deg,rgba(19,16,25,.95),rgba(10,9,14,.96)); }
+.j10-booking-kpis span,.j10-booking-kpis small { display:block; color:#87808f; font-size:12px; }
+.j10-booking-kpis strong { display:block; margin:7px 0 3px; font-size:25px; letter-spacing:-.04em; }
+.j10-booking-kpis small { color:#b2985b; font-size:10px; }
+.j10-booking-toolbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.j10-booking-toolbar > div { display:flex; align-items:center; gap:7px; }
+.j10-booking-toolbar button { display:flex; align-items:center; gap:7px; height:36px; border:1px solid rgba(255,255,255,.09); border-radius:8px; padding:0 12px; color:#9891a3; background:#0e0c13; }
+.j10-booking-toolbar button.active { border-color:#6940b2; color:#fff; background:#211333; }
+.j10-booking-toolbar strong { margin-left:8px; font-size:13px; }
+.j10-booking-main { display:grid; grid-template-columns:minmax(680px,1fr) 360px; gap:12px; }
+.j10-calendar-shell,.j10-booking-detail { overflow:hidden; border:1px solid rgba(216,180,88,.19); border-radius:13px; background:rgba(9,8,13,.9); }
+.j10-calendar-days { display:grid; grid-template-columns:repeat(7,1fr); height:64px; border-bottom:1px solid rgba(255,255,255,.08); padding-left:58px; }
+.j10-calendar-days > div { display:flex; flex-direction:column; align-items:center; justify-content:center; border-left:1px solid rgba(255,255,255,.06); color:#9892a0; }
+.j10-calendar-days > div.today { color:#d59cff; background:rgba(111,54,205,.11); }
+.j10-calendar-days span { font-size:11px; }.j10-calendar-days b { margin-top:3px; font-size:13px; }
+.j10-calendar-body { display:flex; height:520px; }
+.j10-time-rail { display:flex; width:58px; flex-direction:column; flex:none; padding-top:4px; }
+.j10-time-rail span { height:52px; padding:3px 8px 0 0; color:#77717d; font-size:10px; text-align:right; }
+.j10-calendar-grid { position:relative; display:grid; flex:1; grid-template-columns:repeat(7,1fr); background:repeating-linear-gradient(to bottom,transparent 0,transparent 51px,rgba(255,255,255,.055) 52px); }
+.j10-calendar-grid > div { border-left:1px solid rgba(255,255,255,.055); }.j10-calendar-grid > div.today { background:rgba(94,45,160,.07); }
+.j10-calendar-event { position:absolute; display:flex; flex-direction:column; overflow:hidden; border:1px solid rgba(178,117,245,.35); border-left:2px solid #b46aff; border-radius:7px; padding:8px; color:#eeeaf3; background:linear-gradient(145deg,#292437,#17151f); text-align:left; }
+.j10-calendar-event.selected { border-color:#b46aff; background:linear-gradient(145deg,#4c237c,#241438); box-shadow:0 0 0 2px rgba(163,88,245,.13); }
+.j10-calendar-event strong { overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }.j10-calendar-event span,.j10-calendar-event small { overflow:hidden; color:#afa7b8; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.j10-calendar-event i { position:absolute; right:6px; bottom:6px; display:grid; width:16px; height:16px; place-items:center; border-radius:50%; color:#07120c; background:#6ddd9a; }.j10-calendar-event.pending i { background:#e5b64b; }
+.j10-booking-detail { padding:18px; }
+.j10-detail-title { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }.j10-detail-title span { color:#b7a064; font-size:9px; font-weight:800; letter-spacing:.15em; }.j10-detail-title h2 { margin:5px 0 0; font-size:19px; }.j10-detail-title button { border:1px solid rgba(255,255,255,.11); border-radius:8px; padding:8px 10px; color:#d9d4de; background:#121018; font-size:10px; }
+.j10-customer-card { display:flex; align-items:center; gap:11px; margin-top:22px; }.j10-customer-card > div { display:grid; width:46px; height:46px; place-items:center; border:1px solid #8652d2; border-radius:50%; color:#fff; background:#321855; }.j10-customer-card span { display:flex; flex-direction:column; }.j10-customer-card strong { font-size:14px; }.j10-customer-card small { margin-top:3px; color:#8c8594; font-size:10px; }
+.j10-contact-line { display:flex; align-items:center; gap:8px; margin-top:12px; color:#a9a2ae; font-size:11px; }.j10-booking-detail hr { margin:18px 0 4px; border-color:rgba(255,255,255,.07); }
+.j10-booking-facts > div { display:grid; grid-template-columns:110px 1fr; gap:8px; border-bottom:1px solid rgba(255,255,255,.06); padding:14px 0; }.j10-booking-facts dt { display:flex; align-items:center; gap:7px; color:#948d9b; font-size:10px; }.j10-booking-facts dd { margin:0; color:#eeeaf2; font-size:11px; line-height:1.45; }.j10-booking-facts dd span { color:#827b89; }.j10-booking-facts .gold { color:#d7b45e; }.j10-booking-facts em { margin-left:8px; border:1px solid rgba(215,180,94,.3); border-radius:10px; padding:2px 6px; color:#d7b45e; font-size:8px; font-style:normal; }
+.j10-detail-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:16px 0; }.j10-detail-actions button { height:38px; border:1px solid rgba(255,255,255,.11); border-radius:8px; color:#ddd7e3; background:#121018; font-size:10px; }.j10-detail-actions button:first-child { border-color:#7141bf; color:#fff; background:#5620c8; }.j10-booking-detail > a { color:#be91ff; font-size:10px; }
+.j10-booking-toast { position:fixed; right:28px; bottom:28px; z-index:50; border:1px solid rgba(216,180,88,.35); border-radius:10px; padding:12px 16px; color:#f4e2aa; background:#17121e; box-shadow:0 16px 40px #0008; font-size:12px; }
+@media(max-width:1100px){.j10-booking-main{grid-template-columns:1fr}.j10-booking-kpis{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:720px){.j10-booking-workspace{padding:22px 14px}.j10-booking-head{align-items:flex-start;flex-direction:column}.j10-booking-kpis{grid-template-columns:1fr 1fr}.j10-booking-toolbar{align-items:flex-start;flex-direction:column;gap:8px}.j10-booking-main{display:block;overflow-x:auto}.j10-calendar-shell{min-width:760px}.j10-booking-detail{margin-top:12px}.j10-booking-head-actions{width:100%}.j10-booking-head-actions button{flex:1;justify-content:center}}
 .j10-review-list { margin-top: 13px; }
 .j10-review-list article { display: grid; grid-template-columns: minmax(140px,.5fr) minmax(240px,1fr) 70px; align-items: center; gap: 18px; min-height: 64px; border-top: 1px solid rgba(255,255,255,.055); }
 .j10-review-list article > div { display: flex; flex-direction: column; gap: 4px; }
