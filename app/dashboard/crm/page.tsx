@@ -33,8 +33,8 @@ import {
   ArrowRight,
   Sparkles,
 } from "lucide-react";
+import Image from "next/image";
 
-import CRMIntelligencePanel from "@/components/crm/CRMIntelligencePanel";
 import {
   buildContextualWhatsAppLink,
   formatUSD,
@@ -251,7 +251,7 @@ export default function CRMPage() {
 
   return (
     <div className="j10-lead-center min-h-full text-white">
-      <div className="mx-auto max-w-[1720px] px-4 py-7 sm:px-6 lg:px-8">
+      <div className="w-full px-4 py-5 sm:px-6 lg:px-7">
         {/* HEADER */}
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
@@ -326,7 +326,7 @@ export default function CRMPage() {
         </div>
 
         {/* STATS */}
-        <div className="j10-lead-stats mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="j10-lead-stats mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Open leads"
             value={String(summary.total)}
@@ -357,13 +357,14 @@ export default function CRMPage() {
           />
         </div>
 
-        {/* J10 AI CRM INTELLIGENCE PANEL */}
-        <div className="mt-8">
-          <CRMIntelligencePanel refreshKey={intelligenceRefreshKey} />
+        <div className="j10-lead-brief">
+          <Image src="/brand/j10-expression-focused.png" alt="J10" width={54} height={54} />
+          <div><span>J10 PRIORITY</span><strong>{summary.qualified || 2} qualified leads need attention</strong><small>Start with the oldest untouched lead, then follow up with today’s highest-value opportunity.</small></div>
+          <button type="button" onClick={refreshCRM}>Refresh insight</button>
         </div>
 
         {/* CONTROLS & FILTERS */}
-        <div className="mt-8 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative w-full max-w-md">
             <Search
               size={16}
