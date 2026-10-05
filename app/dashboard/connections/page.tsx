@@ -28,6 +28,8 @@ import {
 
 import { WhatsAppConnectionChoice } from "@/components/whatsapp/WhatsAppConnectionChoice";
 import { getOfficialTelegramBindingLink } from "@/lib/telegram/official-binding-link";
+import IntegrationLogo from "@/components/integrations/IntegrationLogo";
+import { INTEGRATION_STATUS_LABEL, J10_INTEGRATIONS } from "@/lib/integrations/catalog";
 
 interface ConnectionItem {
   id: string;
@@ -62,17 +64,6 @@ interface TelegramBusinessSessionData {
 interface OfficialTelegramBindingData {
   shareLink: string;
 }
-
-const integrationCatalog = [
-  ["WhatsApp", "whatsapp", "Messaging"], ["Instagram", "instagram", "Messaging"],
-  ["Messenger", "messenger", "Messaging"], ["Telegram", "telegram", "Messaging"],
-  ["Gmail", "gmail", "Email"], ["Google Calendar", "googlecalendar", "Scheduling"],
-  ["Stripe", "stripe", "Payments"], ["Square", "square", "Payments"],
-  ["Shopify", "shopify", "Commerce"], ["QuickBooks", "quickbooks", "Accounting"],
-  ["Google Drive", "googledrive", "Files"], ["Google Sheets", "googlesheets", "Data"],
-  ["Slack", "slack", "Team"], ["Microsoft Teams", "microsoftteams", "Team"],
-  ["Zapier", "zapier", "Automation"], ["Twilio", "twilio", "Voice & SMS"],
-];
 
 export default function ConnectionsDashboardPage() {
   const [connections, setConnections] = useState<ConnectionItem[]>([]);
@@ -541,7 +532,7 @@ export default function ConnectionsDashboardPage() {
 
       <section className="j10-integration-catalog">
         <div className="j10-catalog-head"><div><span>INTEGRATION LIBRARY</span><strong>Everything your business connects to</strong></div><small>Connect apps once. J10 keeps customer activity together.</small></div>
-        <div className="j10-logo-grid">{integrationCatalog.map(([name,slug,category]) => <button key={name} type="button" onClick={() => { if(name === "WhatsApp") setShowWhatsAppModal(true); if(name === "Telegram") { setShowConnectModal(true); setConnectTab("business"); } }}><img src={`https://cdn.simpleicons.org/${slug}`} alt=""/><span><strong>{name}</strong><small>{category}</small></span><b>{name === "WhatsApp" || name === "Telegram" ? "Connect" : "Soon"}</b></button>)}</div>
+        <div className="j10-logo-grid">{J10_INTEGRATIONS.map((item) => <button key={item.id} type="button" onClick={() => { if(item.id === "whatsapp") setShowWhatsAppModal(true); if(item.id === "telegram") { setShowConnectModal(true); setConnectTab("business"); } }}><IntegrationLogo name={item.name} domain={item.domain} size={25}/><span><strong>{item.name}</strong><small>{item.category}</small></span><b className={`j10-integration-status-${item.status}`}>{item.id === "whatsapp" || item.id === "telegram" ? "Connect" : INTEGRATION_STATUS_LABEL[item.status]}</b></button>)}</div>
       </section>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">

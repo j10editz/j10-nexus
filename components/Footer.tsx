@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 const columns = [
-  { title: "Platform", links: [["Product Overview", "/#product"], ["AI Receptionist", "/#services"], ["Unified Inbox", "/#j10-products"], ["Automations", "/#j10-workflow"], ["Pricing", "/pricing"]] },
+  { title: "Platform", links: [["Product Overview", "/#product"], ["AI Receptionist", "/#services"], ["Unified Inbox", "/#j10-products"], ["Integrations", "/integrations"], ["Pricing", "/pricing"]] },
   { title: "Resources", links: [["Documentation", "/docs"], ["Quickstart", "/docs#quickstart"], ["Connections", "/docs#connections"], ["Help Center", "/docs#troubleshooting"]] },
   { title: "Company", links: [["Security", "/security"], ["System Status", "/status"], ["Contact", "/contact"], ["Sign In", "/login"]] },
   { title: "Legal", links: [["Privacy Policy", "/privacy"], ["Terms of Service", "/terms"], ["Data Deletion", "/data-deletion"], ["Responsible Disclosure", "/security#disclosure"]] },
