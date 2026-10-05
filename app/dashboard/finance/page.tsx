@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   AlertCircle,
   ArrowRight,
@@ -196,19 +197,19 @@ export default function FinancePage() {
   }, [invoices, statusFilter, searchQuery]);
 
   return (
-    <div className="min-h-[calc(100dvh-72px)] bg-[#09090B] px-4 py-8 text-white sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-[1280px]">
+    <div className="j10-pay-page min-h-[calc(100dvh-72px)] px-4 py-6 text-white sm:px-6 lg:px-7">
+      <div className="mx-auto max-w-[1600px]">
         {/* Top Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.08] pb-6">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-violet-400">
-              J10 Revenue Intelligence
+              J10 PAY
             </p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-              Finance & Cashflow Center
+              Payments & Invoices
             </h1>
             <p className="mt-1 text-sm text-white/50">
-              Synchronize closed CRM deals, dynamic invoicing, recurring retainers, and cashflow runway.
+              Collect deposits, send invoices, track payments, and protect cash flow.
             </p>
           </div>
 
@@ -246,7 +247,7 @@ export default function FinancePage() {
         )}
 
         {/* Financial KPI Cards */}
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="j10-pay-kpis mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {/* Won Revenue from CRM */}
           <div className="rounded-2xl border border-white/[0.08] bg-[#111216] p-5">
             <div className="flex items-center justify-between">
@@ -330,13 +331,14 @@ export default function FinancePage() {
         </div>
 
         {/* AI Cashflow & Revenue Advisor Card */}
-        <div className="mt-8 rounded-2xl border border-white/[0.08] bg-gradient-to-r from-blue-950/20 via-[#111216] to-violet-950/20 p-6">
+        <div className="j10-pay-advisor mt-4 rounded-2xl border border-white/[0.08] bg-gradient-to-r from-blue-950/20 via-[#111216] to-violet-950/20 p-4">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-1.5">
+            <Image src="/brand/j10-expression-focused.png" alt="J10 Pay assistant" width={54} height={54} />
+            <div className="flex-1 space-y-1.5">
               <div className="flex items-center gap-2">
                 <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                  AI Financial Advisory Engine
+                  J10 PAY ASSISTANT
                 </span>
               </div>
               <h3 className="text-base font-semibold text-white">
@@ -360,7 +362,7 @@ export default function FinancePage() {
         </div>
 
         {/* Invoice Management Header & Controls */}
-        <div className="mt-10">
+        <div className="mt-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-bold tracking-tight">
@@ -713,4 +715,4 @@ export default function FinancePage() {
       </div>
     </div>
   );
-}
+}
