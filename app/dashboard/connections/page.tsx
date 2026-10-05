@@ -63,6 +63,17 @@ interface OfficialTelegramBindingData {
   shareLink: string;
 }
 
+const integrationCatalog = [
+  ["WhatsApp", "whatsapp", "Messaging"], ["Instagram", "instagram", "Messaging"],
+  ["Messenger", "messenger", "Messaging"], ["Telegram", "telegram", "Messaging"],
+  ["Gmail", "gmail", "Email"], ["Google Calendar", "googlecalendar", "Scheduling"],
+  ["Stripe", "stripe", "Payments"], ["Square", "square", "Payments"],
+  ["Shopify", "shopify", "Commerce"], ["QuickBooks", "quickbooks", "Accounting"],
+  ["Google Drive", "googledrive", "Files"], ["Google Sheets", "googlesheets", "Data"],
+  ["Slack", "slack", "Team"], ["Microsoft Teams", "microsoftteams", "Team"],
+  ["Zapier", "zapier", "Automation"], ["Twilio", "twilio", "Voice & SMS"],
+];
+
 export default function ConnectionsDashboardPage() {
   const [connections, setConnections] = useState<ConnectionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -527,6 +538,11 @@ export default function ConnectionsDashboardPage() {
         <div><span>CONNECTION HEALTH</span><strong>{filteredConnections.filter((item) => item.status === "active").length} channels are active</strong><small>J10 is ready to receive, route, and respond to customer messages.</small></div>
         <Link href="/dashboard/inbox">Open unified inbox</Link>
       </div>
+
+      <section className="j10-integration-catalog">
+        <div className="j10-catalog-head"><div><span>INTEGRATION LIBRARY</span><strong>Everything your business connects to</strong></div><small>Connect apps once. J10 keeps customer activity together.</small></div>
+        <div className="j10-logo-grid">{integrationCatalog.map(([name,slug,category]) => <button key={name} type="button" onClick={() => { if(name === "WhatsApp") setShowWhatsAppModal(true); if(name === "Telegram") { setShowConnectModal(true); setConnectTab("business"); } }}><img src={`https://cdn.simpleicons.org/${slug}`} alt=""/><span><strong>{name}</strong><small>{category}</small></span><b>{name === "WhatsApp" || name === "Telegram" ? "Connect" : "Soon"}</b></button>)}</div>
+      </section>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
