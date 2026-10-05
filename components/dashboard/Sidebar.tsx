@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import {
   Activity,
@@ -73,6 +73,7 @@ export default function Sidebar({
   onClose,
 }: SidebarProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   function isActive(item: DashboardNavigationItem) {
     if (!item.href || item.href.includes("#")) {
@@ -80,6 +81,15 @@ export default function Sidebar({
     }
 
     const route = cleanRoute(item.href);
+
+    if (route === "/dashboard/bot-setup") {
+      const receptionistSelected = searchParams.get("tab") === "simulator";
+      return item.id === "ai-receptionist"
+        ? pathname === route && receptionistSelected
+        : item.id === "ai-operator"
+          ? pathname === route && !receptionistSelected
+          : false;
+    }
 
     if (
       route === "/dashboard" ||

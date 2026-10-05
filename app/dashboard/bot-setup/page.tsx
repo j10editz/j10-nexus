@@ -75,6 +75,13 @@ const TONE_OPTIONS = [
   { value: "direct", label: "Direct & Action-Oriented" },
 ];
 
+function cleanSaasMessage(value: string) {
+  return value
+    .replace(/[👋🤖✨⚡🚀🎉✅💡]/gu, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export default function BotSetupPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -325,23 +332,23 @@ export default function BotSetupPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">
+    <div className="j10-receptionist-page mx-auto max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">
       {/* Top Banner & Action Header */}
       <div className="flex flex-col justify-between gap-4 border-b border-white/[0.08] pb-6 sm:flex-row sm:items-center">
         <div>
           <div className="flex items-center gap-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              <Sparkles size={18} />
+              <Bot size={18} />
             </span>
             <h1 className="text-2xl font-bold tracking-tight text-white">
-              AI Receptionist Setup
+              AI Receptionist
             </h1>
             <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-xs font-semibold text-blue-400">
               {form.business_name || brandName || "Client Bot"}
             </span>
           </div>
           <p className="mt-1 text-sm text-white/60">
-            Ground your bot in your client business data. The AI will strictly represent your services, pricing, hours, and identity.
+            Configure how J10 answers customers, presents services, books appointments, and transfers conversations.
           </p>
         </div>
 
@@ -373,7 +380,7 @@ export default function BotSetupPage() {
             className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-500 disabled:opacity-50"
           >
             {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            <span>{saving ? "Saving..." : "Save Bot Setup"}</span>
+            <span>{saving ? "Saving..." : "Save changes"}</span>
           </button>
         </div>
       </div>
@@ -811,7 +818,7 @@ export default function BotSetupPage() {
                           : "bg-white/[0.06] text-white/90 border border-white/[0.06] rounded-bl-xs"
                       }`}
                     >
-                      <p className="whitespace-pre-wrap">{m.text}</p>
+                      <p className="whitespace-pre-wrap">{cleanSaasMessage(m.text)}</p>
                     </div>
                   </div>
                 );
@@ -820,7 +827,7 @@ export default function BotSetupPage() {
               {simulating && (
                 <div className="flex items-center gap-2 text-xs text-white/40">
                   <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-400" />
-                  <span>Thinking with Gemini...</span>
+                  <span>Preparing response...</span>
                 </div>
               )}
             </div>

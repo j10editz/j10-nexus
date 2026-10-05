@@ -480,6 +480,24 @@ body {
   .j10-inbox-threads > div:first-child > div:first-child button:first-child { grid-column: span 2; }
 }
 
+/* AI Receptionist — product configuration, not a novelty bot screen. */
+.j10-receptionist-page { color: #f4f1f6; }
+.j10-receptionist-page > div:first-child { border-bottom-color: rgba(218,184,95,.16) !important; }
+.j10-receptionist-page > div:first-child > div:first-child span:first-child { border-color: rgba(218,184,95,.28) !important; background: rgba(218,184,95,.075) !important; color: #d9b85f !important; }
+.j10-receptionist-page > div:first-child h1 { font-weight: 680; letter-spacing: -.03em; }
+.j10-receptionist-page > div:first-child h1 + span { border-color: rgba(218,184,95,.2) !important; background: rgba(218,184,95,.05) !important; color: #c8aa58 !important; }
+.j10-receptionist-page button[class*="bg-blue-600"] { background: linear-gradient(135deg,#7b49b7,#5b3289) !important; box-shadow: 0 9px 24px rgba(76,39,113,.2) !important; }
+.j10-receptionist-page .grid.lg\:grid-cols-12 > div:first-child > div { border-color: rgba(218,184,95,.11) !important; border-radius: 14px !important; background: rgba(13,10,18,.72) !important; box-shadow: inset 0 1px rgba(255,255,255,.018); }
+.j10-receptionist-page .grid.lg\:grid-cols-12 > div:first-child > div h2 svg { color: #d2b45d !important; }
+.j10-receptionist-page input, .j10-receptionist-page textarea, .j10-receptionist-page select { border-color: rgba(218,184,95,.11) !important; background: rgba(5,4,7,.72) !important; }
+.j10-receptionist-page input:focus, .j10-receptionist-page textarea:focus, .j10-receptionist-page select:focus { border-color: rgba(218,184,95,.4) !important; }
+.j10-receptionist-page button[class*="border-blue-500"], .j10-receptionist-page button[class*="border-purple-500"] { border-color: rgba(218,184,95,.24) !important; background: rgba(218,184,95,.055) !important; color: #d8bd70 !important; }
+.j10-receptionist-page .lg\:col-span-5 > div { border-color: rgba(218,184,95,.16) !important; background: linear-gradient(155deg,rgba(17,12,23,.97),rgba(9,8,12,.98)) !important; }
+.j10-receptionist-page .lg\:col-span-5 > div > div:first-child { border-bottom-color: rgba(218,184,95,.12) !important; }
+.j10-receptionist-page .lg\:col-span-5 > div > div:first-child > div > div:first-child { border-color: rgba(218,184,95,.25) !important; background: rgba(218,184,95,.07) !important; color: #d9b85f !important; }
+.j10-receptionist-page .lg\:col-span-5 [class*="bg-blue-600"] { background: linear-gradient(145deg,rgba(100,52,157,.85),rgba(54,30,91,.9)) !important; }
+.j10-receptionist-page .lg\:col-span-5 form { border-top-color: rgba(218,184,95,.1) !important; }
+
 .j10-product-page { width: min(100%, 1450px); margin: 0 auto; padding: 34px 32px; }
 .j10-product-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
 .j10-product-heading p { margin: 0 0 7px; color: #c9a956; font-size: 10px; font-weight: 750; letter-spacing: .18em; }
