@@ -34,6 +34,10 @@ import { ZAPIER_RUNTIME_ADAPTER } from "./providers/zapier/adapter";
 import { MAKE_RUNTIME_ADAPTER } from "./providers/make/adapter";
 import { N8N_RUNTIME_ADAPTER } from "./providers/n8n/adapter";
 import { GOOGLE_BUSINESS_RUNTIME_ADAPTER } from "./providers/google-business/adapter";
+import { SLACK_RUNTIME_ADAPTER } from "./providers/slack/adapter";
+import { MICROSOFT_TEAMS_RUNTIME_ADAPTER } from "./providers/microsoft-teams/adapter";
+import { GOOGLE_SHEETS_RUNTIME_ADAPTER } from "./providers/google-sheets/adapter";
+import { GOOGLE_DRIVE_RUNTIME_ADAPTER } from "./providers/google-drive/adapter";
 import {
   getIntegrationProvider,
   listIntegrationProviders,
@@ -67,6 +71,10 @@ const RUNTIME_ADAPTERS:
     MAKE_RUNTIME_ADAPTER,
     N8N_RUNTIME_ADAPTER,
     GOOGLE_BUSINESS_RUNTIME_ADAPTER,
+    SLACK_RUNTIME_ADAPTER,
+    MICROSOFT_TEAMS_RUNTIME_ADAPTER,
+    GOOGLE_SHEETS_RUNTIME_ADAPTER,
+    GOOGLE_DRIVE_RUNTIME_ADAPTER,
   ];
 
 function manifestError(
